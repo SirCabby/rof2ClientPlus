@@ -1,0 +1,8 @@
+# Copy this file to config.mk and set your local paths.
+#   cp config.mk.example config.mk
+# config.mk is gitignored, so your personal values never enter the repo.
+
+# Absolute path to your RoF2 client folder (the directory containing eqgame.exe).
+# Windows example: GAME_DIR := C:/Games/EverQuest
+# Linux/Wine example: GAME_DIR := /home/you/Games/RoF2
+GAME_DIR := /path/to/your/RoF2

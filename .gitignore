@@ -1,0 +1,6 @@
+build/
+*.asi
+*.o
+
+# Per-machine config (holds your private GAME_DIR). Keep out of the repo.
+config.mk

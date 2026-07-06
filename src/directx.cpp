@@ -1,0 +1,92 @@
+#include "directx.h"
+#include "hooks.h"
+#include "logger.h"
+
+#include <windows.h>
+#include <d3d9.h>
+
+// IDirect3DDevice9 vtable index for EndScene (IUnknown = 0..2, then the
+// IDirect3DDevice9 methods; EndScene lands at 42, Clear at 43).
+static const int VTBL_ENDSCENE = 42;
+
+typedef HRESULT(WINAPI* EndScene_t)(IDirect3DDevice9*);
+static EndScene_t   g_original_endscene = nullptr;
+static volatile LONG g_frame = 0;
+
+// Our replacement EndScene: paint a proof-of-life marker, then chain to the
+// real EndScene. Runs on the game's render thread.
+static HRESULT WINAPI hkEndScene(IDirect3DDevice9* dev) {
+    LONG frame = InterlockedIncrement(&g_frame);
+    if (frame == 1 || (frame % 300) == 0)
+        logger::logf("EndScene hook fired, frame %ld", frame);
+
+    // Solid red bar near the top-left. Clear on a sub-rect needs no shaders,
+    // vertex buffers, or d3dx9 - so it is the most robust "visible" proof.
+    D3DRECT r = {8, 8, 208, 32};
+    dev->Clear(1, &r, D3DCLEAR_TARGET, D3DCOLOR_XRGB(220, 30, 30), 0.0f, 0);
+
+    return g_original_endscene(dev);
+}
+
+bool directx::install() {
+    if (g_original_endscene) return true;  // already hooked
+
+    HMODULE d3d9 = LoadLibraryA("d3d9.dll");
+    if (!d3d9) { logger::log("directx: LoadLibrary(d3d9.dll) failed"); return false; }
+
+    typedef IDirect3D9*(WINAPI * Direct3DCreate9_t)(UINT);
+    auto pDirect3DCreate9 =
+        reinterpret_cast<Direct3DCreate9_t>(GetProcAddress(d3d9, "Direct3DCreate9"));
+    if (!pDirect3DCreate9) { logger::log("directx: no Direct3DCreate9 export"); return false; }
+
+    IDirect3D9* d3d = pDirect3DCreate9(D3D_SDK_VERSION);
+    if (!d3d) { logger::log("directx: Direct3DCreate9 returned null"); return false; }
+
+    // Hidden window to host the throwaway device.
+    WNDCLASSEXA wc = {};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = DefWindowProcA;
+    wc.hInstance = GetModuleHandleA(NULL);
+    wc.lpszClassName = "rof2cpDummyWnd";
+    RegisterClassExA(&wc);
+    HWND hwnd = CreateWindowExA(0, wc.lpszClassName, "rof2cp", WS_OVERLAPPEDWINDOW,
+                                0, 0, 64, 64, NULL, NULL, wc.hInstance, NULL);
+    if (!hwnd) {
+        logger::log("directx: CreateWindow failed");
+        d3d->Release();
+        return false;
+    }
+
+    D3DPRESENT_PARAMETERS pp = {};
+    pp.Windowed = TRUE;
+    pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+    pp.hDeviceWindow = hwnd;
+
+    IDirect3DDevice9* dev = nullptr;
+    HRESULT hr = d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hwnd,
+                                   D3DCREATE_SOFTWARE_VERTEXPROCESSING, &pp, &dev);
+    bool ok = false;
+    if (FAILED(hr) || !dev) {
+        logger::logf("directx: CreateDevice failed hr=0x%08lX", (unsigned long)hr);
+    } else {
+        // First member of a COM object is its vtable pointer.
+        void** vtable = *reinterpret_cast<void***>(dev);
+        g_original_endscene = reinterpret_cast<EndScene_t>(vtable[VTBL_ENDSCENE]);
+        logger::logf("directx: device=%p vtable=%p original EndScene=%p",
+                     (void*)dev, (void*)vtable, (void*)g_original_endscene);
+
+        void* prev = hooks::swap_vtable_entry(vtable, VTBL_ENDSCENE,
+                                              reinterpret_cast<void*>(&hkEndScene));
+        ok = (prev != nullptr);
+        logger::logf("directx: EndScene vtable swap %s", ok ? "OK" : "FAILED");
+        if (!ok) g_original_endscene = nullptr;  // allow retry
+        dev->Release();
+    }
+
+    // The patched vtable is static in d3d9.dll and survives teardown of the
+    // throwaway device/window - the game's device will use it.
+    DestroyWindow(hwnd);
+    UnregisterClassA(wc.lpszClassName, wc.hInstance);
+    d3d->Release();
+    return ok;
+}
