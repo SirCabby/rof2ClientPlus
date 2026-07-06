@@ -54,7 +54,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>false</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_USRDLL;WIN32_LEAN_AND_MEAN;_USE_MATH_DEFINES;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
@@ -72,7 +72,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>false</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;WIN32_LEAN_AND_MEAN;_USE_MATH_DEFINES;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
@@ -87,15 +87,59 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="src\dllmain.cpp" />
+    <ClCompile Include="src\binds.cpp" />
+    <ClCompile Include="src\callbacks.cpp" />
+    <ClCompile Include="src\camera_math.cpp" />
+    <ClCompile Include="src\camera_mods.cpp" />
+    <ClCompile Include="src\commands.cpp" />
     <ClCompile Include="src\directx.cpp" />
+    <ClCompile Include="src\dllmain.cpp" />
+    <ClCompile Include="src\entity_manager.cpp" />
+    <ClCompile Include="src\game_functions.cpp" />
     <ClCompile Include="src\hooks.cpp" />
+    <ClCompile Include="src\hook_wrapper.cpp" />
     <ClCompile Include="src\logger.cpp" />
+    <ClCompile Include="src\memory.cpp" />
+    <ClCompile Include="src\mouse_mods.cpp" />
+    <ClCompile Include="src\rcp_options_ui.cpp" />
+    <ClCompile Include="src\rcp.cpp" />
+    <ClCompile Include="src\string_util.cpp" />
+    <ClCompile Include="src\ui_manager.cpp" />
+    <ClCompile Include="src\ui_options.cpp" />
+    <ClCompile Include="src\ui_skin.cpp" />
+    <ClCompile Include="src\vectors.cpp" />
+    <ClCompile Include="src\rcp_settings.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\binds.h" />
+    <ClInclude Include="src\callbacks.h" />
+    <ClInclude Include="src\camera_math.h" />
+    <ClInclude Include="src\camera_mods.h" />
+    <ClInclude Include="src\commands.h" />
+    <ClInclude Include="src\compat.h" />
     <ClInclude Include="src\directx.h" />
+    <ClInclude Include="src\entity_manager.h" />
+    <ClInclude Include="src\game_addresses.h" />
+    <ClInclude Include="src\game_functions.h" />
+    <ClInclude Include="src\game_packets.h" />
+    <ClInclude Include="src\game_structures.h" />
+    <ClInclude Include="src\game_ui.h" />
     <ClInclude Include="src\hooks.h" />
+    <ClInclude Include="src\hook_wrapper.h" />
+    <ClInclude Include="src\instruction_length.h" />
+    <ClInclude Include="src\io_ini.h" />
     <ClInclude Include="src\logger.h" />
+    <ClInclude Include="src\memory.h" />
+    <ClInclude Include="src\mouse_mods.h" />
+    <ClInclude Include="src\rcp_options_ui.h" />
+    <ClInclude Include="src\operator_overloads.h" />
+    <ClInclude Include="src\rcp.h" />
+    <ClInclude Include="src\string_util.h" />
+    <ClInclude Include="src\ui_manager.h" />
+    <ClInclude Include="src\ui_options.h" />
+    <ClInclude Include="src\ui_skin.h" />
+    <ClInclude Include="src\vectors.h" />
+    <ClInclude Include="src\rcp_settings.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

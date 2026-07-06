@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<XML ID="EQInterfaceDefinitionLanguage">
+<Composite>
+	<Include>EQUI_Tab_Cam.xml</Include>
+</Composite>
+<Schema xmlns="EverQuestData" xmlns:dt="EverQuestDataTypes" />
+  <TabBox item="RcpOptionsTabs">
+    <ScreenID>RcpOptionsTabs</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <AutoStretch>true</AutoStretch>
+    <TopAnchorToTop>true</TopAnchorToTop>
+    <BottomAnchorToTop>false</BottomAnchorToTop>
+    <LeftAnchorToLeft>true</LeftAnchorToLeft>
+    <RightAnchorToLeft>false</RightAnchorToLeft>
+    <TabBorderTemplate>FT_DefTabBorder</TabBorderTemplate>
+    <PageBorderTemplate>FT_DefPageBorder</PageBorderTemplate>
+    <Pages>Tab_Camera</Pages>
+  </TabBox>
+  <Screen item="RcpOptions">
+    <ScreenID>RcpOptions</ScreenID>
+    <RelativePosition>false</RelativePosition>
+    <Location>
+      <X>10</X>
+      <Y>10</Y>
+    </Location>
+    <Size>
+      <CX>400</CX>
+      <CY>395</CY>
+    </Size>
+    <Text>rof2ClientPlus Options</Text>
+    <Style_VScroll>false</Style_VScroll>
+    <Style_HScroll>false</Style_HScroll>
+    <Style_Transparent>false</Style_Transparent>
+	<AutoStretch>true</AutoStretch>
+    <TooltipReference />
+    <DrawTemplate>WDT_Def</DrawTemplate>
+    <Style_Titlebar>true</Style_Titlebar>
+    <Style_Closebox>true</Style_Closebox>
+    <Style_Minimizebox>true</Style_Minimizebox>
+    <Style_Border>true</Style_Border>
+    <Style_Sizable>false</Style_Sizable>
+    <Pieces>RcpOptionsTabs</Pieces>
+  </Screen>
+</XML>

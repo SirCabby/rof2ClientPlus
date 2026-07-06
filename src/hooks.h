@@ -1,7 +1,7 @@
 // rof2ClientPlus - minimal hooking helpers.
 //
 // The baseline only needs a virtual-table swap (used for the DirectX EndScene
-// hook). This is intentionally tiny; Zeal-style inline detours (replace-call /
+// hook). This is intentionally tiny; Rcp-style inline detours (replace-call /
 // entry-point trampolines) can be added here later when feature work needs them.
 #pragma once
 #include <windows.h>

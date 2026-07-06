@@ -15,7 +15,8 @@ SRCS := $(wildcard src/*.cpp)
 OBJS := $(patsubst src/%.cpp,$(BUILD)/%.o,$(SRCS))
 
 CXXFLAGS := -m32 -std=c++20 -O2 -Wall -Wextra \
-            -DWIN32_LEAN_AND_MEAN \
+            -DWIN32_LEAN_AND_MEAN -D_USE_MATH_DEFINES \
+            -fpermissive \
             -ffunction-sections -fdata-sections
 
 # -shared: build a DLL.  -static*: fold the C/C++ runtime in so the .asi has no
@@ -25,8 +26,9 @@ LDFLAGS  := -m32 -shared \
             -static -static-libgcc -static-libstdc++ \
             -Wl,--gc-sections -Wl,--exclude-all-symbols
 
-# Only load-time deps we actually need; d3d9 is loaded dynamically at runtime.
-LDLIBS   := -luser32 -lgdi32
+# Load-time deps. d3d9 is loaded dynamically at runtime. ws2_32/psapi mirror the
+# libs Zeal links via #pragma comment(lib,...) (mingw resolves them via -l).
+LDLIBS   := -luser32 -lgdi32 -lws2_32 -lpsapi
 
 .PHONY: all clean install
 all: $(TARGET)
@@ -55,6 +57,9 @@ install: $(TARGET)
 	fi
 	cp -f $(TARGET) "$(GAME_DIR)/$(NAME).asi"
 	@echo ">> Installed to $(GAME_DIR)/$(NAME).asi"
+	mkdir -p "$(GAME_DIR)/uifiles/rcp"
+	cp -f uifiles/rcp/*.xml "$(GAME_DIR)/uifiles/rcp/"
+	@echo ">> Installed uifiles to $(GAME_DIR)/uifiles/rcp/"
 
 clean:
 	rm -rf $(BUILD)

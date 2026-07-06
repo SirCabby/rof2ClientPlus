@@ -1,56 +1,59 @@
-// rof2ClientPlus - baseline entry point.
+// rof2ClientPlus - entry point.
 //
 // Loaded into eqgame.exe by the Miles Sound System (mss32.dll), which
-// LoadLibrary's every *.asi in the game root at sound init. DllMain pins the
-// module (so we are never unloaded - our hook code lives here), then hands off
-// to a worker thread that installs the render hook. No heavy work runs under
-// the loader lock.
+// LoadLibrary's every *.asi in the game root at sound init.
+//
+// The service MUST be created on the game's MAIN THREAD at a safe point, not on
+// a background thread: our detours can fire on the main thread the instant they
+// are installed, and if the service is still being constructed on another thread
+// the handler would touch a half-built object and crash. So we install one boot
+// detour on ProcessGameEvents (the main-loop event processor, stock RoF2
+// 0x53A6C0) and create the service on its first call - while the main thread
+// sits inside our constructor it cannot also be running the loop.
 #include <windows.h>
 
+#include "hook_wrapper.h"
 #include "logger.h"
-#include "directx.h"
+#include "mouse_mods.h"
+#include "rcp.h"
+#include "rcp_options_ui.h"
 
-static DWORD WINAPI bootstrap(LPVOID) {
-    logger::log("bootstrap thread started");
+// stock RoF2 __ProcessGameEvents (eqlib). Runs on the main thread.
+static const int kProcessGameEventsAddr = 0x53A6C0;
 
-    // The graphics stack (DXVK) may not be ready the instant sound inits, so
-    // retry the render-hook install a few times.
-    bool hooked = false;
-    for (int attempt = 1; attempt <= 10 && !hooked; ++attempt) {
-        Sleep(1500);
-        logger::logf("render-hook install attempt %d", attempt);
-        hooked = directx::install();
+static HookWrapper *g_boot = nullptr;
+static bool g_service_created = false;
+
+// Fires on the main thread. Creates the service once, then chains to the game.
+static int __cdecl ProcessGameEvents_hk() {
+    if (!g_service_created) {
+        g_service_created = true;
+        logger::log("ProcessGameEvents first call (main thread); creating RcpService");
+        RcpService::create();
+        logger::log("RcpService created");
     }
-    logger::logf("render hook installed = %s", hooked ? "true" : "false");
-
-    MessageBoxA(NULL,
-                hooked ? "rof2ClientPlus baseline loaded.\n\n"
-                         "EndScene hook installed - look for the red bar\n"
-                         "in the top-left once you are in the game."
-                       : "rof2ClientPlus baseline loaded.\n\n"
-                         "Render hook did NOT install - see rof2ClientPlus.log.",
-                "rof2ClientPlus", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
-    return 0;
+    // Install the mouse hook once in-game (kept off the login/char-select input
+    // path), then drive the options-window UI poll.
+    if (RcpService *svc = RcpService::get_instance()) {
+        if (svc->mouse_mods) svc->mouse_mods->ensure_hooked();
+        if (svc->options_ui) svc->options_ui->on_frame();
+    }
+    return g_boot->hook_map["ProcessGameEvents"]->original(ProcessGameEvents_hk)();
 }
 
 static void on_attach() {
-    // Pin ourselves: GET_MODULE_HANDLE_EX_FLAG_PIN makes the loader treat this
-    // module as never-unloadable. Uses this function's own address to identify
-    // the module.
+    // Pin so we are never unloaded (our hook code must stay mapped).
     HMODULE pinned = nullptr;
-    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN |
-                           GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
                        reinterpret_cast<LPCWSTR>(&on_attach), &pinned);
 
     logger::init("rof2ClientPlus.log");
-    logger::logf("DllMain PROCESS_ATTACH: module=%p pid=%lu",
-                 (void*)pinned, (unsigned long)GetCurrentProcessId());
+    logger::logf("DllMain PROCESS_ATTACH: module=%p pid=%lu", (void *)pinned,
+                 (unsigned long)GetCurrentProcessId());
 
-    HANDLE h = CreateThread(NULL, 0, bootstrap, NULL, 0, NULL);
-    if (h)
-        CloseHandle(h);
-    else
-        logger::log("ERROR: CreateThread(bootstrap) failed");
+    g_boot = new HookWrapper();
+    g_boot->Add("ProcessGameEvents", kProcessGameEventsAddr, ProcessGameEvents_hk, hook_type_detour);
+    logger::logf("boot hook installed on ProcessGameEvents (0x%X)", kProcessGameEventsAddr);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID /*reserved*/) {

@@ -13,17 +13,13 @@ typedef HRESULT(WINAPI* EndScene_t)(IDirect3DDevice9*);
 static EndScene_t   g_original_endscene = nullptr;
 static volatile LONG g_frame = 0;
 
-// Our replacement EndScene: paint a proof-of-life marker, then chain to the
-// real EndScene. Runs on the game's render thread.
+// Our replacement EndScene: log a periodic proof-of-life marker, then chain to
+// the real EndScene. Runs on the game's render thread. (The old red-bar test
+// draw was removed now that real features drive the client.)
 static HRESULT WINAPI hkEndScene(IDirect3DDevice9* dev) {
     LONG frame = InterlockedIncrement(&g_frame);
     if (frame == 1 || (frame % 300) == 0)
         logger::logf("EndScene hook fired, frame %ld", frame);
-
-    // Solid red bar near the top-left. Clear on a sub-rect needs no shaders,
-    // vertex buffers, or d3dx9 - so it is the most robust "visible" proof.
-    D3DRECT r = {8, 8, 208, 32};
-    dev->Clear(1, &r, D3DCLEAR_TARGET, D3DCOLOR_XRGB(220, 30, 30), 0.0f, 0);
 
     return g_original_endscene(dev);
 }
