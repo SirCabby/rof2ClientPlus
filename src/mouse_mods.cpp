@@ -7,12 +7,17 @@
 // rewrite lX/lY in the buffer right after the fetch, but ONLY while mouse-look is
 // engaged (EverQuestInfo->MouseLook, 0xDDF702), so the free cursor stays crisp.
 //
-// The client polls the mouse several times per frame, so the per-poll deltas are
-// small integers; a fractional sensitivity multiplier would vanish to truncation.
-// We carry the fractional remainder across polls so scaling stays exact.
+// The stock client turns from the INTEGER mouse delta (fildl at 0x516d40), so a
+// slow axis's sparse whole counts (0,0,0,1) become visible stair-steps on
+// diagonals. Rather than rewrite the integer buffer (which can't carry sub-count
+// precision), we reproduce the client's turn math in FLOAT on a low-pass-smoothed
+// delta and apply it directly to the controlled entity's Heading/Pitch, then
+// zero the buffer so the client's own integer turn is suppressed. This is the
+// first-person slice of the ZealCam camera port; F9 chase views are left to the
+// client until the rest of camera_mods is ported.
 //
 // Off until configured; '/rcpcam <x> <y>' sets independent axis sensitivity.
-// Addresses are stock RoF2 facts from eqlib.
+// Addresses are stock RoF2 facts from eqlib + the 0x516d40 turn function.
 #include "mouse_mods.h"
 
 #include <windows.h>
@@ -36,6 +41,21 @@ static constexpr uintptr_t kMouseStateBuf = 0xE67884;                       // D
 static uint8_t *const kMouseLook = reinterpret_cast<uint8_t *>(0xDDF702);   // EverQuestInfo->MouseLook (1 while looking)
 static uint8_t *const kRBtn = reinterpret_cast<uint8_t *>(0xDDF73D);        // EverQuestInfo->MouseButtons[1] (right down)
 static constexpr int kGetDeviceStateVtIndex = 9;                            // IDirectInputDevice8::GetDeviceState
+
+// Float-turn addresses (from the stock RoF2 mouse-turn function at 0x516d40).
+// The client turns by (delta / screen_dim) * base * S applied to an integer
+// delta, giving sparse-count stair-stepping on the slow axis. We reproduce the
+// SAME math in float on a smoothed delta so diagonals stay smooth.
+static void **const kControlled = reinterpret_cast<void **>(0xDD2644);      // controlled player (self/mount/charm)
+static int *const kCameraType = reinterpret_cast<int *>(0xD1FD9C);          // CDisplay::cameraType (0 = first person)
+static int *const kScreenLeft = reinterpret_cast<int *>(0xDDF620);
+static int *const kScreenRight = reinterpret_cast<int *>(0xDDF628);
+static int *const kScreenTop = reinterpret_cast<int *>(0xDDF624);
+static int *const kScreenBottom = reinterpret_cast<int *>(0xDDF62C);
+static int *const kMouseSensIni = reinterpret_cast<int *>(0xDDF69C);        // client MouseSensitivity setting
+static constexpr int kOffHeading = 0x80;       // PlayerClient::Heading (float, 0..512 yaw)
+static constexpr int kOffSpeedHeading = 0x8C;  // PlayerClient::SpeedHeading (yaw rate)
+static constexpr int kOffPitch = 0x90;         // PlayerClient::CameraAngle (look pitch)
 
 typedef long(__stdcall *GetDeviceState_t)(void *self, unsigned long cb, void *data);
 
@@ -99,30 +119,48 @@ static long __stdcall GetDeviceState_hk(void *self, unsigned long cb, void *data
     int32_t *lY = reinterpret_cast<int32_t *>(kMouseStateBuf + 4);
     const int32_t raw_x = *lX, raw_y = *lY;
 
-    // Independent X/Y sensitivity, carrying the fractional part across polls.
-    const float fx = raw_x * g_sens_x + g_carry_x;
-    const float fy = raw_y * g_sens_y + g_carry_y;
-    int32_t ox = static_cast<int32_t>(fx);
-    int32_t oy = static_cast<int32_t>(fy);
-    g_carry_x = fx - ox;
-    g_carry_y = fy - oy;
+    // Only take over the turn in first person; the client's other camera modes
+    // (F9 chase views) stay untouched until the full camera port handles them.
+    void *controlled = *kControlled;
+    if (controlled && *kCameraType == 0) {
+      // Smooth the raw delta in FLOAT. This is the crux of the fix: the client
+      // turns from an INTEGER delta, so a slow axis's sparse whole counts
+      // (0,0,0,1) become visible pitch jumps. Low-passing in float spreads each
+      // count across the polls until the next, so diagonals move on both axes at
+      // once. g_strength is the weight toward the previous poll (a light default
+      // keeps it smooth without perceptible lag).
+      const float t = g_strength > 0.0f ? g_strength : 0.35f;
+      g_smooth_x = raw_x * (1.0f - t) + g_smooth_x * t;
+      g_smooth_y = raw_y * (1.0f - t) + g_smooth_y * t;
 
-    // Optional low-pass smoothing on top.
-    if (g_strength > 0.0f) {
-      const float t = g_strength;
-      g_smooth_x = ox * (1.0f - t) + g_smooth_x * t;
-      g_smooth_y = oy * (1.0f - t) + g_smooth_y * t;
-      if (std::fabs(g_smooth_x) < 0.5f) g_smooth_x = 0.0f;
-      if (std::fabs(g_smooth_y) < 0.5f) g_smooth_y = 0.0f;
-      ox = static_cast<int32_t>(g_smooth_x);
-      oy = static_cast<int32_t>(g_smooth_y);
-    }
+      // Reproduce the stock turn calibration (0x516d40) in float, so g_sens=1
+      // matches stock feel: yaw = (dx/width)*512*S, pitch = (dy/height)*256*S.
+      float width = static_cast<float>(*kScreenRight - *kScreenLeft);
+      float height = static_cast<float>(*kScreenBottom - *kScreenTop);
+      if (width < 1.0f) width = 1920.0f;
+      if (height < 1.0f) height = 1080.0f;
+      const float S = (static_cast<float>(*kMouseSensIni) - 1.0f) * 0.1428571f * 1.5f + 0.5f;
 
-    *lX = ox;
-    *lY = oy;
-    if (g_log_count < 40 && (raw_x || raw_y)) {
-      logger::logf("[mouse] raw=(%d,%d) sens=(%.2f,%.2f) -> (%d,%d)", raw_x, raw_y, g_sens_x, g_sens_y, ox, oy);
-      ++g_log_count;
+      float *heading = reinterpret_cast<float *>(static_cast<char *>(controlled) + kOffHeading);
+      float *pitch = reinterpret_cast<float *>(static_cast<char *>(controlled) + kOffPitch);
+      const float d_head = g_sens_x * (g_smooth_x / width) * 512.0f * S;
+      const float d_pitch = g_sens_y * (g_smooth_y / height) * 256.0f * S;
+
+      *heading = fmodf(*heading - d_head + 512.0f, 512.0f);  // Wrap 0..512.
+      *pitch = clampf(*pitch - d_pitch, -128.0f, 128.0f);    // Mouse up looks up.
+      *reinterpret_cast<float *>(static_cast<char *>(controlled) + kOffSpeedHeading) = 0.0f;  // Cancel client yaw rate.
+
+      if (g_log_count < 40 && (raw_x || raw_y)) {
+        logger::logf("[mouse] raw=(%d,%d) sm=(%.2f,%.2f) dH=%.3f dP=%.3f S=%.2f", raw_x, raw_y, g_smooth_x, g_smooth_y,
+                     d_head, d_pitch, S);
+        ++g_log_count;
+      }
+
+      // Suppress the client's own integer turn (it reads this buffer next) ONLY
+      // when we replaced it. In other camera modes we leave the buffer intact so
+      // the client's native turn keeps working until the chase-camera phase.
+      *lX = 0;
+      *lY = 0;
     }
   }
   return r;
