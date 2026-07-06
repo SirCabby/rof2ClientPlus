@@ -4,3 +4,9 @@ build/
 
 # Per-machine config (holds your private GAME_DIR). Keep out of the repo.
 config.mk
+
+# Visual Studio / MSVC build artifacts
+build-msvc/
+.vs/
+*.user
+*.vcxproj.user

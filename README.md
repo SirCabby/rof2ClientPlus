@@ -18,9 +18,15 @@ device from the same `d3d9.dll` shares one vtable, so the game's device then
 calls ours. The hook paints a small red bar top-left each frame and chains to the
 original.
 
-## Build (Linux, mingw-w64)
+## Build
 
-No MSVC or Windows required — cross-compiled 32-bit:
+The same 32-bit source builds two ways and produces a behavior-identical
+`rof2ClientPlus.asi` either way. End users don't build at all — they just drop a
+released `.asi` into the game folder.
+
+### Linux (mingw-w64)
+
+Cross-compiled 32-bit; no MSVC or Windows required:
 
 ```sh
 cp config.mk.example config.mk    # then edit config.mk: set GAME_DIR to your RoF2 folder
@@ -31,6 +37,14 @@ make install                      # copies it into $GAME_DIR
 `config.mk` is gitignored, so your game path stays out of the repo. `make`
 (build only) works without it; `make install` needs `GAME_DIR` — set it in
 `config.mk`, or pass a one-off override: `make install GAME_DIR=/path/to/RoF2`.
+
+### Windows (Visual Studio 2022)
+
+Open `rof2ClientPlus.sln` and build **Release / Win32 (x86)** →
+`build-msvc\Release\rof2ClientPlus.asi`. Needs only the Windows SDK (no legacy
+DirectX SDK — we draw with `Clear`, not d3dx9). The CRT is statically linked
+(`/MT`), so the `.asi` needs no VC++ redistributable. Copy the built `.asi` into
+your RoF2 folder (the `config.mk` / `make install` flow is Linux-only).
 
 ## Run & verify
 

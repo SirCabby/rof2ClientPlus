@@ -1,0 +1,16 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "mingw-w64 (RoF2 32-bit)",
+      "//": "IntelliSense uses the mingw cross-compiler, so it finds windows.h/d3d9.h and defines _WIN32. Matches the Makefile build.",
+      "compilerPath": "/usr/bin/i686-w64-mingw32-g++",
+      "compilerArgs": ["-m32"],
+      "cStandard": "c17",
+      "cppStandard": "c++20",
+      "intelliSenseMode": "windows-gcc-x86",
+      "defines": ["WIN32_LEAN_AND_MEAN"],
+      "includePath": ["${workspaceFolder}/src"]
+    }
+  ]
+}
