@@ -6,6 +6,7 @@
 #include "binds.h"
 #include "callbacks.h"
 #include "camera_mods.h"
+#include "chase_cam.h"
 #include "commands.h"
 #include "entity_manager.h"
 #include "game_functions.h"
@@ -40,6 +41,8 @@ RcpService::RcpService() {
   commands_hook = std::make_unique<ChatCommands>(this);  // Installs the InterpretCmd hook.
   logger::log("  -> MouseMods");
   mouse_mods = std::make_unique<MouseMods>(this);  // Mouse hook installs in-game (deferred).
+  logger::log("  -> ChaseCam");
+  chase_cam_mod = std::make_unique<ChaseCam>(this);  // Cam6 positioner detour (installs now; acts only in chase view).
   logger::log("  -> RcpOptionsUI");
   options_ui = std::make_unique<RcpOptionsUI>(this);  // LoadSidl hook also installs in-game (deferred).
   logger::log("  -> modules done (foundation subset)");

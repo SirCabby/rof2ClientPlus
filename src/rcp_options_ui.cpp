@@ -258,7 +258,10 @@ void RcpOptionsUI::on_frame() {
     create_attempted_ = false;
     return;
   }
-  if (!wnd_ || !is_visible(wnd_)) return;
+  // Poll whenever the window handle exists (in-game already gated above). We do
+  // NOT gate on is_visible: a hidden window's controls simply don't change, so
+  // polling them is harmless, and it avoids depending on the visibility flag.
+  if (!wnd_) return;
 
   bool en = checkbox_get(cb_enabled_);
   int vx = slider_get(sl_sensx_), vy = slider_get(sl_sensy_), vs = slider_get(sl_smooth_);

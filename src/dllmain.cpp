@@ -22,16 +22,23 @@
 static const int kProcessGameEventsAddr = 0x53A6C0;
 
 static HookWrapper *g_boot = nullptr;
-static bool g_service_created = false;
 
-// Fires on the main thread. Creates the service once, then chains to the game.
+// May fire from more than one thread. Create the service exactly once with a
+// thread-safe magic-static: the first thread runs the initializer while every
+// other thread BLOCKS here until it finishes, so no thread can ever observe (or
+// race to build) a half-constructed service - the previous non-atomic
+// g_service_created + create() guard let a second thread build a duplicate
+// RcpService, so on_frame polled a different (empty) options-window instance
+// than the one /rcpoptions built.
 static int __cdecl ProcessGameEvents_hk() {
-    if (!g_service_created) {
-        g_service_created = true;
-        logger::log("ProcessGameEvents first call (main thread); creating RcpService");
+    static const bool created = []() {
+        logger::logf("ProcessGameEvents first call (tid=%lu); creating RcpService", GetCurrentThreadId());
         RcpService::create();
         logger::log("RcpService created");
-    }
+        return true;
+    }();
+    (void)created;
+
     // Install the mouse hook once in-game (kept off the login/char-select input
     // path), then drive the options-window UI poll.
     if (RcpService *svc = RcpService::get_instance()) {

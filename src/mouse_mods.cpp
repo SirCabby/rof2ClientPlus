@@ -48,6 +48,7 @@ static constexpr int kGetDeviceStateVtIndex = 9;                            // I
 // SAME math in float on a smoothed delta so diagonals stay smooth.
 static void **const kControlled = reinterpret_cast<void **>(0xDD2644);      // controlled player (self/mount/charm)
 static int *const kCameraType = reinterpret_cast<int *>(0xD1FD9C);          // CDisplay::cameraType (0 = first person)
+static constexpr int kChaseView = 6;  // cameraType 6 = the mouse-wheel chase view (see PORTING_NOTES).
 static int *const kScreenLeft = reinterpret_cast<int *>(0xDDF620);
 static int *const kScreenRight = reinterpret_cast<int *>(0xDDF628);
 static int *const kScreenTop = reinterpret_cast<int *>(0xDDF624);
@@ -119,10 +120,15 @@ static long __stdcall GetDeviceState_hk(void *self, unsigned long cb, void *data
     int32_t *lY = reinterpret_cast<int32_t *>(kMouseStateBuf + 4);
     const int32_t raw_x = *lX, raw_y = *lY;
 
-    // Only take over the turn in first person; the client's other camera modes
-    // (F9 chase views) stay untouched until the full camera port handles them.
+    // Take over the turn in first person AND in the chase view (cameraType 6) so
+    // the /rcpcam sensitivity applies in both. Other camera modes (F9 views) stay
+    // native. In first person we drive heading + look-pitch; in the chase view we
+    // drive heading only (the chase camera owns pitch) and leave lY for the
+    // client's native camera-pitch handling.
     void *controlled = *kControlled;
-    if (controlled && *kCameraType == 0) {
+    const int cam_type = *kCameraType;
+    const bool first_person = (cam_type == 0);
+    if (controlled && (first_person || cam_type == kChaseView)) {
       // Smooth the raw delta in FLOAT. This is the crux of the fix: the client
       // turns from an INTEGER delta, so a slow axis's sparse whole counts
       // (0,0,0,1) become visible pitch jumps. Low-passing in float spreads each
@@ -142,25 +148,26 @@ static long __stdcall GetDeviceState_hk(void *self, unsigned long cb, void *data
       const float S = (static_cast<float>(*kMouseSensIni) - 1.0f) * 0.1428571f * 1.5f + 0.5f;
 
       float *heading = reinterpret_cast<float *>(static_cast<char *>(controlled) + kOffHeading);
-      float *pitch = reinterpret_cast<float *>(static_cast<char *>(controlled) + kOffPitch);
       const float d_head = g_sens_x * (g_smooth_x / width) * 512.0f * S;
       const float d_pitch = g_sens_y * (g_smooth_y / height) * 256.0f * S;
 
-      *heading = fmodf(*heading - d_head + 512.0f, 512.0f);  // Wrap 0..512.
-      *pitch = clampf(*pitch - d_pitch, -128.0f, 128.0f);    // Mouse up looks up.
+      *heading = fmodf(*heading - d_head + 512.0f, 512.0f);  // Wrap 0..512 (turn applies in both modes).
       *reinterpret_cast<float *>(static_cast<char *>(controlled) + kOffSpeedHeading) = 0.0f;  // Cancel client yaw rate.
+      *lX = 0;  // Suppress the client's own integer horizontal turn (we replaced it).
 
-      if (g_log_count < 40 && (raw_x || raw_y)) {
-        logger::logf("[mouse] raw=(%d,%d) sm=(%.2f,%.2f) dH=%.3f dP=%.3f S=%.2f", raw_x, raw_y, g_smooth_x, g_smooth_y,
-                     d_head, d_pitch, S);
-        ++g_log_count;
+      if (first_person) {
+        // Look-pitch is only the player's in first person; the chase camera owns
+        // pitch in third person, so leave lY there for the native handling.
+        float *pitch = reinterpret_cast<float *>(static_cast<char *>(controlled) + kOffPitch);
+        *pitch = clampf(*pitch - d_pitch, -128.0f, 128.0f);  // Mouse up looks up.
+        *lY = 0;
       }
 
-      // Suppress the client's own integer turn (it reads this buffer next) ONLY
-      // when we replaced it. In other camera modes we leave the buffer intact so
-      // the client's native turn keeps working until the chase-camera phase.
-      *lX = 0;
-      *lY = 0;
+      if (g_log_count < 40 && (raw_x || raw_y)) {
+        logger::logf("[mouse] cam=%d raw=(%d,%d) sm=(%.2f,%.2f) dH=%.3f dP=%.3f S=%.2f", cam_type, raw_x, raw_y,
+                     g_smooth_x, g_smooth_y, d_head, d_pitch, S);
+        ++g_log_count;
+      }
     }
   }
   return r;

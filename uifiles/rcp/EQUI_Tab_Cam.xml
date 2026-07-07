@@ -187,42 +187,4 @@
     <NoWrap>true</NoWrap>
   </Label>
 
-  <Page item="Tab_Camera">
-    <ScreenID>Tab_Camera</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Style_VScroll>true</Style_VScroll>
-    <Style_HScroll>false</Style_HScroll>
-    <Style_Transparent>false</Style_Transparent>
-    <DrawTemplate>WDT_Def</DrawTemplate>
-    <TabText>Mouse</TabText>
-    <TabTextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>255</B>
-    </TabTextColor>
-    <TabTextActiveColor>
-      <R>255</R>
-      <G>255</G>
-      <B>0</B>
-    </TabTextActiveColor>
-    <Style_Sizable>true</Style_Sizable>
-    <Pieces>Rcp_Enabled</Pieces>
-    <Pieces>Rcp_SensXLabel</Pieces>
-    <Pieces>Rcp_SensX</Pieces>
-    <Pieces>Rcp_SensXValue</Pieces>
-    <Pieces>Rcp_SensYLabel</Pieces>
-    <Pieces>Rcp_SensY</Pieces>
-    <Pieces>Rcp_SensYValue</Pieces>
-    <Pieces>Rcp_SmoothLabel</Pieces>
-    <Pieces>Rcp_Smooth</Pieces>
-    <Pieces>Rcp_SmoothValue</Pieces>
-    <Location>
-      <X>0</X>
-      <Y>22</Y>
-    </Location>
-    <Size>
-      <CX>380</CX>
-      <CY>200</CY>
-    </Size>
-  </Page>
 </XML>
