@@ -47,6 +47,7 @@ class RcpService {
   std::unique_ptr<class ChaseCam> chase_cam_mod;      // The /rcpchase third-person chase camera (Phase 2).
   std::unique_ptr<class NamePlate> nameplate_mod;     // The /rcpnameplate nameplate tinting (Phase N1).
   std::unique_ptr<class WindowWatch> window_watch_mod; // The /rcpwindow diagnostics + windowed-start self-heal.
+  std::unique_ptr<class KeyBinds> keybinds_mod;       // The /rcpbinds extra key binds (Zeal binds port).
   std::unique_ptr<class RcpOptionsUI> options_ui;     // Options window (SIDL/EQUI port, in progress).
   std::unique_ptr<class CameraMods> camera_mods;  // Zeal chase camera (TAKP addresses; not yet ported).
   std::unique_ptr<class UIManager> ui;            // Options window + uifiles loading.

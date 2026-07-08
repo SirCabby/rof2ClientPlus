@@ -14,6 +14,7 @@
 
 #include "crash_handler.h"
 #include "hook_wrapper.h"
+#include "keybinds.h"
 #include "logger.h"
 #include "mouse_mods.h"
 #include "rcp.h"
@@ -48,6 +49,7 @@ static int __cdecl ProcessGameEvents_hk() {
     if (RcpService *svc = RcpService::get_instance()) {
         if (svc->mouse_mods) svc->mouse_mods->ensure_hooked();
         if (svc->options_ui) svc->options_ui->on_frame();
+        if (svc->keybinds_mod) svc->keybinds_mod->on_frame();
     }
     // Window diagnostics + opt-in self-heal run every frame regardless of service
     // state (they only need the main window, which exists by the time we get here).

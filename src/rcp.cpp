@@ -12,6 +12,7 @@
 #include "game_functions.h"
 #include "hook_wrapper.h"
 #include "io_ini.h"
+#include "keybinds.h"
 #include "logger.h"
 #include "mouse_mods.h"
 #include "nameplate.h"
@@ -49,6 +50,8 @@ RcpService::RcpService() {
   nameplate_mod = std::make_unique<NamePlate>(this);  // SetNameSpriteTint detour (installs now; acts only when enabled).
   logger::log("  -> WindowWatch");
   window_watch_mod = std::make_unique<WindowWatch>(this);  // Registers /rcpwindow; diagnostics already live from on_attach.
+  logger::log("  -> KeyBinds");
+  keybinds_mod = std::make_unique<KeyBinds>(this);  // Extra key binds; detours install now, act only on hijacked cmds.
   logger::log("  -> RcpOptionsUI");
   options_ui = std::make_unique<RcpOptionsUI>(this);  // LoadSidl hook also installs in-game (deferred).
   logger::log("  -> modules done (foundation subset)");
