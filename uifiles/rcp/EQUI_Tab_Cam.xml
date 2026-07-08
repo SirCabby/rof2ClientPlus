@@ -30,6 +30,34 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_LockMouse">
+    <ScreenID>Rcp_LockMouse</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>14</X>
+      <Y>182</Y>
+    </Location>
+    <Size>
+      <CX>220</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Confine the mouse cursor to the game window (released when you alt-tab away)</TooltipReference>
+    <Text>Lock mouse to window</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Label item="Rcp_SensXLabel">
     <ScreenID>Rcp_SensXLabel</ScreenID>
     <RelativePosition>true</RelativePosition>

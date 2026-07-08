@@ -25,6 +25,7 @@ class RcpOptionsUI {
 
   void *wnd_ = nullptr;
   void *cb_enabled_ = nullptr;
+  void *cb_lockmouse_ = nullptr;
   void *sl_sensx_ = nullptr;
   void *sl_sensy_ = nullptr;
   void *sl_smooth_ = nullptr;
@@ -37,5 +38,6 @@ class RcpOptionsUI {
   // (a raw slider/checkbox value differing from last frame) rather than
   // continuously overwriting settings (which would fight /rcpcam).
   bool last_enabled_ = false;
+  bool last_lockmouse_ = false;
   int last_vx_ = -1, last_vy_ = -1, last_vs_ = -1;
 };

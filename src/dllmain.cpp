@@ -40,11 +40,14 @@ static int __cdecl ProcessGameEvents_hk() {
     (void)created;
 
     // Install the mouse hook once in-game (kept off the login/char-select input
-    // path), then drive the options-window UI poll.
+    // path), then drive the options-window UI poll. The cursor-lock re-clip runs
+    // every frame regardless of game state (it is a pure Win32 no-op when off), so
+    // the confine holds at login/char-select too.
     if (RcpService *svc = RcpService::get_instance()) {
         if (svc->mouse_mods) svc->mouse_mods->ensure_hooked();
         if (svc->options_ui) svc->options_ui->on_frame();
     }
+    mouse_settings::apply_cursor_lock();
     return g_boot->hook_map["ProcessGameEvents"]->original(ProcessGameEvents_hk)();
 }
 

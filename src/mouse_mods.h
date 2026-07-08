@@ -28,5 +28,11 @@ float get_sens_x();
 float get_sens_y();
 float get_smoothing();
 bool get_enabled();
+bool get_lock_mouse();
 void set(float sens_x, float sens_y, float smoothing, bool enabled);  // Applies live + persists to ini.
+void set_lock_mouse(bool lock);  // Toggles cursor-confine-to-window + persists to ini.
+
+// Re-clips the OS cursor to the game window each frame while lock-to-window is on
+// and the game is focused (no-op otherwise). Called from the main loop.
+void apply_cursor_lock();
 }  // namespace mouse_settings

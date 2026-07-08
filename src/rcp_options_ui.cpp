@@ -195,14 +195,15 @@ void RcpOptionsUI::create_window() {
   if (!wnd_) return;
 
   cb_enabled_ = get_child(wnd_, "Rcp_Enabled");
+  cb_lockmouse_ = get_child(wnd_, "Rcp_LockMouse");
   sl_sensx_ = get_child(wnd_, "Rcp_SensX");
   sl_sensy_ = get_child(wnd_, "Rcp_SensY");
   sl_smooth_ = get_child(wnd_, "Rcp_Smooth");
   lbl_sensx_ = get_child(wnd_, "Rcp_SensXValue");
   lbl_sensy_ = get_child(wnd_, "Rcp_SensYValue");
   lbl_smooth_ = get_child(wnd_, "Rcp_SmoothValue");
-  logger::logf("[ui] controls: enabled=%p sensx=%p sensy=%p smooth=%p | lbls=%p,%p,%p", cb_enabled_, sl_sensx_,
-               sl_sensy_, sl_smooth_, lbl_sensx_, lbl_sensy_, lbl_smooth_);
+  logger::logf("[ui] controls: enabled=%p lockmouse=%p sensx=%p sensy=%p smooth=%p | lbls=%p,%p,%p", cb_enabled_,
+               cb_lockmouse_, sl_sensx_, sl_sensy_, sl_smooth_, lbl_sensx_, lbl_sensy_, lbl_smooth_);
 
   slider_set_range(sl_sensx_, kSensSliderMax);  // 0..200 -> 0..20x sensitivity.
   slider_set_range(sl_sensy_, kSensSliderMax);
@@ -212,8 +213,9 @@ void RcpOptionsUI::create_window() {
 }
 
 // Push current settings into the controls (called when opening).
-static void sync_controls_from_settings(void *cb, void *sx, void *sy, void *sm) {
+static void sync_controls_from_settings(void *cb, void *lock, void *sx, void *sy, void *sm) {
   checkbox_set(cb, mouse_settings::get_enabled());
+  checkbox_set(lock, mouse_settings::get_lock_mouse());
   slider_set(sx, sens_to_slider(mouse_settings::get_sens_x()));
   slider_set(sy, sens_to_slider(mouse_settings::get_sens_y()));
   slider_set(sm, smooth_to_slider(mouse_settings::get_smoothing()));
@@ -237,11 +239,12 @@ void RcpOptionsUI::toggle_window() {
   }
   bool make_visible = !is_visible(wnd_);
   if (make_visible) {
-    sync_controls_from_settings(cb_enabled_, sl_sensx_, sl_sensy_, sl_smooth_);
+    sync_controls_from_settings(cb_enabled_, cb_lockmouse_, sl_sensx_, sl_sensy_, sl_smooth_);
     update_labels();
     // Seed the last-seen values so the poll doesn't treat this sync as a user
     // change and overwrite the settings on the next frame.
     last_enabled_ = checkbox_get(cb_enabled_);
+    last_lockmouse_ = checkbox_get(cb_lockmouse_);
     last_vx_ = slider_get(sl_sensx_);
     last_vy_ = slider_get(sl_sensy_);
     last_vs_ = slider_get(sl_smooth_);
@@ -254,7 +257,7 @@ void RcpOptionsUI::on_frame() {
   // select, zoning) the client tears its UI down, so drop our handles to avoid
   // ever dereferencing a destroyed window; they are rebuilt on next /rcpoptions.
   if (!Rcp::Game::is_in_game()) {
-    wnd_ = cb_enabled_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
+    wnd_ = cb_enabled_ = cb_lockmouse_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
     create_attempted_ = false;
     return;
   }
@@ -264,6 +267,7 @@ void RcpOptionsUI::on_frame() {
   if (!wnd_) return;
 
   bool en = checkbox_get(cb_enabled_);
+  bool lock = checkbox_get(cb_lockmouse_);
   int vx = slider_get(sl_sensx_), vy = slider_get(sl_sensy_), vs = slider_get(sl_smooth_);
 
   // Only push to the settings when the user actually moved a control this frame,
@@ -272,7 +276,11 @@ void RcpOptionsUI::on_frame() {
     mouse_settings::set(slider_to_sens(vx), slider_to_sens(vy), slider_to_smooth(vs), en);
     update_labels();
   }
+  // Cursor-lock is an independent setting (its own ini key + immediate release on
+  // off), so apply it separately from the sensitivity block above.
+  if (lock != last_lockmouse_) mouse_settings::set_lock_mouse(lock);
   last_enabled_ = en;
+  last_lockmouse_ = lock;
   last_vx_ = vx;
   last_vy_ = vy;
   last_vs_ = vs;

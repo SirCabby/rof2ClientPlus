@@ -13,7 +13,7 @@
     </Location>
     <Size>
       <CX>260</CX>
-      <CY>240</CY>
+      <CY>250</CY>
     </Size>
     <Text>rof2ClientPlus Options</Text>
     <Style_VScroll>false</Style_VScroll>
@@ -31,6 +31,7 @@
          its child controls, so the sliders/checkbox were dead. Definitions live
          in EQUI_Tab_Cam.xml. -->
     <Pieces>Rcp_Enabled</Pieces>
+    <Pieces>Rcp_LockMouse</Pieces>
     <Pieces>Rcp_SensXLabel</Pieces>
     <Pieces>Rcp_SensX</Pieces>
     <Pieces>Rcp_SensXValue</Pieces>

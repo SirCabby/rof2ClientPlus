@@ -62,6 +62,7 @@ typedef long(__stdcall *GetDeviceState_t)(void *self, unsigned long cb, void *da
 
 static GetDeviceState_t g_orig_gds = nullptr;
 static bool g_enabled = false;               // Off = stock client behavior.
+static bool g_lock_mouse = false;            // Confine the OS cursor to the game window while focused.
 static float g_sens_x = 1.0f, g_sens_y = 1.0f;   // Independent mouse-look axis multipliers.
 static float g_strength = 0.0f;              // Optional low-pass weight toward the previous poll (0 = off).
 static float g_carry_x = 0.0f, g_carry_y = 0.0f;  // Fractional remainders (exact scaling of small deltas).
@@ -81,6 +82,7 @@ static void load_settings() {
   if (ini.exists(kIniSection, "SensitivityY")) g_sens_y = ini.getValue<float>(kIniSection, "SensitivityY");
   if (ini.exists(kIniSection, "Smoothing")) g_strength = ini.getValue<float>(kIniSection, "Smoothing");
   if (ini.exists(kIniSection, "Enabled")) g_enabled = ini.getValue<bool>(kIniSection, "Enabled");
+  if (ini.exists(kIniSection, "LockToWindow")) g_lock_mouse = ini.getValue<bool>(kIniSection, "LockToWindow");
 }
 
 static void save_settings() {
@@ -89,6 +91,7 @@ static void save_settings() {
   ini.setValue<float>(kIniSection, "SensitivityY", g_sens_y);
   ini.setValue<float>(kIniSection, "Smoothing", g_strength);
   ini.setValue<bool>(kIniSection, "Enabled", g_enabled);
+  ini.setValue<bool>(kIniSection, "LockToWindow", g_lock_mouse);
 }
 
 namespace mouse_settings {
@@ -96,6 +99,7 @@ float get_sens_x() { return g_sens_x; }
 float get_sens_y() { return g_sens_y; }
 float get_smoothing() { return g_strength; }
 bool get_enabled() { return g_enabled; }
+bool get_lock_mouse() { return g_lock_mouse; }
 void set(float sens_x, float sens_y, float smoothing, bool enabled) {
   g_sens_x = clampf(sens_x, 0.05f, 20.0f);
   g_sens_y = clampf(sens_y, 0.05f, 20.0f);
@@ -103,6 +107,35 @@ void set(float sens_x, float sens_y, float smoothing, bool enabled) {
   g_enabled = enabled;
   if (!g_enabled) g_carry_x = g_carry_y = g_smooth_x = g_smooth_y = 0.0f;
   save_settings();
+}
+void set_lock_mouse(bool lock) {
+  g_lock_mouse = lock;
+  if (!g_lock_mouse) ClipCursor(nullptr);  // Release the cursor the moment it is switched off.
+  save_settings();
+}
+
+// Confine the OS cursor to the game window's client area so it can't slide onto a
+// second monitor or off the window. Driven every frame from the main loop, because
+// Windows/Wine drop any active clip on focus changes, window moves and mode
+// switches - a one-shot ClipCursor would not survive them. Gated on the foreground
+// window belonging to OUR process, so alt-tabbing away naturally frees the cursor
+// (and re-grabs it on return) without us tracking focus events ourselves.
+void apply_cursor_lock() {
+  if (!g_lock_mouse) return;  // Off: never touch the clip (released in set_lock_mouse).
+
+  HWND fg = GetForegroundWindow();
+  DWORD pid = 0;
+  if (fg) GetWindowThreadProcessId(fg, &pid);
+  if (!fg || pid != GetCurrentProcessId()) {
+    ClipCursor(nullptr);  // Game isn't focused - let the cursor roam other apps.
+    return;
+  }
+
+  RECT client;
+  POINT origin = {0, 0};
+  if (!GetClientRect(fg, &client) || !ClientToScreen(fg, &origin)) return;
+  RECT screen = {origin.x + client.left, origin.y + client.top, origin.x + client.right, origin.y + client.bottom};
+  ClipCursor(&screen);
 }
 }  // namespace mouse_settings
 
