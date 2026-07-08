@@ -102,7 +102,7 @@ Uninstall: delete `rof2ClientPlus.asi` and `uifiles/rcp/` from the game folder.
 | `src/hook_wrapper.* · instruction_length.h · memory.*` | inline detour hooking engine |
 | `src/game_*.h · game_functions.* · camera_math.* · vectors.*` | reverse-engineered client interface (`Rcp::`, adapted from Zeal) |
 | `src/directx.* · hooks.* · logger.*` | baseline D3D9 hook, vtable helper, file logger |
-| `uifiles/rcp/` | `EQUI_RcpOptions.xml` + `EQUI_Tab_Cam.xml` (the options UI) |
+| `uifiles/rcp/` | `EQUI_RcpOptions.xml` + `EQUI_Tab_Cam.xml` (our options UI); plus override copies of the stock `EQUI_OptionsWindow.xml` / `EQUI_AdvancedDisplayOptionsWnd.xml` with clipped option text widened (regenerate via `tools/gen_option_overrides.py`) |
 
 Structure mirrors Zeal so features slot in. See [`NOTICE`](NOTICE) for
 vendoring/attribution.

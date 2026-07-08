@@ -12,12 +12,19 @@
 
 // Required rof2ClientPlus XML files. EQUI_RcpOptions.xml is merged into the
 // client UI.xml by UIManager; it defines our standalone options window whose
-// visibility is synced to the stock Options window (we deliberately do not
-// override the client's own EQUI_OptionsWindow.xml).
+// visibility is synced to the stock Options window.
 static constexpr std::array<const char *, 1> kRcpXmlUiFiles = {"EQUI_RcpOptions.xml"};
 // Tab files are referenced from EQUI_RcpOptions.xml (not the client UI.xml).
 // XMLRead redirects their load to the uifiles/rcp folder.
 static constexpr std::array<const char *, 1> kRcpXmlTabFiles = {"EQUI_Tab_Cam.xml"};
+// Override copies of stock client windows shipped in uifiles/rcp. These share
+// the default files' names, so UIManager drops the client UI.xml's own
+// <Include> for each (WriteTemporaryUI treats them as duplicates) and re-adds
+// it; XMLRead then redirects the load to uifiles/rcp, so our copy loads instead
+// of uifiles/default. We use this only to widen labels whose text was clipped
+// in the stock RoF2 layout; behavior/control IDs are otherwise unchanged.
+static constexpr std::array<const char *, 2> kRcpXmlOverrideUiFiles = {"EQUI_OptionsWindow.xml",
+                                                                       "EQUI_AdvancedDisplayOptionsWnd.xml"};
 
 std::string UISkin::get_global_default_ui_skin_name() {
   IO_ini ini(IO_ini::kClientFilename);
@@ -49,11 +56,17 @@ bool UISkin::is_rcp_xml_file(const std::string &xml_file) {
   for (auto file : kRcpXmlTabFiles) {
     if (xml_file == std::string(file)) return true;
   }
+  for (auto file : kRcpXmlOverrideUiFiles) {
+    if (xml_file == std::string(file)) return true;
+  }
   return false;
 }
 
 std::vector<const char *> UISkin::get_rcp_ui_xml_files() {
   std::vector<const char *> xml_files(kRcpXmlUiFiles.begin(), kRcpXmlUiFiles.end());
+  // Override files also carry a client UI.xml <Include>: WriteTemporaryUI uses
+  // this list both to drop the stock <Include> and to re-add ours.
+  xml_files.insert(xml_files.end(), kRcpXmlOverrideUiFiles.begin(), kRcpXmlOverrideUiFiles.end());
   return xml_files;
 }
 
@@ -75,6 +88,10 @@ bool UISkin::configuration_check() {
     if (not std::filesystem::exists(this_file)) missing_files += this_file.wstring() + L"\n";
   }
   for (auto file : kRcpXmlTabFiles) {
+    std::filesystem::path this_file = rcp_ui_path / std::filesystem::path(file);
+    if (not std::filesystem::exists(this_file)) missing_files += this_file.wstring() + L"\n";
+  }
+  for (auto file : kRcpXmlOverrideUiFiles) {
     std::filesystem::path this_file = rcp_ui_path / std::filesystem::path(file);
     if (not std::filesystem::exists(this_file)) missing_files += this_file.wstring() + L"\n";
   }
