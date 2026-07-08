@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "commands.h"
+#include "crash_handler.h"
 #include "game_functions.h"
 #include "hook_wrapper.h"
 #include "io_ini.h"
@@ -137,9 +138,13 @@ void set(bool enabled, float distance, float height, bool collision) {
 // centered while panning. Head-height + independent look come next, once the logged
 // calibration nails the orientation units.
 static void __fastcall Cam6Pos_hk(void *self, int edx, void *actor) {
-  g_orig_cam6(self, edx, actor);  // Native positioning runs first.
+  g_orig_cam6(self, edx, actor);  // Native positioning runs first (client code; unguarded).
 
   if (!g_enabled || *kCameraType != kChaseView) return;
+  // Guard OUR positioning: a stale camera/entity pointer, or the collision call into
+  // eqgraphics.dll, should skip this frame's adjustment rather than crash the client
+  // (the inner early-returns simply exit this lambda). POD body only; see crash_handler.h.
+  rcp_guard::run("chase.cam6", [&] {
   void *controlled = *kControlled;
   if (!controlled || !self) return;
 
@@ -198,6 +203,7 @@ static void __fastcall Cam6Pos_hk(void *self, int edx, void *actor) {
   *reinterpret_cast<float *>(cam + kCamPosX) = cam_x;
   *reinterpret_cast<float *>(cam + kCamPosY) = cam_y;
   *reinterpret_cast<float *>(cam + kCamPosZ) = cam_z;
+  });  // rcp_guard::run("chase.cam6")
 }
 
 static void print_status() {

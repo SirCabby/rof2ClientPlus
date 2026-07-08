@@ -12,11 +12,13 @@
 // sits inside our constructor it cannot also be running the loop.
 #include <windows.h>
 
+#include "crash_handler.h"
 #include "hook_wrapper.h"
 #include "logger.h"
 #include "mouse_mods.h"
 #include "rcp.h"
 #include "rcp_options_ui.h"
+#include "window_watch.h"
 
 // stock RoF2 __ProcessGameEvents (eqlib). Runs on the main thread.
 static const int kProcessGameEventsAddr = 0x53A6C0;
@@ -47,6 +49,9 @@ static int __cdecl ProcessGameEvents_hk() {
         if (svc->mouse_mods) svc->mouse_mods->ensure_hooked();
         if (svc->options_ui) svc->options_ui->on_frame();
     }
+    // Window diagnostics + opt-in self-heal run every frame regardless of service
+    // state (they only need the main window, which exists by the time we get here).
+    window_watch::on_frame();
     mouse_settings::apply_cursor_lock();
     return g_boot->hook_map["ProcessGameEvents"]->original(ProcessGameEvents_hk)();
 }
@@ -60,6 +65,13 @@ static void on_attach() {
     logger::init("rof2ClientPlus.log");
     logger::logf("DllMain PROCESS_ATTACH: module=%p pid=%lu", (void *)pinned,
                  (unsigned long)GetCurrentProcessId());
+
+    // Install the crash handler FIRST so even faults during early init / the very
+    // first detour are captured, then the window diagnostics (env + ini + leftover-
+    // sibling snapshot). Both are independent of the RcpService, which isn't built
+    // until the first ProcessGameEvents call.
+    crash_handler::install();
+    window_watch::install_early();
 
     g_boot = new HookWrapper();
     g_boot->Add("ProcessGameEvents", kProcessGameEventsAddr, ProcessGameEvents_hk, hook_type_detour);

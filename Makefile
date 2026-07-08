@@ -28,7 +28,8 @@ LDFLAGS  := -m32 -shared \
 
 # Load-time deps. d3d9 is loaded dynamically at runtime. ws2_32/psapi mirror the
 # libs Zeal links via #pragma comment(lib,...) (mingw resolves them via -l).
-LDLIBS   := -luser32 -lgdi32 -lws2_32 -lpsapi
+# dbghelp is for the crash handler's StackWalk64 (crash_handler.cpp).
+LDLIBS   := -luser32 -lgdi32 -lws2_32 -lpsapi -ldbghelp
 
 .PHONY: all clean install
 all: $(TARGET)
@@ -42,6 +43,21 @@ $(BUILD)/%.o: src/%.cpp | $(BUILD)
 
 $(BUILD):
 	mkdir -p $(BUILD)
+
+# Host-side helper (built with the HOST gcc, not mingw): keeps the windowed-mode
+# game window visible under KWin/XWayland (see tools/eq_window_fix.c for the bug).
+# Only built when a host gcc + X11 headers exist, so the cross-build alone still
+# works anywhere.
+HOST_CC  := gcc
+HOSTFIX  := $(BUILD)/eq-window-fix
+HAVE_X11 := $(shell command -v $(HOST_CC) >/dev/null 2>&1 && [ -e /usr/include/X11/Xlib.h ] && echo yes)
+
+ifeq ($(HAVE_X11),yes)
+all: $(HOSTFIX)
+
+$(HOSTFIX): tools/eq_window_fix.c | $(BUILD)
+	$(HOST_CC) -O2 -Wall -Wextra -o $@ $< -lX11
+endif
 
 # Copy the built .asi into the game root so Miles loads it on next launch.
 # GAME_DIR comes from config.mk (or: make install GAME_DIR=/path/to/RoF2).
@@ -60,6 +76,10 @@ install: $(TARGET)
 	mkdir -p "$(GAME_DIR)/uifiles/rcp"
 	cp -f uifiles/rcp/*.xml "$(GAME_DIR)/uifiles/rcp/"
 	@echo ">> Installed uifiles to $(GAME_DIR)/uifiles/rcp/"
+	@if [ -f $(HOSTFIX) ]; then \
+	  cp -f $(HOSTFIX) "$(GAME_DIR)/eq-window-fix"; \
+	  echo ">> Installed eq-window-fix (windowed-mode watcher)"; \
+	fi
 
 clean:
 	rm -rf $(BUILD)

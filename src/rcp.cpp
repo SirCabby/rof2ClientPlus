@@ -14,9 +14,11 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "mouse_mods.h"
+#include "nameplate.h"
 #include "rcp_options_ui.h"
 #include "ui_manager.h"
 #include "ui_skin.h"
+#include "window_watch.h"
 
 RcpService *RcpService::ptr_service = nullptr;
 
@@ -43,6 +45,10 @@ RcpService::RcpService() {
   mouse_mods = std::make_unique<MouseMods>(this);  // Mouse hook installs in-game (deferred).
   logger::log("  -> ChaseCam");
   chase_cam_mod = std::make_unique<ChaseCam>(this);  // Cam6 positioner detour (installs now; acts only in chase view).
+  logger::log("  -> NamePlate");
+  nameplate_mod = std::make_unique<NamePlate>(this);  // SetNameSpriteTint detour (installs now; acts only when enabled).
+  logger::log("  -> WindowWatch");
+  window_watch_mod = std::make_unique<WindowWatch>(this);  // Registers /rcpwindow; diagnostics already live from on_attach.
   logger::log("  -> RcpOptionsUI");
   options_ui = std::make_unique<RcpOptionsUI>(this);  // LoadSidl hook also installs in-game (deferred).
   logger::log("  -> modules done (foundation subset)");

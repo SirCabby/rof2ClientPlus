@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "commands.h"
+#include "crash_handler.h"
 #include "game_functions.h"
 #include "hook_wrapper.h"
 #include "io_ini.h"
@@ -148,6 +149,9 @@ static long __stdcall GetDeviceState_hk(void *self, unsigned long cb, void *data
   // Only the mouse immediate-state fetch (this exact buffer), and only while the
   // RIGHT button is held for mouse-look (player turn). Left-button look pans the
   // camera and must stay untouched, so we require the right-button state too.
+  // Guarded: a stale controlled-entity pointer should drop this frame's turn rather
+  // than crash the client (see crash_handler.h). This can run on the DInput thread.
+  rcp_guard::run("mouse.turn", [&] {
   if (g_enabled && r == 0 && reinterpret_cast<uintptr_t>(data) == kMouseStateBuf && *kMouseLook && *kRBtn) {
     int32_t *lX = reinterpret_cast<int32_t *>(kMouseStateBuf);
     int32_t *lY = reinterpret_cast<int32_t *>(kMouseStateBuf + 4);
@@ -203,6 +207,7 @@ static long __stdcall GetDeviceState_hk(void *self, unsigned long cb, void *data
       }
     }
   }
+  });  // rcp_guard::run("mouse.turn")
   return r;
 }
 
