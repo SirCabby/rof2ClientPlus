@@ -34,6 +34,7 @@ bool get_target_blink();   // Pulse the target highlight.
 bool get_target_marker();  // Wrap the target's name in >> <<.
 bool get_target_health();  // Append the target's HP percent.
 bool get_hide_self();      // Blank your own nameplate (unless it's the target).
+bool get_gen_names();      // Generate player names ourselves (enables /shownames 5-7).
 void set(bool con_colors, bool state_colors, bool target_color, bool target_blink, bool target_marker,
-         bool target_health, bool hide_self);  // Applies live + persists.
+         bool target_health, bool hide_self, bool gen_names);  // Applies live + persists.
 }  // namespace nameplate_settings

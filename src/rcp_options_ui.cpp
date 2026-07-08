@@ -163,16 +163,56 @@ static void __fastcall LoadSidl_hk(void *self, int edx, void *path, void *defpat
   fs::path opt_dst = active_dir / "EQUI_RcpOptions.xml";
   fs::path tab_dst = active_dir / "EQUI_Tab_Cam.xml";
 
+  // The merged EQUI carries <Include>EQUI_RcpOptions.xml</Include> (which itself
+  // references EQUI_Tab_Cam.xml), so both must sit next to the merged file for
+  // the client to resolve them. If a partial install left either source out of
+  // uifiles/rcp, skip the merge and load EQUI.xml unmodified -- otherwise the
+  // client hits the dangling <Include> and logs "file not found / Error reading
+  // XML" in UIErrors.txt at login.
+  const fs::path opt_src = "uifiles/rcp/EQUI_RcpOptions.xml";
+  const fs::path tab_src = "uifiles/rcp/EQUI_Tab_Cam.xml";
+  if (!fs::exists(opt_src, ec) || !fs::exists(tab_src, ec)) {
+    logger::logf("[ui] rcp xml source missing (%s / %s); loading EQUI.xml unmodified",
+                 opt_src.string().c_str(), tab_src.string().c_str());
+    orig(self, edx, path, defpath, filename, defclient);
+    return;
+  }
+
+  // When the active UI skin IS our uifiles/rcp folder (the user selected "rcp"
+  // as their skin), active_dir == the source folder, so opt_dst/tab_dst ARE the
+  // source files. Copying would be a self-copy and -- fatally -- the cleanup
+  // below would delete our own EQUI_RcpOptions.xml / EQUI_Tab_Cam.xml out of
+  // uifiles/rcp, breaking every subsequent login. Detect that (same file per
+  // fs::equivalent, robust to case/separators under Wine) and neither copy nor
+  // remove them: the sources are already in place for the client to load.
+  std::error_code same_ec;
+  const bool active_is_rcp_src = fs::equivalent(active_dir, "uifiles/rcp", same_ec) && !same_ec;
+
   if (write_merged_equi(src, merged)) {
-    fs::copy_file("uifiles/rcp/EQUI_RcpOptions.xml", opt_dst, fs::copy_options::overwrite_existing, ec);
-    fs::copy_file("uifiles/rcp/EQUI_Tab_Cam.xml", tab_dst, fs::copy_options::overwrite_existing, ec);
-    logger::logf("[ui] injected EQUI_Rcp.xml (from %s)", src.string().c_str());
+    if (!active_is_rcp_src) {
+      std::error_code opt_ec, tab_ec;
+      fs::copy_file(opt_src, opt_dst, fs::copy_options::overwrite_existing, opt_ec);
+      fs::copy_file(tab_src, tab_dst, fs::copy_options::overwrite_existing, tab_ec);
+      if (opt_ec || tab_ec) {  // Source vanished mid-load, or perms/disk issue.
+        logger::logf("[ui] rcp xml copy failed (opt=%s tab=%s); loading EQUI.xml unmodified",
+                     opt_ec.message().c_str(), tab_ec.message().c_str());
+        fs::remove(merged, ec);
+        fs::remove(opt_dst, ec);
+        fs::remove(tab_dst, ec);
+        orig(self, edx, path, defpath, filename, defclient);
+        return;
+      }
+    }
+    logger::logf("[ui] injected EQUI_Rcp.xml (from %s)%s", src.string().c_str(),
+                 active_is_rcp_src ? " [rcp skin: sources in place]" : "");
     uint32_t new_fn;
     cxstr_init(&new_fn, "EQUI_Rcp.xml");
     orig(self, edx, path, defpath, &new_fn, defclient);  // Client loads the merged file.
     fs::remove(merged, ec);
-    fs::remove(opt_dst, ec);
-    fs::remove(tab_dst, ec);
+    if (!active_is_rcp_src) {  // Never delete the sources when they live in uifiles/rcp.
+      fs::remove(opt_dst, ec);
+      fs::remove(tab_dst, ec);
+    }
   } else {
     logger::logf("[ui] EQUI merge failed (src=%s); loading unmodified", src.string().c_str());
     orig(self, edx, path, defpath, filename, defclient);

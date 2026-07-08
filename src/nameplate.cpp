@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -26,11 +28,34 @@ static constexpr uintptr_t kSetNameSpriteTint = 0x58BF00;
 // its own slow timer / on some state changes, NOT on targeting or HP change - so we call it
 // ourselves to make text mods take effect immediately when the target/self/HP changes.
 static constexpr uintptr_t kSetNameSpriteState = 0x58E2D0;
+// CGuild::GetGuildName(this, int guildId) -> const char*, __thiscall. The guild manager is a
+// static object AT 0xDD5CF8 (callers use `mov ecx, 0xDD5CF8` immediate, not a pointer deref).
+static constexpr uintptr_t kGetGuildName = 0x425670;
+static void *const kGuildInstance = reinterpret_cast<void *>(0xDD5CF8);
+// __ShowNames: the /shownames level (int). 0=off, 1..6 accepted natively (>3 => title+suffix).
+static int *const kShowNamesLevel = reinterpret_cast<int *>(0xDE0A70);
+// Group + raid membership sources (both are objects at these addresses, not pointers).
+// CRaid object (instCRaid): raidMembers[72] @ +0x260 (each 0x94, Name@0x00), count @ +0x2c04.
+static char *const kRaid = reinterpret_cast<char *>(0xDD2690);
+static constexpr int kRaidMembers = 0x260;
+static constexpr int kRaidMemberStride = 0x94;
+static constexpr int kRaidMemberCount = 0x2c04;
+static constexpr int kRaidMaxMembers = 72;
+// Group: pLocalPC (PcClient, *(void**)0xDD261C) -> CGroup* Group @ +0x31cc; CGroup holds
+// CGroupMember*[6] @ +0x04, each CGroupMember has pPlayer (PlayerClient*) @ +0x28. So we can
+// match group members by SPAWN POINTER, not name (the LabelCache name approach didn't populate).
+static void **const kLocalPC = reinterpret_cast<void **>(0xDD261C);
+static constexpr int kPcGroup = 0x31cc;
+static constexpr int kGroupMembers = 0x04;
+static constexpr int kGroupMemberPlayer = 0x28;
+static constexpr int kGroupMaxMembers = 6;
 static void **const kSelf = reinterpret_cast<void **>(0xDD2630);    // local player
 static void **const kTarget = reinterpret_cast<void **>(0xDD2648);  // current target
 
 // PlayerClient (Entity) field offsets.
 static constexpr int kEntActor = 0x101c;   // CActorInterface* (all-virtual); apply tint via its vtable
+static constexpr int kEntLastname = 0x38;  // char[0x20]
+static constexpr int kEntDisplayedName = 0xe4;  // char[]; pre-trimmed name ("Priest of Discord" / first name)
 static constexpr int kEntType = 0x125;     // uint8: 0=Player, 1=NPC, 2=Corpse
 static constexpr int kEntLevel = 0x250;    // uint8
 static constexpr int kEntAnon = 0x2b8;     // int: 1=anonymous, 2=roleplay
@@ -38,6 +63,8 @@ static constexpr int kEntHPMax = 0x2dc;    // int32
 static constexpr int kEntHPCurrent = 0x2e4; // int32 (for NPCs the client only knows a percent)
 static constexpr int kEntPvP = 0x349;      // uint8 (bool) PvPFlag
 static constexpr int kEntGuildID = 0x34c;  // int32, -1 = unguilded
+static constexpr int kEntTitle = 0x3dd;    // char[0x20]; player title prefix (server-resolved string)
+static constexpr int kEntSuffix = 0x3fe;   // char[0x20]; player suffix (server-resolved string)
 static constexpr int kEntAFK = 0x3c0;      // int
 static constexpr int kEntLinkdead = 0x3d0; // uint8 (bool)
 static constexpr int kEntLFG = 0x440;      // uint8 (bool)
@@ -75,9 +102,10 @@ static constexpr int kColLFG = 0xf0f000;
 static constexpr int kColLD = 0x606060;
 static constexpr int kColRole = 0xf000f0;
 static constexpr int kColPVP = 0xf00000;
+static constexpr int kColGroup = 0x40a0ff;  // Sky blue.
+static constexpr int kColRaid = 0xb060ff;   // Purple.
 static constexpr int kColMyGuild = 0x00f000;
 static constexpr int kColOtherGuild = 0xf0f0f0;
-static constexpr int kColAdventurer = 0x00f0f0;
 static constexpr int kColCorpse = 0x909090;
 static constexpr int kColTarget = 0xff8000;  // Orange: deliberately asymmetric to verify byte order.
 
@@ -92,28 +120,46 @@ static bool g_target_blink = false;
 static bool g_target_marker = false;  // Wrap the target's name in >> <<.
 static bool g_target_health = false;  // Append the target's HP percent.
 static bool g_hide_self = false;      // Blank your own nameplate (unless it's the target).
+// Name generation (N3): regenerate player names ourselves so /shownames can pick fine-grained
+// combinations of title / first / last / guild (levels 5-7) that the stock client can't render.
+static bool g_gen_names = false;
+static int g_shownames_level = -1;    // Captured from /shownames (0-7); -1 = mirror the client's level.
 
 // Forced text-rebuild bookkeeping (N2). The client rebuilds nameplate text lazily, so we
 // re-drive SetNameSpriteState ourselves when the thing we modify changes.
 static bool g_setstr_installed = false;              // Whether the actor set-string detour is installed yet.
 static bool g_refreshing = false;                    // Recursion guard (our forced rebuild re-enters the tint hook).
+static void *g_current_entity = nullptr;             // Entity whose name SetNameSpriteState is currently building.
 static void *g_last_target = reinterpret_cast<void *>(-1);  // Target we last refreshed (-1 = force on first sight).
 static void *g_prev_target = nullptr;                // Prior target awaiting a cleanup rebuild (strip its marker).
 static int g_last_target_hp = -1;                    // Target HP% we last rendered (for targethealth).
 static bool g_self_dirty = false;                    // Self nameplate needs one rebuild (toggle of hideself).
-static int g_refresh_log = 0;                        // Small budget: log the first forced rebuilds.
-static int g_text_log = 0;                           // Small budget: log the first text transforms.
-static int g_diag = 0;                               // Diagnostic budget: dump entity/target/self pointers.
 
-// Marks text state dirty so the next frame re-pushes the target + self nameplates. Called on
-// any text-option toggle so the change is visible without waiting for the client's own timer.
+// Ring of player actors we've already rebuilt once with generated names (so a gennames/shownames
+// change refreshes each player a single time, not every frame). Cleared to force a full refresh.
+static void *g_player_refreshed[64] = {nullptr};
+static int g_player_ring_pos = 0;
+static bool player_recently_refreshed(void *actor) {
+  for (int i = 0; i < 64; ++i)
+    if (g_player_refreshed[i] == actor) return true;
+  return false;
+}
+static void mark_player_refreshed(void *actor) {
+  g_player_refreshed[g_player_ring_pos] = actor;
+  g_player_ring_pos = (g_player_ring_pos + 1) % 64;
+}
+static void clear_player_ring() {
+  for (int i = 0; i < 64; ++i) g_player_refreshed[i] = nullptr;
+  g_player_ring_pos = 0;
+}
+
+// Marks text state dirty so the next frame re-pushes the target + self (+ all players) nameplates.
+// Called on any text-option toggle so the change is visible without waiting for the client.
 static void mark_text_dirty() {
   g_last_target = reinterpret_cast<void *>(-1);
   g_last_target_hp = -1;
   g_self_dirty = true;
-  g_refresh_log = 12;
-  g_text_log = 40;  // transform (xf) log budget
-  g_diag = 150;     // refresh (mrt) log budget
+  clear_player_ring();
 }
 
 static constexpr char kIniSection[] = "Nameplate";
@@ -127,6 +173,7 @@ static void load_settings() {
   if (ini.exists(kIniSection, "TargetMarker")) g_target_marker = ini.getValue<bool>(kIniSection, "TargetMarker");
   if (ini.exists(kIniSection, "TargetHealth")) g_target_health = ini.getValue<bool>(kIniSection, "TargetHealth");
   if (ini.exists(kIniSection, "HideSelf")) g_hide_self = ini.getValue<bool>(kIniSection, "HideSelf");
+  if (ini.exists(kIniSection, "GenNames")) g_gen_names = ini.getValue<bool>(kIniSection, "GenNames");
 }
 
 static void save_settings() {
@@ -138,6 +185,7 @@ static void save_settings() {
   ini.setValue<bool>(kIniSection, "TargetMarker", g_target_marker);
   ini.setValue<bool>(kIniSection, "TargetHealth", g_target_health);
   ini.setValue<bool>(kIniSection, "HideSelf", g_hide_self);
+  ini.setValue<bool>(kIniSection, "GenNames", g_gen_names);
 }
 
 namespace nameplate_settings {
@@ -148,8 +196,9 @@ bool get_target_blink() { return g_target_blink; }
 bool get_target_marker() { return g_target_marker; }
 bool get_target_health() { return g_target_health; }
 bool get_hide_self() { return g_hide_self; }
+bool get_gen_names() { return g_gen_names; }
 void set(bool con_colors, bool state_colors, bool target_color, bool target_blink, bool target_marker,
-         bool target_health, bool hide_self) {
+         bool target_health, bool hide_self, bool gen_names) {
   g_con_colors = con_colors;
   g_state_colors = state_colors;
   g_target_color = target_color;
@@ -157,6 +206,7 @@ void set(bool con_colors, bool state_colors, bool target_color, bool target_blin
   g_target_marker = target_marker;
   g_target_health = target_health;
   g_hide_self = hide_self;
+  g_gen_names = gen_names;
   save_settings();
 }
 }  // namespace nameplate_settings
@@ -198,18 +248,53 @@ static int con_color(int my_level, int ent_level) {
 // State color for the "colors" mode. Returns 0 (no custom color) when nothing applies, so
 // the caller can fall back to con colors. Mirrors Zeal's get_player_color_index priority
 // (group/raid highlighting is deferred to N1b - those still fall through to guild colors).
+// Case-insensitive compare of an entity's (clean) name to another name; false if `other` empty.
+static bool name_matches(char *ent, const char *other) {
+  return other[0] && _stricmp(static_cast<char *>(ent) + kEntDisplayedName, other) == 0;
+}
+
+// True if the entity is in the local player's group. Walks the CGroup member list and matches by
+// spawn pointer. Self is a member whenever a group exists (its slot may or may not be present).
+static bool is_group_member(char *ent) {
+  void *pc = *kLocalPC;
+  if (!pc) return false;
+  void *group = *reinterpret_cast<void **>(static_cast<char *>(pc) + kPcGroup);
+  if (!group) return false;  // Not in a group.
+  if (static_cast<void *>(ent) == *kSelf) return true;
+  for (int i = 0; i < kGroupMaxMembers; ++i) {
+    void *member = *reinterpret_cast<void **>(static_cast<char *>(group) + kGroupMembers + i * 4);
+    if (!member) continue;
+    if (*reinterpret_cast<void **>(static_cast<char *>(member) + kGroupMemberPlayer) == static_cast<void *>(ent))
+      return true;
+  }
+  return false;
+}
+
+// True if the entity is in the local player's raid (name match against CRaid's member list).
+static bool is_raid_member(char *ent) {
+  const int count = *reinterpret_cast<int *>(kRaid + kRaidMemberCount);
+  if (count <= 0) return false;
+  for (int i = 0; i < kRaidMaxMembers; ++i) {
+    const char *mname = kRaid + kRaidMembers + i * kRaidMemberStride;  // RaidMember.Name@0x00
+    if (name_matches(ent, mname)) return true;
+  }
+  return false;
+}
+
 static int state_color(char *ent, uint8_t type) {
   if (type == kTypeCorpse) return kColCorpse;
-  if (type != kTypePlayer) return 0;  // NPCs: pet group/raid coloring comes in N1b.
+  if (type != kTypePlayer) return 0;  // NPC pet group/raid coloring is a later step.
 
   if (*reinterpret_cast<uint8_t *>(ent + kEntPvP)) return kColPVP;
   if (*reinterpret_cast<int *>(ent + kEntAFK)) return kColAFK;
   if (*reinterpret_cast<uint8_t *>(ent + kEntLinkdead)) return kColLD;
   if (*reinterpret_cast<uint8_t *>(ent + kEntLFG)) return kColLFG;
+  if (is_group_member(ent)) return kColGroup;  // Group takes priority over raid (Zeal order).
+  if (is_raid_member(ent)) return kColRaid;
   if (*reinterpret_cast<int *>(ent + kEntAnon) == 2) return kColRole;  // roleplay
 
   const int guild = *reinterpret_cast<int32_t *>(ent + kEntGuildID);
-  if (guild == -1) return kColAdventurer;
+  if (guild == -1) return 0;  // Unguilded, no special state: keep the client's default color.
   void *self = *kSelf;
   const int my_guild = self ? *reinterpret_cast<int32_t *>(static_cast<char *>(self) + kEntGuildID) : -1;
   return (guild == my_guild) ? kColMyGuild : kColOtherGuild;
@@ -259,7 +344,7 @@ static bool handle_tint(void *entity) {
     rgb = g_target_blink ? blink(kColTarget) : kColTarget;
   }
   if (!rgb && g_state_colors) rgb = state_color(ent, type);
-  if (!rgb && g_con_colors && (type == kTypePlayer || type == kTypeNPC) && entity != self) {
+  if (!rgb && g_con_colors && type == kTypeNPC) {  // Con colors apply to NPCs only, not players.
     const int my_level = self ? *reinterpret_cast<uint8_t *>(static_cast<char *>(self) + kEntLevel) : 0;
     rgb = con_color(my_level, *reinterpret_cast<uint8_t *>(ent + kEntLevel));
   }
@@ -310,26 +395,73 @@ static int hp_percent(char *ent, uint8_t /*type*/) {
   return pct;
 }
 
-// Maps an actor pointer back to its entity (self/target) by comparing actor pointers, then
-// transforms the nameplate text for the enabled N2 options. Returns a pointer into a static
-// buffer, or nullptr to leave `text` unchanged. POD-bodied (static char buffers, no std::string)
-// so it is safe inside an rcp_guard frame.
-static const char *transform_by_actor(void *actor, const char *text) {
-  if (!g_target_marker && !g_target_health && !g_hide_self) return nullptr;  // Fast bail.
+// Bounded append of s into buf[pos]. POD helper for building generated names inside rcp_guard.
+static void append_str(char *buf, int size, int &pos, const char *s) {
+  while (*s && pos < size - 1) buf[pos++] = *s++;
+  buf[pos] = 0;
+}
+
+// Shownames component rules (Zeal's mapping): 1=first, 2=first+last, 3=+guild,
+// 4=title+first+last+guild, 5=title+first, 6=title+first+last, 7=first+guild.
+static bool show_title(int lvl) { return lvl == 4 || lvl == 5 || lvl == 6; }
+static bool show_last(int lvl) { return lvl == 2 || lvl == 3 || lvl == 4 || lvl == 6; }
+static bool show_guild(int lvl) { return lvl == 3 || lvl == 4 || lvl == 7; }
+
+// Generates a player's nameplate name line from entity fields per the shownames level, into a
+// static buffer (single line; guild inline). POD-bodied for rcp_guard.
+static const char *generate_player_name(char *ent) {
+  const int lvl = (g_shownames_level >= 0) ? g_shownames_level : *kShowNamesLevel;
+  static char buf[192];
+  int pos = 0;
+  buf[0] = 0;
+
+  if (show_title(lvl)) {
+    const char *title = ent + kEntTitle;
+    if (title[0]) {
+      append_str(buf, sizeof(buf), pos, title);
+      append_str(buf, sizeof(buf), pos, " ");
+    }
+  }
+  append_str(buf, sizeof(buf), pos, ent + kEntDisplayedName);  // First name (pre-trimmed).
+  if (show_last(lvl)) {
+    const char *last = ent + kEntLastname;
+    if (last[0]) {
+      append_str(buf, sizeof(buf), pos, " ");
+      append_str(buf, sizeof(buf), pos, last);
+    }
+  }
+  if (show_guild(lvl)) {
+    const int guild_id = *reinterpret_cast<int *>(ent + kEntGuildID);
+    if (guild_id != -1) {
+      const char *gname =
+          reinterpret_cast<const char *(__thiscall *)(void *, int)>(kGetGuildName)(kGuildInstance, guild_id);
+      if (gname && gname[0]) {
+        append_str(buf, sizeof(buf), pos, " <");
+        append_str(buf, sizeof(buf), pos, gname);
+        append_str(buf, sizeof(buf), pos, ">");
+      }
+    }
+  }
+  if (*reinterpret_cast<int *>(ent + kEntAFK)) append_str(buf, sizeof(buf), pos, " AFK");
+  if (*reinterpret_cast<uint8_t *>(ent + kEntLinkdead)) append_str(buf, sizeof(buf), pos, " LD");
+  if (*reinterpret_cast<uint8_t *>(ent + kEntLFG)) append_str(buf, sizeof(buf), pos, " LFG");
+  return buf;
+}
+
+// Transforms nameplate text for the enabled options. Uses g_current_entity (set by the
+// SetNameSpriteState hook) so we have the full entity, not just the actor. Returns a pointer into
+// a static buffer, or nullptr to leave `text` unchanged. POD-bodied for rcp_guard.
+static const char *transform_entity(void *actor, const char *text) {
+  if (!g_target_marker && !g_target_health && !g_hide_self && !g_gen_names) return nullptr;  // Fast bail.
   if (!actor || !text) return nullptr;
 
-  void *target = *kTarget;
-  void *self = *kSelf;
-  void *target_actor = target ? *reinterpret_cast<void **>(static_cast<char *>(target) + kEntActor) : nullptr;
-  void *self_actor = self ? *reinterpret_cast<void **>(static_cast<char *>(self) + kEntActor) : nullptr;
-  const bool is_target = (target_actor && actor == target_actor);
-  const bool is_self = (self_actor && actor == self_actor);
+  void *entity = g_current_entity;
+  if (!entity || *reinterpret_cast<void **>(static_cast<char *>(entity) + kEntActor) != actor) return nullptr;
 
-  if (g_text_log > 0 && target) {  // Only spend the budget while a target exists.
-    logger::logf("[nameplate] xf actor=%p tgt_actor=%p self_actor=%p is_t=%d is_s=%d in='%s'", actor, target_actor,
-                 self_actor, (int)is_target, (int)is_self, text ? text : "(null)");
-    --g_text_log;
-  }
+  char *ent = static_cast<char *>(entity);
+  const uint8_t type = *reinterpret_cast<uint8_t *>(ent + kEntType);
+  const bool is_target = (entity == *kTarget);
+  const bool is_self = (entity == *kSelf);
 
   // Hide your own nameplate (but never when it's your current target).
   if (g_hide_self && is_self && !is_target) {
@@ -337,20 +469,27 @@ static const char *transform_by_actor(void *actor, const char *text) {
     return empty;
   }
 
-  // Target embellishments: >>Name  NN%<<  (matches Zeal's ordering).
+  // For players, optionally regenerate the whole name line from entity fields per shownames level.
+  const char *base = text;
+  if (g_gen_names && type == kTypePlayer && *kShowNamesLevel > 0) base = generate_player_name(ent);
+
+  // Target embellishments: >>Name NN%<<. Decorate ONLY the first line (keeps any extra client
+  // line, e.g. a pet's "(Owner's Pet)" line, after the "<<") so the marker wraps just the name.
   if (is_target && (g_target_marker || g_target_health)) {
-    char *ent = static_cast<char *>(target);
-    const uint8_t type = *reinterpret_cast<uint8_t *>(ent + kEntType);
-    static char buf[256];
+    static char buf[320];
+    const char *nl = std::strchr(base, '\n');
+    const int name_len = nl ? static_cast<int>(nl - base) : static_cast<int>(std::strlen(base));
+    const char *rest = nl ? nl : "";
     const char *pre = g_target_marker ? ">>" : "";
     const char *post = g_target_marker ? "<<" : "";
     if (g_target_health && (type == kTypePlayer || type == kTypeNPC))
-      std::snprintf(buf, sizeof(buf), "%s%s %d%%%s", pre, text, hp_percent(ent, type), post);
+      std::snprintf(buf, sizeof(buf), "%s%.*s %d%%%s%s", pre, name_len, base, hp_percent(ent, type), post, rest);
     else
-      std::snprintf(buf, sizeof(buf), "%s%s%s", pre, text, post);
+      std::snprintf(buf, sizeof(buf), "%s%.*s%s%s", pre, name_len, base, post, rest);
     return buf;
   }
-  return nullptr;
+
+  return (base != text) ? base : nullptr;  // Generated player name, or no change.
 }
 
 // True if the entity's name sprite is currently shown (honors the client's shownames state).
@@ -370,10 +509,6 @@ static void force_state(void *entity) {
   // is for NPCs after their spawn-time name set - so a forced rebuild did nothing for mob targets
   // (self's flag stays 1, which is why hideself worked). Set it so the rebuild proceeds.
   uint8_t *display_flag = reinterpret_cast<uint8_t *>(static_cast<char *>(entity) + kEntDisplayNameSprite);
-  if (g_refresh_log > 0) {
-    logger::logf("[nameplate] force rebuild entity=%p show=%d disp=%d", entity, show, (int)*display_flag);
-    --g_refresh_log;
-  }
   *display_flag = 1;
   reinterpret_cast<int(__thiscall *)(void *, int)>(kSetNameSpriteState)(entity, show);
 }
@@ -382,18 +517,10 @@ static void force_state(void *entity) {
 // modify changed (target identity, target HP%, or a hideself toggle), force a text rebuild.
 // POD-bodied for rcp_guard.
 static void maybe_refresh_text(void *entity) {
-  if (!g_target_marker && !g_target_health && !g_hide_self) return;  // Fast bail.
+  if (!g_target_marker && !g_target_health && !g_hide_self && !g_gen_names) return;  // Fast bail.
   if (!entity) return;
 
   void *target = *kTarget;
-
-  // Diagnostic: dump the pointers for the first frames after a toggle so we can see whether the
-  // target's tint even reaches here (entity == target) and what the target pointer actually is.
-  if (g_diag > 0 && target) {  // Only spend the budget while a target exists.
-    logger::logf("[nameplate] mrt entity=%p target=%p self=%p match_t=%d match_s=%d", entity, target, *kSelf,
-                 (int)(entity == target), (int)(entity == *kSelf));
-    --g_diag;
-  }
 
   // Detect a target change (works even when the new target is null): the previous target needs
   // one cleanup rebuild to strip our marker/health text.
@@ -425,6 +552,16 @@ static void maybe_refresh_text(void *entity) {
     g_self_dirty = false;
     force_state(entity);
   }
+
+  // Generated names: rebuild each player once (ring-buffered) so a gennames/shownames change is
+  // visible immediately, without waiting for the client to naturally re-set each player's name.
+  if (g_gen_names && *reinterpret_cast<uint8_t *>(static_cast<char *>(entity) + kEntType) == kTypePlayer) {
+    void *actor = *reinterpret_cast<void **>(static_cast<char *>(entity) + kEntActor);
+    if (actor && !player_recently_refreshed(actor)) {
+      mark_player_refreshed(actor);
+      force_state(entity);
+    }
+  }
 }
 
 // Actor set-string detour: __thiscall(actor, int flag, char* text, char* scratch), the eqgfx
@@ -437,14 +574,14 @@ static int __fastcall ActorSetString_hk(void *actor, int edx, int flag, char *te
   char *out = text;
   char *out_scratch = scratch;
   rcp_guard::run("nameplate.text", [&] {
-    const char *m = transform_by_actor(actor, text);
+    const char *m = transform_entity(actor, text);
     if (m) {
       out = const_cast<char *>(m);
       // The two string params are NOT redundant: the client's clear path passes (NULL, "")
       // and its set path passes (name, copyOfName). param2 acts as presence/identity (empty ->
       // remove sprite, which is why hideself worked via param2 alone) while param3 is the text
       // the renderer draws - so the transform must be applied to BOTH or markers never show.
-      static char copy[256];
+      static char copy[320];
       std::snprintf(copy, sizeof(copy), "%s", m);
       out_scratch = copy;
     }
@@ -452,11 +589,25 @@ static int __fastcall ActorSetString_hk(void *actor, int edx, int flag, char *te
   return g_orig_setstr(actor, edx, flag, out, out_scratch);
 }
 
+// SetNameSpriteState detour. We only use it to record which entity's nameplate is being built,
+// so the set-string hook (which sees just the actor) can resolve the full entity. Save/restore
+// g_current_entity so nested rebuilds unwind correctly. __thiscall(this, bool show).
+typedef int(__fastcall *StateFn)(void *self, int edx, int show);
+static StateFn g_orig_state = nullptr;
+
+static int __fastcall SetNameSpriteState_hk(void *self, int edx, int show) {
+  void *prev = g_current_entity;
+  g_current_entity = self;
+  const int r = g_orig_state(self, edx, show);
+  g_current_entity = prev;
+  return r;
+}
+
 // Lazily detours the actor's set-string method the first time we have a live actor (its address
 // lives in eqgfx and isn't known until an actor exists). Only installs once a text option is on.
 static void ensure_setstr_hook(void *entity) {
   if (g_setstr_installed || !entity) return;
-  if (!g_target_marker && !g_target_health && !g_hide_self) return;
+  if (!g_target_marker && !g_target_health && !g_hide_self && !g_gen_names) return;
   void *actor = *reinterpret_cast<void **>(static_cast<char *>(entity) + kEntActor);
   if (!actor) return;
   void **vt = *reinterpret_cast<void ***>(actor);
@@ -472,13 +623,13 @@ static void ensure_setstr_hook(void *entity) {
 }
 
 static void print_status() {
-  char msg[256];
+  char msg[320];
   std::snprintf(msg, sizeof(msg),
                 "rof2ClientPlus nameplates: concolors=%s | colors=%s | targetcolor=%s | targetblink=%s | "
-                "targetmarker=%s | targethealth=%s | hideself=%s",
+                "targetmarker=%s | targethealth=%s | hideself=%s | gennames=%s",
                 g_con_colors ? "on" : "off", g_state_colors ? "on" : "off", g_target_color ? "on" : "off",
                 g_target_blink ? "on" : "off", g_target_marker ? "on" : "off", g_target_health ? "on" : "off",
-                g_hide_self ? "on" : "off");
+                g_hide_self ? "on" : "off", g_gen_names ? "on" : "off");
   Rcp::Game::print_chat(msg);
 }
 
@@ -503,18 +654,39 @@ NamePlate::NamePlate(RcpService *rcp) : rcp_(rcp) {
                (unsigned)kSetNameSpriteTint, (int)g_con_colors, (int)g_state_colors, (int)g_target_color,
                (int)g_target_blink);
 
-  // The text-setter detour (N2) installs lazily from the tint hook once a live actor exists
-  // (its address is in eqgfx). See ensure_setstr_hook. Nothing to install here.
-  logger::logf("[nameplate] text mods (targetmarker=%d targethealth=%d hideself=%d); setter hook installs in-game",
-               (int)g_target_marker, (int)g_target_health, (int)g_hide_self);
+  // SetNameSpriteState detour: records the entity being drawn so the (actor-only) set-string hook
+  // can resolve it. Cheap and side-effect-free, so install unconditionally.
+  rcp->hooks->Add("nameplate_state", static_cast<int>(kSetNameSpriteState), SetNameSpriteState_hk, hook_type_detour);
+  g_orig_state = rcp->hooks->hook_map["nameplate_state"]->original(SetNameSpriteState_hk);
 
-  // If text options were already enabled from the ini, refresh on first sight of target/self.
-  if (g_target_marker || g_target_health || g_hide_self) mark_text_dirty();
+  // The text-setter detour (N2/N3) installs lazily from the tint hook once a live actor exists
+  // (its address is in eqgfx). See ensure_setstr_hook. Nothing to install here.
+  logger::logf("[nameplate] text mods (targetmarker=%d targethealth=%d hideself=%d gennames=%d); setter installs in-game",
+               (int)g_target_marker, (int)g_target_health, (int)g_hide_self, (int)g_gen_names);
+
+  // If text options were already enabled from the ini, refresh on first sight.
+  if (g_target_marker || g_target_health || g_hide_self || g_gen_names) mark_text_dirty();
+
+  // Intercept /shownames to capture the level (0-7) for our generator, then let the client's own
+  // /shownames run (it rebuilds all nameplates, which re-runs our generation at the new level).
+  rcp->commands_hook->Add("/shownames", {"/showname", "/show"}, "Show names (extended 5-7 with gennames).",
+                          [](std::vector<std::string> &args) {
+                            if (args.size() >= 2) {
+                              if (args[1].rfind("off", 0) == 0)
+                                g_shownames_level = 0;
+                              else {
+                                int v = std::atoi(args[1].c_str());
+                                if (v >= 1 && v <= 7) g_shownames_level = v;
+                              }
+                              clear_player_ring();  // Re-generate every player at the new level.
+                            }
+                            return false;  // Let the client's own /shownames run too.
+                          });
 
   rcp->commands_hook->Add(
       "/rcpnameplate", {"/rcpname"},
       "Nameplate options. '/rcpnameplate <concolors|colors|targetcolor|targetblink|targetmarker|targethealth|"
-      "hideself> [on|off]'.",
+      "hideself|gennames> [on|off]'. gennames enables /shownames 5-7 (title/first/last/guild combos).",
       [](std::vector<std::string> &args) {
         if (args.size() >= 2) {
           const std::string &opt = args[1];
@@ -532,15 +704,18 @@ NamePlate::NamePlate(RcpService *rcp) : rcp_(rcp) {
             set_option(g_target_health, args);
           else if (opt == "hideself")
             set_option(g_hide_self, args);
+          else if (opt == "gennames")
+            set_option(g_gen_names, args);
           else {
             Rcp::Game::print_chat(
-                "Usage: /rcpnameplate <concolors|colors|targetcolor|targetblink|targetmarker|targethealth|hideself> "
-                "[on|off]");
+                "Usage: /rcpnameplate <concolors|colors|targetcolor|targetblink|targetmarker|targethealth|hideself|"
+                "gennames> [on|off]");
             return true;
           }
           // A text-option change won't show until the client rebuilds the nameplate, so force
-          // a rebuild of the target + self on the next frame.
-          if (opt == "targetmarker" || opt == "targethealth" || opt == "hideself") mark_text_dirty();
+          // a rebuild of the target + self (+ players for gennames) on the next frame.
+          if (opt == "targetmarker" || opt == "targethealth" || opt == "hideself" || opt == "gennames")
+            mark_text_dirty();
           save_settings();
         }
         print_status();
