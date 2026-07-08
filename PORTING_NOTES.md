@@ -137,11 +137,27 @@ different (see below), so it stays unconstructed.
    internals (disasm-verified): value@0x218, max@0x220, thumb-scale@0x21c,
    thumb-off@0x224; `GetValue 0x895FE0`, `SetValue 0x8961B0`.
 
-**Still to do (2c):** head-height look-at-target (needs `Orientation_X`/`Pitch@0x30`
-unit: native `Orientation_X = Pitch@0x30 − 8.5`), independent smooth camera
-yaw/pitch (mouse) so you can look around without turning the character,
-character-follows-camera on RMB, world-collision pull-in, and add the chase
-settings to the options window.
+**2c world-collision pull-in (IMPLEMENTED in `chase_cam.cpp`, needs in-game test)** —
+`/rcpchase collision on|off` (off by default). In the positioner, after computing
+the wanted camera pos, cast pivot(playerXY@camZ)→wanted through world geometry and
+pull the camera to the clamp point (×0.9 margin) on a hit. Uses the client's own LOS
+primitive (all disasm-verified, coords are EQ-native **Y,X,Z**):
+- `pCollision = *(void**)0x15D46B0` (SGraphicsEngine+0x14; vtable in eqgraphics.dll
+  base ≥0x10000000 — guard on that before calling).
+- Build info: `CCollisionInfoTargetVisibility` ctor **`0x8D4570`** `__thiscall(info,
+  seg[6]={from.Y,from.X,from.Z,dY,dX,dZ}, excludeEntity=*(void**)0xDD2644, 0)`,
+  ret $0xc; `info` = zeroed ≥0xA0-byte buffer.
+- Test: `blocked = pCollision->vtable[0](pCollision, info)` (nonzero = blocked; or
+  read `info+0x58`).
+- Clamp point: **`0x7A2680`** `__thiscall(info, out[3])` → `out = start + t·dir`
+  (Y,X,Z); `t` inits to 1.0 so out==wanted when clear.
+- Ground-clamp fallback `CDisplay::GetFloorHeight 0x48C5B0`. Region (secondary):
+  `pSceneGraph=*(void**)0x15D46A8`, `GetRegionNumber` = scenegraph vtable byte 0x48.
+
+**Still to do (rest of 2c):** independent smooth camera yaw/pitch (mouse) — note LMB
+already orbits + RMB turns via the native path under 2b — plus head-height
+look-at-target (native `Orientation_X = Pitch@0x30 − 8.5`), zoom-interp smoothing,
+and add the chase settings to the (now-working) options window.
 
 **Phase 3 (later):** `/fov` (SetCameraLens hook in `eqgfx_dx8.dll`
 `t3dSetCameraLens`), self/player click-through (GetClickedActor `0x48B6B0`

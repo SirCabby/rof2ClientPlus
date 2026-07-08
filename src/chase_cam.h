@@ -27,5 +27,6 @@ namespace chase_settings {
 bool get_enabled();
 float get_distance();  // 0 = follow the client's native wheel zoom distance.
 float get_height();    // World-unit Z offset added above the native camera height.
-void set(bool enabled, float distance, float height);  // Applies live + persists.
+bool get_collision();  // Pull the camera in when a wall blocks the view.
+void set(bool enabled, float distance, float height, bool collision);  // Applies live + persists.
 }  // namespace chase_settings

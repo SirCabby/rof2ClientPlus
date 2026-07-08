@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -48,12 +49,50 @@ static constexpr int kCamDirHeading = 0x38;
 typedef void(__fastcall *Cam6Pos_t)(void *self, int edx, void *actor);
 static Cam6Pos_t g_orig_cam6 = nullptr;
 
+// ---- World collision (camera pull-in). The client's own line-of-sight primitive:
+// build a CCollisionInfoTargetVisibility (ctor 0x8D4570), test it against the
+// collision interface (pCollision->vtable[0], nonzero = blocked), then read the
+// clamp point (GetCollisionPoint 0x7A2680). All coords are EQ-native Y,X,Z order. ----
+static void **const kPCollision = reinterpret_cast<void **>(0x15D46B0);  // SGraphicsEngine::pCollision
+static constexpr uintptr_t kCollisionInfoCtor = 0x8D4570;                // __thiscall(info, seg[6], excludeEntity, 0)
+static constexpr uintptr_t kGetCollisionPoint = 0x7A2680;                // __thiscall(info, out[3]) -> start+t*dir
+
+// Casts head->wanted through world geometry (mod coords: x=east y=north z=up).
+// Returns true if blocked; writes the clamp point (== wanted when clear) to out[3].
+static bool collide_world(float fx, float fy, float fz, float tx, float ty, float tz, float out[3]) {
+  void *pcol = *kPCollision;
+  // The collision interface + its vtable live in eqgraphics.dll (base >= 0x10000000);
+  // bail if the graphics engine isn't up yet, so we never call a bad vtable.
+  if (!pcol || *reinterpret_cast<uintptr_t *>(pcol) < 0x10000000) {
+    out[0] = tx;
+    out[1] = ty;
+    out[2] = tz;
+    return false;
+  }
+  float seg[6] = {fy, fx, fz, ty - fy, tx - fx, tz - fz};  // {from.Y,from.X,from.Z, dY,dX,dZ}
+  char info[0xC0];
+  std::memset(info, 0, sizeof(info));
+  reinterpret_cast<void(__thiscall *)(void *, void *, void *, int)>(kCollisionInfoCtor)(info, seg, *kControlled, 0);
+
+  void **vtbl = *reinterpret_cast<void ***>(pcol);
+  const int blocked = reinterpret_cast<int(__thiscall *)(void *, void *)>(vtbl[0])(pcol, info);
+
+  float raw[3];
+  reinterpret_cast<void(__thiscall *)(void *, void *)>(kGetCollisionPoint)(info, raw);
+  out[0] = raw[1];  // x = X
+  out[1] = raw[0];  // y = Y
+  out[2] = raw[2];  // z = Z
+  return blocked != 0;
+}
+
 // ---- Live settings (persisted to rof2ClientPlus.ini [Chase]). Off by default so
 // nothing changes until the user opts in with /rcpchase on, matching mouse_mods. ----
 static bool g_enabled = false;
 static float g_distance = 0.0f;  // 0 = use the native wheel zoom distance.
 static float g_height = 0.0f;    // World-unit Z raise above the native camera height.
+static bool g_collision = false;  // Pull the camera in when a wall blocks the view.
 static int g_log = 0;            // Calibration log budget (dumps native camera state on enable).
+static int g_col_log = 0;        // Collision-pull log budget (verifies the raycast in-game).
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -64,6 +103,7 @@ static void load_settings() {
   if (ini.exists(kIniSection, "Enabled")) g_enabled = ini.getValue<bool>(kIniSection, "Enabled");
   if (ini.exists(kIniSection, "Distance")) g_distance = ini.getValue<float>(kIniSection, "Distance");
   if (ini.exists(kIniSection, "Height")) g_height = ini.getValue<float>(kIniSection, "Height");
+  if (ini.exists(kIniSection, "Collision")) g_collision = ini.getValue<bool>(kIniSection, "Collision");
 }
 
 static void save_settings() {
@@ -71,17 +111,20 @@ static void save_settings() {
   ini.setValue<bool>(kIniSection, "Enabled", g_enabled);
   ini.setValue<float>(kIniSection, "Distance", g_distance);
   ini.setValue<float>(kIniSection, "Height", g_height);
+  ini.setValue<bool>(kIniSection, "Collision", g_collision);
 }
 
 namespace chase_settings {
 bool get_enabled() { return g_enabled; }
 float get_distance() { return g_distance; }
 float get_height() { return g_height; }
-void set(bool enabled, float distance, float height) {
+bool get_collision() { return g_collision; }
+void set(bool enabled, float distance, float height, bool collision) {
   if (enabled && !g_enabled) g_log = 30;  // Fresh enable -> capture calibration frames.
   g_enabled = enabled;
   g_distance = clampf(distance, 0.0f, 100.0f);
   g_height = clampf(height, -20.0f, 60.0f);
+  g_collision = collision;
   save_settings();
 }
 }  // namespace chase_settings
@@ -131,9 +174,30 @@ static void __fastcall Cam6Pos_hk(void *self, int edx, void *actor) {
 
   const float dd = g_distance > 0.0f ? g_distance : nd;  // Target distance along the native ray.
   const float s = dd / nd;
-  *reinterpret_cast<float *>(cam + kCamPosX) = px + ox * s;
-  *reinterpret_cast<float *>(cam + kCamPosY) = py + oy * s;
-  *reinterpret_cast<float *>(cam + kCamPosZ) = nz + g_height;  // native height + optional raise
+  float cam_x = px + ox * s;
+  float cam_y = py + oy * s;
+  float cam_z = nz + g_height;  // native height + optional raise
+
+  // Collision: if world geometry blocks the pivot->camera line, pull the camera in
+  // to the clamp point (kept 10% short of the wall so it doesn't clip through).
+  if (g_collision) {
+    float clamp[3];
+    if (collide_world(px, py, nz, cam_x, cam_y, cam_z, clamp)) {
+      const float margin = 0.9f;
+      if (g_col_log > 0) {
+        logger::logf("[chase] collide wanted=(%.1f,%.1f,%.1f) clamp=(%.1f,%.1f,%.1f)", cam_x, cam_y, cam_z, clamp[0],
+                     clamp[1], clamp[2]);
+        --g_col_log;
+      }
+      cam_x = px + (clamp[0] - px) * margin;
+      cam_y = py + (clamp[1] - py) * margin;
+      cam_z = nz + (clamp[2] - nz) * margin;
+    }
+  }
+
+  *reinterpret_cast<float *>(cam + kCamPosX) = cam_x;
+  *reinterpret_cast<float *>(cam + kCamPosY) = cam_y;
+  *reinterpret_cast<float *>(cam + kCamPosZ) = cam_z;
 }
 
 static void print_status() {
@@ -142,9 +206,9 @@ static void print_status() {
     std::snprintf(dist, sizeof(dist), "%.1f", g_distance);
   else
     std::snprintf(dist, sizeof(dist), "native");
-  char msg[176];
-  std::snprintf(msg, sizeof(msg), "rof2ClientPlus chase cam: %s | distance=%s | height=+%.1f", g_enabled ? "ON" : "OFF",
-                dist, g_height);
+  char msg[192];
+  std::snprintf(msg, sizeof(msg), "rof2ClientPlus chase cam: %s | distance=%s | height=+%.1f | collision=%s",
+                g_enabled ? "ON" : "OFF", dist, g_height, g_collision ? "on" : "off");
   Rcp::Game::print_chat(msg);
 }
 
@@ -161,12 +225,18 @@ ChaseCam::ChaseCam(RcpService *rcp) : rcp_(rcp) {
 
   rcp->commands_hook->Add(
       "/rcpchase", {"/rcpchasecam"},
-      "Third-person chase cam. '/rcpchase on|off', '/rcpchase dist <n|native>', '/rcpchase height <n>'.",
+      "Third-person chase cam. '/rcpchase on|off', '/rcpchase dist <n|native>', '/rcpchase height <n>', "
+      "'/rcpchase collision on|off'.",
       [](std::vector<std::string> &args) {
         try {
           if (args.size() >= 2 && (args[1] == "off" || args[1] == "0")) {
             g_enabled = false;
           } else if (args.size() >= 2 && args[1] == "on") {
+            if (!g_enabled) g_log = 30;
+            g_enabled = true;
+          } else if (args.size() >= 3 && (args[1] == "collision" || args[1] == "collide")) {
+            g_collision = (args[2] == "on" || args[2] == "1");
+            g_col_log = g_collision ? 20 : 0;  // Log the first pull-ins to verify the raycast.
             if (!g_enabled) g_log = 30;
             g_enabled = true;
           } else if (args.size() >= 3 && (args[1] == "dist" || args[1] == "distance")) {
