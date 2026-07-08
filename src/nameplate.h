@@ -26,15 +26,26 @@ class NamePlate {
 };
 
 // Accessors for the options-window UI (Phase N6) to read/write the live settings.
+// (Player-name generation is always active - not a setting.)
 namespace nameplate_settings {
-bool get_con_colors();     // Tint NPCs/other players by con level.
+bool get_con_colors();     // Tint NPCs by con level.
 bool get_state_colors();   // Tint players by guild/AFK/LFG/LD/roleplay/PVP; corpses too.
 bool get_target_color();   // Highlight the current target.
-bool get_target_blink();   // Pulse the target highlight.
+bool get_target_blink();   // Pulse the target's nameplate (any coloring mode, PCs + NPCs).
 bool get_target_marker();  // Wrap the target's name in >> <<.
 bool get_target_health();  // Append the target's HP percent.
 bool get_hide_self();      // Blank your own nameplate (unless it's the target).
-bool get_gen_names();      // Generate player names ourselves (enables /shownames 5-7).
+int get_blink_ms();        // Target-blink full-cycle period (200-3000 ms).
+void set_blink_ms(int ms); // Sets + persists the blink period.
 void set(bool con_colors, bool state_colors, bool target_color, bool target_blink, bool target_marker,
-         bool target_health, bool hide_self, bool gen_names);  // Applies live + persists.
+         bool target_health, bool hide_self);  // Applies live + persists.
 }  // namespace nameplate_settings
+
+// Editable nameplate color palette for the options-window color picker (N6). Each "role"
+// (con levels, player states, target, corpse) maps to an 0xRRGGBB color.
+namespace nameplate_colors {
+int count();                  // Number of editable color roles.
+const char *name(int role);   // Human label for a role (shown in the role selector).
+int get(int role);            // Current 0xRRGGBB color of a role.
+void set(int role, int rgb);  // Set + persist a role's color (applies live).
+}  // namespace nameplate_colors

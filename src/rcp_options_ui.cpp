@@ -1,26 +1,20 @@
-// rof2ClientPlus - options-window UI (stock RoF2 SIDL/EQUI port), full build.
+// rof2ClientPlus - options-window UI (stock RoF2 SIDL/EQUI port), tabbed build.
 #include "rcp_options_ui.h"
 
 #include <windows.h>
 
 #include <cstdint>
-#include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <string>
-#include <system_error>
+#include <cstdio>
 
+#include "chase_cam.h"
 #include "commands.h"
 #include "game_functions.h"
-#include "hook_wrapper.h"
 #include "logger.h"
 #include "mouse_mods.h"
+#include "nameplate.h"
 #include "rcp.h"
 
 // ---- stock RoF2 addresses (eqlib offsets + disasm of the client's own usage) ----
-static constexpr int kLoadSidl = 0x870C60;                // CSidlManagerBase::LoadSidl(Path,Def,File,DefClient)
-static constexpr int kLoadSidlCallSite = 0x496228;        // the in-game UI loader's LoadSidl("EQUI.xml") call (e8)
 static constexpr int kCreateXWnd = 0x870400;              // CSidlManagerBase::CreateXWndFromTemplate(parent,name)
 static constexpr int kGetChildItem = 0x85CFD0;            // CSidlScreenWnd::GetChildItem(name, flag)
 static constexpr int kSliderGetValue = 0x895FE0;          // CSliderWnd::GetValue()
@@ -28,19 +22,21 @@ static constexpr int kSliderSetValue = 0x8961B0;          // CSliderWnd::SetValu
 static constexpr int kCXStrCtor = 0x805C20;               // CXStr::CXStr(const char*)
 static void **const kSidlManager = reinterpret_cast<void **>(0x15D3D08);  // pinstCSidlManager
 static constexpr int kShowVtOffset = 0xD8;                // CXWnd vtable Show() slot
-static constexpr int kCheckedOffset = 0x1E4;             // CButtonWnd::Checked
-static constexpr int kDShowOffset = 0x196;               // CXWnd::dShow (visible flag)
+static constexpr int kCheckedOffset = 0x1E4;              // CButtonWnd::Checked
+static constexpr int kDShowOffset = 0x196;                // CXWnd::dShow (visible flag)
+static constexpr int kCRNormalOffset = 0x12C;             // CXWnd::CRNormal (ARGB text color)
+
+// Stock color picker (eqlib CColorPickerWnd + disasm of the client's own Open
+// call sites, e.g. 0x63fc3f: mov ecx,[0xD1FC64]; push color; push caller;
+// call 0x659AF0). Open = __thiscall(this, CXWnd* caller, D3DCOLOR), ret 0x8.
+static void **const kColorPicker = reinterpret_cast<void **>(0xD1FC64);  // pinstCColorPickerWnd
+static constexpr int kColorPickerOpen = 0x659AF0;
+static constexpr int kPickerCallerOffset = 0x22C;  // CColorPickerWnd::pwndCaller
+static constexpr int kPickerRedOffset = 0x270;     // CColorPickerWnd::RedSliderValue
+static constexpr int kPickerGreenOffset = 0x27C;   // CColorPickerWnd::GreenSliderValue
+static constexpr int kPickerBlueOffset = 0x288;    // CColorPickerWnd::BlueSliderValue
 
 // ---- thin wrappers over the client's __thiscall methods ----
-
-// Stock CXStr = { CStrRep* m_data }; CStrRep->utf8 chars at +0x14. LoadSidl's
-// CXStr args are passed by const ref, so each arg is a CXStr* (guarded read).
-static const char *cxstr_chars(void *cxstr_ref) {
-  if (!cxstr_ref) return nullptr;
-  uintptr_t rep = *reinterpret_cast<uintptr_t *>(cxstr_ref);
-  if (rep < 0x10000 || rep > 0x7fffffff) return nullptr;
-  return reinterpret_cast<char *>(rep + 0x14);
-}
 
 // Constructs a CXStr (4-byte value) in-place from a C string. Leaks the CStrRep
 // (a few bytes, a handful of times) rather than risk a wrong destructor.
@@ -97,6 +93,12 @@ static void show_window(void *wnd, bool show) {
   void *show_fn = *reinterpret_cast<void **>(reinterpret_cast<char *>(vtable) + kShowVtOffset);
   reinterpret_cast<int(__thiscall *)(void *, int, int, int)>(show_fn)(wnd, show ? 1 : 0, 1, 1);
 }
+// Sets a control's normal text color (CXWnd::CRNormal, ARGB). Used to paint the
+// color-role buttons with their live nameplate color (Zeal-style swatch).
+static void set_text_color(void *wnd, int rgb) {
+  if (!wnd) return;
+  *reinterpret_cast<uint32_t *>(reinterpret_cast<char *>(wnd) + kCRNormalOffset) = 0xFF000000u | (rgb & 0xFFFFFF);
+}
 
 // ---- slider <-> setting mappings ----
 // Sensitivity sliders span 0..200 -> 0..20x multiplier (0.1x per step). Smoothing
@@ -117,107 +119,53 @@ static int smooth_to_slider(float s) {
 }
 static float slider_to_smooth(int v) { return v / static_cast<float>(kSmoothSliderMax) * 0.9f; }
 
-// ---- LoadSidl hook: merge our window <Include> into the client's EQUI.xml ----
-namespace fs = std::filesystem;
+// Chase max-zoom slider spans 0..300 world units; 0 means "the native max (53)".
+static constexpr int kChaseDistSliderMax = 300;
+static int chase_dist_to_slider(float d) {
+  if (d <= 0.0f) return 0;
+  int v = static_cast<int>(d + 0.5f);
+  return v < 10 ? 10 : (v > kChaseDistSliderMax ? kChaseDistSliderMax : v);
+}
+static float chase_slider_to_dist(int v) { return v <= 0 ? 0.0f : static_cast<float>(v); }
 
-// Copies the active EQUI.xml, inserting our <Include> before </Composite>, so the
-// client's own loader parses and registers our window. Returns true on success.
-static bool write_merged_equi(const fs::path &src_equi, const fs::path &merged) {
-  std::ifstream in(src_equi);
-  if (!in) return false;
-  std::string content, line;
-  bool inserted = false;
-  while (std::getline(in, line)) {
-    if (!inserted && line.find("</Composite>") != std::string::npos) {
-      content += "  <Include>EQUI_RcpOptions.xml</Include>\n";
-      inserted = true;
-    }
-    content += line + "\n";
-  }
-  in.close();
-  if (!inserted) return false;
-  std::ofstream out(merged);
-  if (!out) return false;
-  out << content;
-  return true;
+// Blink-speed slider: 0..56 -> 200..3000 ms full blink cycle (50 ms per step).
+static constexpr int kBlinkSliderMax = 56;
+static int blink_to_slider(int ms) {
+  int v = (ms - 200) / 50;
+  return v < 0 ? 0 : (v > kBlinkSliderMax ? kBlinkSliderMax : v);
+}
+static int slider_to_blink(int v) { return 200 + v * 50; }
+
+// Nameplate checkbox child names, in the positional order of nameplate_settings::set
+// (also the order np_read_settings fills). Must stay in sync with cb_np_[]/last_np_[].
+static const char *const kNpChildNames[] = {"Rcp_NpConColors",   "Rcp_NpStateColors",  "Rcp_NpTargetColor",
+                                            "Rcp_NpTargetBlink", "Rcp_NpTargetMarker", "Rcp_NpTargetHealth",
+                                            "Rcp_NpHideSelf"};
+static void np_read_settings(bool out[7]) {
+  out[0] = nameplate_settings::get_con_colors();
+  out[1] = nameplate_settings::get_state_colors();
+  out[2] = nameplate_settings::get_target_color();
+  out[3] = nameplate_settings::get_target_blink();
+  out[4] = nameplate_settings::get_target_marker();
+  out[5] = nameplate_settings::get_target_health();
+  out[6] = nameplate_settings::get_hide_self();
 }
 
-typedef void(__fastcall *LoadSidl_t)(void *, int, void *, void *, void *, void *);
-static LoadSidl_t g_orig_loadsidl = nullptr;
+// Tab strip child names (index == tab id used throughout).
+static const char *const kTabChildNames[] = {"Rcp_TabMouse", "Rcp_TabCamera", "Rcp_TabNameplate", "Rcp_TabColors"};
 
-static void __fastcall LoadSidl_hk(void *self, int edx, void *path, void *defpath, void *filename, void *defclient) {
-  LoadSidl_t orig = g_orig_loadsidl;  // Captured at install (main thread); never reads the hook map here.
-  const char *fname = cxstr_chars(filename);
-  if (!fname || _stricmp(fname, "EQUI.xml") != 0) {  // Only the master UI file.
-    orig(self, edx, path, defpath, filename, defclient);
-    return;
-  }
-
-  const char *apath = cxstr_chars(path);
-  const char *dpath = cxstr_chars(defpath);
-  std::error_code ec;
-  fs::path active_dir = apath ? apath : "";
-  fs::path src = active_dir / "EQUI.xml";
-  if (!fs::exists(src, ec) && dpath) src = fs::path(dpath) / "EQUI.xml";
-  fs::path merged = active_dir / "EQUI_Rcp.xml";
-  fs::path opt_dst = active_dir / "EQUI_RcpOptions.xml";
-  fs::path tab_dst = active_dir / "EQUI_Tab_Cam.xml";
-
-  // The merged EQUI carries <Include>EQUI_RcpOptions.xml</Include> (which itself
-  // references EQUI_Tab_Cam.xml), so both must sit next to the merged file for
-  // the client to resolve them. If a partial install left either source out of
-  // uifiles/rcp, skip the merge and load EQUI.xml unmodified -- otherwise the
-  // client hits the dangling <Include> and logs "file not found / Error reading
-  // XML" in UIErrors.txt at login.
-  const fs::path opt_src = "uifiles/rcp/EQUI_RcpOptions.xml";
-  const fs::path tab_src = "uifiles/rcp/EQUI_Tab_Cam.xml";
-  if (!fs::exists(opt_src, ec) || !fs::exists(tab_src, ec)) {
-    logger::logf("[ui] rcp xml source missing (%s / %s); loading EQUI.xml unmodified",
-                 opt_src.string().c_str(), tab_src.string().c_str());
-    orig(self, edx, path, defpath, filename, defclient);
-    return;
-  }
-
-  // When the active UI skin IS our uifiles/rcp folder (the user selected "rcp"
-  // as their skin), active_dir == the source folder, so opt_dst/tab_dst ARE the
-  // source files. Copying would be a self-copy and -- fatally -- the cleanup
-  // below would delete our own EQUI_RcpOptions.xml / EQUI_Tab_Cam.xml out of
-  // uifiles/rcp, breaking every subsequent login. Detect that (same file per
-  // fs::equivalent, robust to case/separators under Wine) and neither copy nor
-  // remove them: the sources are already in place for the client to load.
-  std::error_code same_ec;
-  const bool active_is_rcp_src = fs::equivalent(active_dir, "uifiles/rcp", same_ec) && !same_ec;
-
-  if (write_merged_equi(src, merged)) {
-    if (!active_is_rcp_src) {
-      std::error_code opt_ec, tab_ec;
-      fs::copy_file(opt_src, opt_dst, fs::copy_options::overwrite_existing, opt_ec);
-      fs::copy_file(tab_src, tab_dst, fs::copy_options::overwrite_existing, tab_ec);
-      if (opt_ec || tab_ec) {  // Source vanished mid-load, or perms/disk issue.
-        logger::logf("[ui] rcp xml copy failed (opt=%s tab=%s); loading EQUI.xml unmodified",
-                     opt_ec.message().c_str(), tab_ec.message().c_str());
-        fs::remove(merged, ec);
-        fs::remove(opt_dst, ec);
-        fs::remove(tab_dst, ec);
-        orig(self, edx, path, defpath, filename, defclient);
-        return;
-      }
-    }
-    logger::logf("[ui] injected EQUI_Rcp.xml (from %s)%s", src.string().c_str(),
-                 active_is_rcp_src ? " [rcp skin: sources in place]" : "");
-    uint32_t new_fn;
-    cxstr_init(&new_fn, "EQUI_Rcp.xml");
-    orig(self, edx, path, defpath, &new_fn, defclient);  // Client loads the merged file.
-    fs::remove(merged, ec);
-    if (!active_is_rcp_src) {  // Never delete the sources when they live in uifiles/rcp.
-      fs::remove(opt_dst, ec);
-      fs::remove(tab_dst, ec);
-    }
-  } else {
-    logger::logf("[ui] EQUI merge failed (src=%s); loading unmodified", src.string().c_str());
-    orig(self, edx, path, defpath, filename, defclient);
-  }
-}
+// ---- Window-template delivery (no code in the load path at all) ----
+//
+// The RcpOptions Screen + control defs live INSIDE the shipped
+// uifiles/rcp/EQUI_OptionsWindow.xml override (the custom-UI-skin channel), so
+// the client's own per-file skin fallback parses and registers them during its
+// normal UI load. Nothing here hooks or re-runs any load. Two dead ends, for
+// the record: (1) delivering the window as a separate included file (nested
+// include or an EQUI.xml merge) crashed the client's world-entry UI parse once
+// the window grew past ~a dozen controls (illegal-instruction into .rsrc,
+// c000001d, empty UIErrors); (2) calling LoadSidl(0x870C60) at runtime is
+// destructive, not additive - it clears the SIDL manager and rebuilds from the
+// given root, orphaning every live window's templates.
 
 // ---- RcpOptionsUI ----
 
@@ -228,37 +176,128 @@ void RcpOptionsUI::create_window() {
     logger::log("[ui] CreateWindow: SIDL manager is null");
     return;
   }
+  // The RcpOptions template was registered during the client's own UI load
+  // (it ships inside the EQUI_OptionsWindow.xml override); just instantiate it.
   uint32_t name_cxstr;
   cxstr_init(&name_cxstr, "RcpOptions");
   wnd_ = reinterpret_cast<void *(__thiscall *)(void *, void *, void *)>(kCreateXWnd)(sidlmgr, nullptr, &name_cxstr);
   logger::logf("[ui] CreateXWndFromTemplate('RcpOptions') = %p", wnd_);
   if (!wnd_) return;
 
+  for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = get_child(wnd_, kTabChildNames[i]);
   cb_enabled_ = get_child(wnd_, "Rcp_Enabled");
   cb_lockmouse_ = get_child(wnd_, "Rcp_LockMouse");
   sl_sensx_ = get_child(wnd_, "Rcp_SensX");
   sl_sensy_ = get_child(wnd_, "Rcp_SensY");
   sl_smooth_ = get_child(wnd_, "Rcp_Smooth");
+  lbl_sensx_hdr_ = get_child(wnd_, "Rcp_SensXLabel");
+  lbl_sensy_hdr_ = get_child(wnd_, "Rcp_SensYLabel");
+  lbl_smooth_hdr_ = get_child(wnd_, "Rcp_SmoothLabel");
   lbl_sensx_ = get_child(wnd_, "Rcp_SensXValue");
   lbl_sensy_ = get_child(wnd_, "Rcp_SensYValue");
   lbl_smooth_ = get_child(wnd_, "Rcp_SmoothValue");
-  logger::logf("[ui] controls: enabled=%p lockmouse=%p sensx=%p sensy=%p smooth=%p | lbls=%p,%p,%p", cb_enabled_,
-               cb_lockmouse_, sl_sensx_, sl_sensy_, sl_smooth_, lbl_sensx_, lbl_sensy_, lbl_smooth_);
+  cb_chase_enabled_ = get_child(wnd_, "Rcp_ChaseEnabled");
+  cb_chase_collision_ = get_child(wnd_, "Rcp_ChaseCollision");
+  sl_chase_dist_ = get_child(wnd_, "Rcp_ChaseDist");
+  lbl_chase_dist_hdr_ = get_child(wnd_, "Rcp_ChaseDistLabel");
+  lbl_chase_dist_ = get_child(wnd_, "Rcp_ChaseDistValue");
+  for (int i = 0; i < kNpCount; ++i) cb_np_[i] = get_child(wnd_, kNpChildNames[i]);
+  sl_blink_ = get_child(wnd_, "Rcp_BlinkSpeed");
+  lbl_blink_hdr_ = get_child(wnd_, "Rcp_BlinkSpeedLabel");
+  lbl_blink_ = get_child(wnd_, "Rcp_BlinkSpeedValue");
+  char rolename[16];
+  for (int i = 0; i < kRoleCount; ++i) {
+    std::snprintf(rolename, sizeof(rolename), "Rcp_Role%d", i);
+    btn_role_[i] = get_child(wnd_, rolename);
+  }
+  logger::logf("[ui] controls bound: tabs=%p,%p,%p,%p mouse(en=%p sx=%p) chase(en=%p dist=%p) np0=%p role0=%p",
+               btn_tab_[0], btn_tab_[1], btn_tab_[2], btn_tab_[3], cb_enabled_, sl_sensx_, cb_chase_enabled_,
+               sl_chase_dist_, cb_np_[0], btn_role_[0]);
 
   slider_set_range(sl_sensx_, kSensSliderMax);  // 0..200 -> 0..20x sensitivity.
   slider_set_range(sl_sensy_, kSensSliderMax);
-  slider_set_range(sl_smooth_, kSmoothSliderMax);  // 0..100 -> 0..0.9 smoothing.
+  slider_set_range(sl_smooth_, kSmoothSliderMax);         // 0..100 -> 0..0.9 smoothing.
+  slider_set_range(sl_chase_dist_, kChaseDistSliderMax);  // 0..300 world units (0 = native max).
+  slider_set_range(sl_blink_, kBlinkSliderMax);           // 0..56 -> 200..3000 ms blink cycle.
 
-  show_window(wnd_, false);  // Created hidden; /rcpoptions reveals it.
+  refresh_role_tints();
+  set_active_tab(active_tab_);  // Latch the strip + show only the active group.
+  show_window(wnd_, false);     // Created hidden; /rcpoptions reveals it.
+}
+
+// Latch the tab strip (radio behavior) and show/hide the per-tab groups.
+void RcpOptionsUI::set_active_tab(int tab) {
+  if (tab < 0 || tab >= kTabCount) tab = 0;
+  active_tab_ = tab;
+  for (int i = 0; i < kTabCount; ++i) {
+    checkbox_set(btn_tab_[i], i == tab);
+    last_tab_[i] = (i == tab);
+  }
+  void *mouse[] = {cb_enabled_, lbl_sensx_hdr_,  sl_sensx_,  lbl_sensx_,  lbl_sensy_hdr_, sl_sensy_,
+                   lbl_sensy_,  lbl_smooth_hdr_, sl_smooth_, lbl_smooth_, cb_lockmouse_};
+  void *camera[] = {cb_chase_enabled_, cb_chase_collision_, lbl_chase_dist_hdr_, sl_chase_dist_, lbl_chase_dist_};
+  for (void *w : mouse) show_window(w, tab == 0);
+  for (void *w : camera) show_window(w, tab == 1);
+  for (int i = 0; i < kNpCount; ++i) show_window(cb_np_[i], tab == 2);
+  show_window(lbl_blink_hdr_, tab == 2);
+  show_window(sl_blink_, tab == 2);
+  show_window(lbl_blink_, tab == 2);
+  for (int i = 0; i < kRoleCount; ++i) show_window(btn_role_[i], tab == 3);
+}
+
+// Paint each color-role button's text with its current palette color.
+void RcpOptionsUI::refresh_role_tints() {
+  for (int i = 0; i < kRoleCount; ++i) set_text_color(btn_role_[i], nameplate_colors::get(i));
+}
+
+// Opens the client's stock color picker seeded with the role's current color.
+// Result handling is poll-based (see on_frame): while the picker is visible
+// and was opened by us, its RGB slider values are applied to the role live.
+void RcpOptionsUI::open_color_picker(int role) {
+  void *picker = *kColorPicker;
+  if (!picker) {
+    logger::log("[ui] color picker instance is null");
+    return;
+  }
+  picker_role_ = role;
+  last_picker_rgb_ = nameplate_colors::get(role);
+  reinterpret_cast<int(__thiscall *)(void *, void *, uint32_t)>(kColorPickerOpen)(
+      picker, wnd_, 0xFF000000u | static_cast<uint32_t>(last_picker_rgb_));
+  logger::logf("[ui] color picker opened for role %d (%s)", role, nameplate_colors::name(role));
 }
 
 // Push current settings into the controls (called when opening).
-static void sync_controls_from_settings(void *cb, void *lock, void *sx, void *sy, void *sm) {
-  checkbox_set(cb, mouse_settings::get_enabled());
-  checkbox_set(lock, mouse_settings::get_lock_mouse());
-  slider_set(sx, sens_to_slider(mouse_settings::get_sens_x()));
-  slider_set(sy, sens_to_slider(mouse_settings::get_sens_y()));
-  slider_set(sm, smooth_to_slider(mouse_settings::get_smoothing()));
+void RcpOptionsUI::sync_controls() {
+  checkbox_set(cb_enabled_, mouse_settings::get_enabled());
+  checkbox_set(cb_lockmouse_, mouse_settings::get_lock_mouse());
+  slider_set(sl_sensx_, sens_to_slider(mouse_settings::get_sens_x()));
+  slider_set(sl_sensy_, sens_to_slider(mouse_settings::get_sens_y()));
+  slider_set(sl_smooth_, smooth_to_slider(mouse_settings::get_smoothing()));
+  checkbox_set(cb_chase_enabled_, chase_settings::get_enabled());
+  checkbox_set(cb_chase_collision_, chase_settings::get_collision());
+  slider_set(sl_chase_dist_, chase_dist_to_slider(chase_settings::get_max_distance()));
+  bool np[kNpCount];
+  np_read_settings(np);
+  for (int i = 0; i < kNpCount; ++i) checkbox_set(cb_np_[i], np[i]);
+  slider_set(sl_blink_, blink_to_slider(nameplate_settings::get_blink_ms()));
+  refresh_role_tints();
+}
+
+// Snapshot the current raw control values so the frame poll treats the sync above
+// as the baseline (not a user change) and doesn't overwrite settings next frame.
+void RcpOptionsUI::seed_last_values() {
+  last_enabled_ = checkbox_get(cb_enabled_);
+  last_lockmouse_ = checkbox_get(cb_lockmouse_);
+  last_vx_ = slider_get(sl_sensx_);
+  last_vy_ = slider_get(sl_sensy_);
+  last_vs_ = slider_get(sl_smooth_);
+  last_chase_enabled_ = checkbox_get(cb_chase_enabled_);
+  last_chase_collision_ = checkbox_get(cb_chase_collision_);
+  last_chase_dist_ = slider_get(sl_chase_dist_);
+  for (int i = 0; i < kNpCount; ++i) last_np_[i] = checkbox_get(cb_np_[i]);
+  last_blink_ = slider_get(sl_blink_);
+  for (int i = 0; i < kTabCount; ++i) last_tab_[i] = checkbox_get(btn_tab_[i]);
+  for (int i = 0; i < kRoleCount; ++i) last_role_[i] = checkbox_get(btn_role_[i]);
 }
 
 void RcpOptionsUI::update_labels() {
@@ -269,6 +308,15 @@ void RcpOptionsUI::update_labels() {
   set_label_text(lbl_sensy_, buf);
   std::snprintf(buf, sizeof(buf), "%.2f", mouse_settings::get_smoothing());
   set_label_text(lbl_smooth_, buf);
+  // Chase max zoom shows "native" at 0, else the world-unit value.
+  if (chase_settings::get_max_distance() > 0.0f)
+    std::snprintf(buf, sizeof(buf), "%.0f", chase_settings::get_max_distance());
+  else
+    std::snprintf(buf, sizeof(buf), "native");
+  set_label_text(lbl_chase_dist_, buf);
+  // Blink period in seconds.
+  std::snprintf(buf, sizeof(buf), "%.2fs", nameplate_settings::get_blink_ms() / 1000.0f);
+  set_label_text(lbl_blink_, buf);
 }
 
 void RcpOptionsUI::toggle_window() {
@@ -279,15 +327,10 @@ void RcpOptionsUI::toggle_window() {
   }
   bool make_visible = !is_visible(wnd_);
   if (make_visible) {
-    sync_controls_from_settings(cb_enabled_, cb_lockmouse_, sl_sensx_, sl_sensy_, sl_smooth_);
+    sync_controls();
     update_labels();
-    // Seed the last-seen values so the poll doesn't treat this sync as a user
-    // change and overwrite the settings on the next frame.
-    last_enabled_ = checkbox_get(cb_enabled_);
-    last_lockmouse_ = checkbox_get(cb_lockmouse_);
-    last_vx_ = slider_get(sl_sensx_);
-    last_vy_ = slider_get(sl_sensy_);
-    last_vs_ = slider_get(sl_smooth_);
+    set_active_tab(active_tab_);  // Re-assert group visibility + tab latches.
+    seed_last_values();           // Baseline so the poll doesn't read the sync as a user change.
   }
   show_window(wnd_, make_visible);
 }
@@ -298,6 +341,13 @@ void RcpOptionsUI::on_frame() {
   // ever dereferencing a destroyed window; they are rebuilt on next /rcpoptions.
   if (!Rcp::Game::is_in_game()) {
     wnd_ = cb_enabled_ = cb_lockmouse_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
+    lbl_sensx_hdr_ = lbl_sensy_hdr_ = lbl_smooth_hdr_ = lbl_sensx_ = lbl_sensy_ = lbl_smooth_ = nullptr;
+    cb_chase_enabled_ = cb_chase_collision_ = sl_chase_dist_ = lbl_chase_dist_hdr_ = lbl_chase_dist_ = nullptr;
+    sl_blink_ = lbl_blink_hdr_ = lbl_blink_ = nullptr;
+    for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
+    for (int i = 0; i < kNpCount; ++i) cb_np_[i] = nullptr;
+    for (int i = 0; i < kRoleCount; ++i) btn_role_[i] = nullptr;
+    picker_role_ = -1;
     create_attempted_ = false;
     return;
   }
@@ -305,6 +355,18 @@ void RcpOptionsUI::on_frame() {
   // NOT gate on is_visible: a hidden window's controls simply don't change, so
   // polling them is harmless, and it avoids depending on the visibility flag.
   if (!wnd_) return;
+
+  // Tab strip: any checked-state change switches to (or re-latches) a tab.
+  for (int i = 0; i < kTabCount; ++i) {
+    bool c = checkbox_get(btn_tab_[i]);
+    if (c == last_tab_[i]) continue;
+    if (c && i != active_tab_) {
+      set_active_tab(i);  // Also rewrites every last_tab_.
+    } else {
+      set_active_tab(active_tab_);  // Unchecked the active tab (or re-check) -> re-latch.
+    }
+    break;  // set_active_tab refreshed the whole strip; stop scanning stale state.
+  }
 
   bool en = checkbox_get(cb_enabled_);
   bool lock = checkbox_get(cb_lockmouse_);
@@ -324,20 +386,81 @@ void RcpOptionsUI::on_frame() {
   last_vx_ = vx;
   last_vy_ = vy;
   last_vs_ = vs;
+
+  // Chase camera: push all settings only when the user moved a chase control,
+  // so the /rcpchase command stays authoritative otherwise (same rule as mouse).
+  bool cen = checkbox_get(cb_chase_enabled_), ccol = checkbox_get(cb_chase_collision_);
+  int cd = slider_get(sl_chase_dist_);
+  if (cen != last_chase_enabled_ || ccol != last_chase_collision_ || cd != last_chase_dist_) {
+    chase_settings::set(cen, chase_slider_to_dist(cd), ccol);
+    update_labels();
+  }
+  last_chase_enabled_ = cen;
+  last_chase_collision_ = ccol;
+  last_chase_dist_ = cd;
+
+  // Nameplates: any checkbox change re-applies all eight (nameplate_settings::set
+  // takes them positionally and refreshes the affected text/tint itself).
+  bool np[kNpCount];
+  bool np_changed = false;
+  for (int i = 0; i < kNpCount; ++i) {
+    np[i] = checkbox_get(cb_np_[i]);
+    if (np[i] != last_np_[i]) np_changed = true;
+  }
+  if (np_changed) {
+    nameplate_settings::set(np[0], np[1], np[2], np[3], np[4], np[5], np[6]);
+    for (int i = 0; i < kNpCount; ++i) last_np_[i] = np[i];
+  }
+
+  // Blink speed: its own setting with its own setter (like cursor-lock).
+  int bl = slider_get(sl_blink_);
+  if (bl != last_blink_) {
+    nameplate_settings::set_blink_ms(slider_to_blink(bl));
+    update_labels();
+    last_blink_ = bl;
+  }
+
+  // Color-role buttons: a click (checked-state change) opens the stock color
+  // picker for that role; the button itself stays unlatched (momentary).
+  for (int i = 0; i < kRoleCount; ++i) {
+    bool c = checkbox_get(btn_role_[i]);
+    if (c != last_role_[i]) {
+      checkbox_set(btn_role_[i], false);
+      last_role_[i] = false;
+      if (c) open_color_picker(i);
+    }
+  }
+
+  // Stock color picker session: while it is visible and was opened by us, apply
+  // its RGB slider values to the selected role live (nameplates recolor as the
+  // user drags). When it closes (Accept or Cancel), the last shown color stays.
+  if (picker_role_ >= 0) {
+    void *picker = *kColorPicker;
+    char *p = static_cast<char *>(picker);
+    if (!picker || !is_visible(picker) || *reinterpret_cast<void **>(p + kPickerCallerOffset) != wnd_) {
+      picker_role_ = -1;
+    } else {
+      auto clamp255 = [](int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); };
+      int r = clamp255(*reinterpret_cast<int *>(p + kPickerRedOffset));
+      int g = clamp255(*reinterpret_cast<int *>(p + kPickerGreenOffset));
+      int b = clamp255(*reinterpret_cast<int *>(p + kPickerBlueOffset));
+      int rgb = (r << 16) | (g << 8) | b;
+      if (rgb != last_picker_rgb_) {
+        nameplate_colors::set(picker_role_, rgb);
+        set_text_color(btn_role_[picker_role_], rgb);
+        last_picker_rgb_ = rgb;
+      }
+    }
+  }
 }
 
 RcpOptionsUI::RcpOptionsUI(RcpService *rcp) {
-  // Hook the specific EQUI.xml LoadSidl CALL SITE (the in-game UI loader at
-  // 0x496228), not LoadSidl globally. That call site runs only in-game (world
-  // entry / UI reload), so we catch the injection there and fire during the
-  // world-load - while NEVER touching the char-select UI-load path (hooking
-  // LoadSidl globally corrupted at char select).
-  rcp->hooks->Add("ui_loadsidl", kLoadSidlCallSite, LoadSidl_hk, hook_type_replace_call);
-  g_orig_loadsidl = reinterpret_cast<LoadSidl_t>(rcp->hooks->hook_map["ui_loadsidl"]->original(LoadSidl_hk));
-  logger::logf("[ui] LoadSidl call-site hook installed (0x%x)", kLoadSidlCallSite);
-
+  // No hooks: the window's SIDL templates arrive via the EQUI_OptionsWindow.xml
+  // override during the client's own UI load, and the stock color picker is
+  // driven by polling. This module never touches any load path.
   rcp->commands_hook->Add("/rcpoptions", {"/rcpopts"}, "Opens or closes the rof2ClientPlus options window.",
                           [this](std::vector<std::string> &args) {
+                            (void)args;
                             toggle_window();
                             return true;
                           });

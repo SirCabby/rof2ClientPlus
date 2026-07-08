@@ -10,13 +10,16 @@
 #include "io_ini.h"
 #include "rcp.h"
 
-// Required rof2ClientPlus XML files. EQUI_RcpOptions.xml is merged into the
-// client UI.xml by UIManager; it defines our standalone options window whose
-// visibility is synced to the stock Options window.
-static constexpr std::array<const char *, 1> kRcpXmlUiFiles = {"EQUI_RcpOptions.xml"};
-// Tab files are referenced from EQUI_RcpOptions.xml (not the client UI.xml).
-// XMLRead redirects their load to the uifiles/rcp folder.
-static constexpr std::array<const char *, 1> kRcpXmlTabFiles = {"EQUI_Tab_Cam.xml"};
+// Standalone rof2ClientPlus XML files merged into the client UI.xml.
+// NONE: the RcpOptions window's defs ride inside the EQUI_OptionsWindow.xml
+// override below (delivering them as a separate included file crashed the
+// client's world-entry UI parse; see tools/gen_rcp_options_ui.py).
+static constexpr std::array<const char *, 0> kRcpXmlUiFiles = {};
+// Tab files referenced from EQUI_RcpOptions.xml via its own nested include.
+// NONE: EQUI_RcpOptions.xml is self-contained (defs + Screen in one file, like
+// every stock window). A nested <Composite><Include> corrupted the client's UI
+// loader once the window grew past ~a dozen controls - do not reintroduce one.
+static constexpr std::array<const char *, 0> kRcpXmlTabFiles = {};
 // Override copies of stock client windows shipped in uifiles/rcp. These share
 // the default files' names, so UIManager drops the client UI.xml's own
 // <Include> for each (WriteTemporaryUI treats them as duplicates) and re-adds

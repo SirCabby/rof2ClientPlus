@@ -88,26 +88,71 @@ static constexpr int kActorNameShownVtableIndex = 0x1a4 / 4;
 // 0x58be90 wrapper is only used in extended mode, which stock RoF2 isn't in by default.
 static constexpr int kActorSetStringVtableIndex = 0x18c / 4;
 
-// ---- Default colors (0xRRGGBB). Hardcoded for N1; wired to the options window in N6.
-// The con colors mirror the get_con_* defaults already used in game_functions.cpp. ----
-static constexpr int kColWhite = 0xf0f0f0;
-static constexpr int kColRed = 0xf00000;
-static constexpr int kColBlue = 0x0040f0;
-static constexpr int kColYellow = 0xf0f000;
-static constexpr int kColLightBlue = 0x00f0f0;
-static constexpr int kColGreen = 0x00f000;
+// ---- Nameplate color palette (0xRRGGBB). Each role is user-editable from the options window
+// (N6); defaults preserve the original hardcoded look, and the con colors mirror the get_con_*
+// defaults in game_functions.cpp. Persisted to rof2ClientPlus.ini [NameplateColors]. The three
+// parallel arrays below are all indexed by NpColorRole - keep them in the same order. ----
+enum NpColorRole {
+  kRoleConEven = 0,   // NPC same level
+  kRoleConYellow,     // NPC 1-2 above
+  kRoleConRed,        // NPC 3+ above
+  kRoleConGreen,      // NPC far below
+  kRoleConLightBlue,  // NPC below
+  kRoleConBlue,       // NPC slightly below
+  kRoleTarget,        // current target
+  kRolePVP,           // PvP-flagged player
+  kRoleAFK,           // AFK player
+  kRoleLD,            // linkdead player
+  kRoleLFG,           // looking-for-group player
+  kRoleGroup,         // group member
+  kRoleRaid,          // raid member
+  kRoleRoleplay,      // roleplaying player
+  kRoleMyGuild,       // your guild
+  kRoleCorpse,        // corpse
+  kNpColorCount
+};
+// (No "other guild" role: players with no special state keep the client's default color.)
 
-static constexpr int kColAFK = 0x808080;
-static constexpr int kColLFG = 0xf0f000;
-static constexpr int kColLD = 0x606060;
-static constexpr int kColRole = 0xf000f0;
-static constexpr int kColPVP = 0xf00000;
-static constexpr int kColGroup = 0x40a0ff;  // Sky blue.
-static constexpr int kColRaid = 0xb060ff;   // Purple.
-static constexpr int kColMyGuild = 0x00f000;
-static constexpr int kColOtherGuild = 0xf0f0f0;
-static constexpr int kColCorpse = 0x909090;
-static constexpr int kColTarget = 0xff8000;  // Orange: deliberately asymmetric to verify byte order.
+static int g_colors[kNpColorCount] = {
+    0xf0f0f0,  // ConEven (white)
+    0xf0f000,  // ConYellow
+    0xf00000,  // ConRed
+    0x00f000,  // ConGreen
+    0x00f0f0,  // ConLightBlue
+    0x0040f0,  // ConBlue
+    0xff8000,  // Target (orange)
+    0xf00000,  // PVP
+    0x808080,  // AFK
+    0x606060,  // LD
+    0xf0f000,  // LFG
+    0x40a0ff,  // Group (sky blue)
+    0xb060ff,  // Raid (purple)
+    0xf000f0,  // Roleplay
+    0x00f000,  // MyGuild
+    0x909090,  // Corpse
+};
+
+// Human labels for the options-window color buttons (index == NpColorRole).
+// MUST stay in sync with ROLES in tools/gen_rcp_options_ui.py (same order).
+static const char *const kNpColorNames[kNpColorCount] = {
+    "Con: even", "Con: yellow", "Con: red", "Con: green", "Con: light blue", "Con: blue",
+    "Target",    "PvP",         "AFK",      "Linkdead",   "LFG",             "Group",
+    "Raid",      "Roleplay",    "My guild", "Corpse",
+};
+
+// ini keys under [NameplateColors] (index == NpColorRole). Stored as RRGGBB hex.
+static const char *const kNpColorIniKeys[kNpColorCount] = {
+    "ConEven", "ConYellow", "ConRed", "ConGreen", "ConLightBlue", "ConBlue", "Target", "PVP", "AFK",
+    "LD",      "LFG",       "Group",  "Raid",     "Roleplay",     "MyGuild", "Corpse",
+};
+static constexpr char kIniColorSection[] = "NameplateColors";
+
+// Parses "RRGGBB" (optionally "#RRGGBB") hex into an 0xRRGGBB int (masked to 24 bits).
+static int parse_hex_color(const std::string &s) {
+  const char *p = s.c_str();
+  if (*p == '#') ++p;
+  return static_cast<int>(std::strtoul(p, nullptr, 16) & 0xffffff);
+}
 
 // ---- Live settings (persisted to rof2ClientPlus.ini [Nameplate]). Off by default so
 // nothing changes until the user opts in, matching chase_cam / mouse_mods. ----
@@ -120,9 +165,10 @@ static bool g_target_blink = false;
 static bool g_target_marker = false;  // Wrap the target's name in >> <<.
 static bool g_target_health = false;  // Append the target's HP percent.
 static bool g_hide_self = false;      // Blank your own nameplate (unless it's the target).
-// Name generation (N3): regenerate player names ourselves so /shownames can pick fine-grained
-// combinations of title / first / last / guild (levels 5-7) that the stock client can't render.
-static bool g_gen_names = false;
+// Target-blink period in ms (full dim-and-back cycle). Shared by every coloring mode.
+static int g_blink_ms = 1200;
+// Name generation (N3) is ALWAYS active (was an option; the generated names mirror the client's
+// look at /shownames 1-4 and unlock the extended 5-7 combos, so there is no reason to opt out).
 static int g_shownames_level = -1;    // Captured from /shownames (0-7); -1 = mirror the client's level.
 
 // Forced text-rebuild bookkeeping (N2). The client rebuilds nameplate text lazily, so we
@@ -135,7 +181,7 @@ static void *g_prev_target = nullptr;                // Prior target awaiting a 
 static int g_last_target_hp = -1;                    // Target HP% we last rendered (for targethealth).
 static bool g_self_dirty = false;                    // Self nameplate needs one rebuild (toggle of hideself).
 
-// Ring of player actors we've already rebuilt once with generated names (so a gennames/shownames
+// Ring of player actors we've already rebuilt once with generated names (so a /shownames
 // change refreshes each player a single time, not every frame). Cleared to force a full refresh.
 static void *g_player_refreshed[64] = {nullptr};
 static int g_player_ring_pos = 0;
@@ -173,7 +219,21 @@ static void load_settings() {
   if (ini.exists(kIniSection, "TargetMarker")) g_target_marker = ini.getValue<bool>(kIniSection, "TargetMarker");
   if (ini.exists(kIniSection, "TargetHealth")) g_target_health = ini.getValue<bool>(kIniSection, "TargetHealth");
   if (ini.exists(kIniSection, "HideSelf")) g_hide_self = ini.getValue<bool>(kIniSection, "HideSelf");
-  if (ini.exists(kIniSection, "GenNames")) g_gen_names = ini.getValue<bool>(kIniSection, "GenNames");
+  if (ini.exists(kIniSection, "BlinkMs")) g_blink_ms = ini.getValue<int>(kIniSection, "BlinkMs");
+  if (g_blink_ms < 200) g_blink_ms = 200;
+  if (g_blink_ms > 3000) g_blink_ms = 3000;
+  for (int i = 0; i < kNpColorCount; ++i)
+    if (ini.exists(kIniColorSection, kNpColorIniKeys[i]))
+      g_colors[i] = parse_hex_color(ini.getValue<std::string>(kIniColorSection, kNpColorIniKeys[i]));
+}
+
+// Persists a single palette entry as RRGGBB hex under [NameplateColors].
+static void save_color(int role) {
+  if (role < 0 || role >= kNpColorCount) return;
+  IO_ini ini(IO_ini::kRcpIniFilename);
+  char buf[8];
+  std::snprintf(buf, sizeof(buf), "%06X", g_colors[role] & 0xffffff);
+  ini.setValue<std::string>(kIniColorSection, kNpColorIniKeys[role], buf);
 }
 
 static void save_settings() {
@@ -185,7 +245,7 @@ static void save_settings() {
   ini.setValue<bool>(kIniSection, "TargetMarker", g_target_marker);
   ini.setValue<bool>(kIniSection, "TargetHealth", g_target_health);
   ini.setValue<bool>(kIniSection, "HideSelf", g_hide_self);
-  ini.setValue<bool>(kIniSection, "GenNames", g_gen_names);
+  ini.setValue<int>(kIniSection, "BlinkMs", g_blink_ms);
 }
 
 namespace nameplate_settings {
@@ -196,9 +256,19 @@ bool get_target_blink() { return g_target_blink; }
 bool get_target_marker() { return g_target_marker; }
 bool get_target_health() { return g_target_health; }
 bool get_hide_self() { return g_hide_self; }
-bool get_gen_names() { return g_gen_names; }
+int get_blink_ms() { return g_blink_ms; }
+void set_blink_ms(int ms) {
+  g_blink_ms = ms < 200 ? 200 : (ms > 3000 ? 3000 : ms);
+  save_settings();
+}
 void set(bool con_colors, bool state_colors, bool target_color, bool target_blink, bool target_marker,
-         bool target_health, bool hide_self, bool gen_names) {
+         bool target_health, bool hide_self) {
+  // A text-affecting option (marker/health/hideself) only becomes visible once the client
+  // rebuilds the nameplate, so force a refresh if any of them changed - matching what the
+  // /rcpnameplate command does. Color options apply through the per-frame tint hook and
+  // need no rebuild.
+  const bool text_changed =
+      target_marker != g_target_marker || target_health != g_target_health || hide_self != g_hide_self;
   g_con_colors = con_colors;
   g_state_colors = state_colors;
   g_target_color = target_color;
@@ -206,19 +276,32 @@ void set(bool con_colors, bool state_colors, bool target_color, bool target_blin
   g_target_marker = target_marker;
   g_target_health = target_health;
   g_hide_self = hide_self;
-  g_gen_names = gen_names;
   save_settings();
+  if (text_changed) mark_text_dirty();
 }
 }  // namespace nameplate_settings
+
+namespace nameplate_colors {
+int count() { return kNpColorCount; }
+const char *name(int role) { return (role >= 0 && role < kNpColorCount) ? kNpColorNames[role] : ""; }
+int get(int role) { return (role >= 0 && role < kNpColorCount) ? g_colors[role] : 0; }
+void set(int role, int rgb) {
+  if (role < 0 || role >= kNpColorCount) return;
+  g_colors[role] = rgb & 0xffffff;
+  save_color(role);
+  // Con/state/target tints are re-applied every frame from the tint hook, so the new color shows
+  // immediately - no text rebuild needed.
+}
+}  // namespace nameplate_colors
 
 // ---- Con color: reproduces the level-band table from Rcp::Game::GetLevelCon locally so
 // this module stays self-contained (that function reaches through get_user_color / the
 // unconstructed options UI, which is unsafe in this build). Returns an 0xRRGGBB color. ----
 static int con_color(int my_level, int ent_level) {
   const int diff = ent_level - my_level;
-  if (diff == 0) return kColWhite;
-  if (diff >= 1 && diff <= 2) return kColYellow;
-  if (diff >= 3) return kColRed;
+  if (diff == 0) return g_colors[kRoleConEven];
+  if (diff >= 1 && diff <= 2) return g_colors[kRoleConYellow];
+  if (diff >= 3) return g_colors[kRoleConRed];
 
   // diff <= -1: the green / light-blue thresholds widen with the viewer's level. Table of
   // {max viewer level, green if diff<=g, light-blue if diff<=lb, else blue}. When lb==g the
@@ -240,9 +323,9 @@ static int con_color(int my_level, int ent_level) {
       break;
     }
   }
-  if (diff <= green) return kColGreen;
-  if (diff <= light_blue) return kColLightBlue;
-  return kColBlue;
+  if (diff <= green) return g_colors[kRoleConGreen];
+  if (diff <= light_blue) return g_colors[kRoleConLightBlue];
+  return g_colors[kRoleConBlue];
 }
 
 // State color for the "colors" mode. Returns 0 (no custom color) when nothing applies, so
@@ -282,28 +365,31 @@ static bool is_raid_member(char *ent) {
 }
 
 static int state_color(char *ent, uint8_t type) {
-  if (type == kTypeCorpse) return kColCorpse;
+  if (type == kTypeCorpse) return g_colors[kRoleCorpse];
   if (type != kTypePlayer) return 0;  // NPC pet group/raid coloring is a later step.
 
-  if (*reinterpret_cast<uint8_t *>(ent + kEntPvP)) return kColPVP;
-  if (*reinterpret_cast<int *>(ent + kEntAFK)) return kColAFK;
-  if (*reinterpret_cast<uint8_t *>(ent + kEntLinkdead)) return kColLD;
-  if (*reinterpret_cast<uint8_t *>(ent + kEntLFG)) return kColLFG;
-  if (is_group_member(ent)) return kColGroup;  // Group takes priority over raid (Zeal order).
-  if (is_raid_member(ent)) return kColRaid;
-  if (*reinterpret_cast<int *>(ent + kEntAnon) == 2) return kColRole;  // roleplay
+  if (*reinterpret_cast<uint8_t *>(ent + kEntPvP)) return g_colors[kRolePVP];
+  if (*reinterpret_cast<int *>(ent + kEntAFK)) return g_colors[kRoleAFK];
+  if (*reinterpret_cast<uint8_t *>(ent + kEntLinkdead)) return g_colors[kRoleLD];
+  if (*reinterpret_cast<uint8_t *>(ent + kEntLFG)) return g_colors[kRoleLFG];
+  if (is_group_member(ent)) return g_colors[kRoleGroup];  // Group takes priority over raid (Zeal order).
+  if (is_raid_member(ent)) return g_colors[kRoleRaid];
+  if (*reinterpret_cast<int *>(ent + kEntAnon) == 2) return g_colors[kRoleRoleplay];  // roleplay
 
   const int guild = *reinterpret_cast<int32_t *>(ent + kEntGuildID);
   if (guild == -1) return 0;  // Unguilded, no special state: keep the client's default color.
   void *self = *kSelf;
   const int my_guild = self ? *reinterpret_cast<int32_t *>(static_cast<char *>(self) + kEntGuildID) : -1;
-  return (guild == my_guild) ? kColMyGuild : kColOtherGuild;
+  // Only YOUR guild gets a highlight; other players keep the client's default color.
+  return (guild == my_guild) ? g_colors[kRoleMyGuild] : 0;
 }
 
-// Pulses a color toward dim and back (~1.2s period) for the blinking target highlight.
-// Self-contained (own clock); shares no state with the client's fade.
+// Pulses a color toward dim and back for the blinking target highlight. The full cycle
+// takes g_blink_ms (user-set, shared by every coloring mode). Self-contained (own clock);
+// replaces the client's fade, which for targeted PCs is far too rapid.
 static int blink(int rgb) {
-  const float phase = (GetTickCount() % 1200) / 1200.0f;
+  const unsigned period = static_cast<unsigned>(g_blink_ms);
+  const float phase = (GetTickCount() % period) / static_cast<float>(period);
   const float f = 0.4f + 0.6f * (0.5f + 0.5f * std::cos(phase * 6.2831853f));  // 0.4 .. 1.0
   const int r = static_cast<int>(((rgb >> 16) & 0xff) * f);
   const int g = static_cast<int>(((rgb >> 8) & 0xff) * f);
@@ -328,7 +414,8 @@ static void apply_tint(void *actor, int rgb) {
 // Computes + applies our tint for one entity. Returns true if we applied a custom color
 // (caller then reports the tint as handled), false to let the client's own tint run.
 static bool handle_tint(void *entity) {
-  if (!g_con_colors && !g_state_colors && !g_target_color) return false;  // Fast bail: nothing enabled.
+  if (!g_con_colors && !g_state_colors && !g_target_color && !g_target_blink)
+    return false;  // Fast bail: nothing enabled.
   if (!entity) return false;
   void *actor = *reinterpret_cast<void **>(static_cast<char *>(entity) + kEntActor);
   if (!actor) return false;  // Mirror the client's own entry guard (no actor -> it returns 0).
@@ -340,13 +427,20 @@ static bool handle_tint(void *entity) {
 
   int rgb = 0;  // 0 = no custom color chosen.
   bool is_target = (entity == target);
-  if (g_target_color && is_target) {
-    rgb = g_target_blink ? blink(kColTarget) : kColTarget;
-  }
+  if (g_target_color && is_target) rgb = g_colors[kRoleTarget];
   if (!rgb && g_state_colors) rgb = state_color(ent, type);
   if (!rgb && g_con_colors && type == kTypeNPC) {  // Con colors apply to NPCs only, not players.
     const int my_level = self ? *reinterpret_cast<uint8_t *>(static_cast<char *>(self) + kEntLevel) : 0;
     rgb = con_color(my_level, *reinterpret_cast<uint8_t *>(ent + kEntLevel));
+  }
+
+  // Target blink applies in EVERY mode, PCs and NPCs alike: pulse whatever color the target's
+  // nameplate would otherwise show. When no coloring mode claims it, pulse an approximation of
+  // the client's default (cyan players / white NPCs / gray corpses) - taking the tint over also
+  // replaces the client's own too-rapid target fade.
+  if (g_target_blink && is_target) {
+    if (!rgb) rgb = (type == kTypePlayer) ? 0x00f0f0 : (type == kTypeCorpse ? 0x909090 : 0xf0f0f0);
+    rgb = blink(rgb);
   }
   if (!rgb) return false;  // Nothing to override; fall through to the client default.
 
@@ -452,7 +546,6 @@ static const char *generate_player_name(char *ent) {
 // SetNameSpriteState hook) so we have the full entity, not just the actor. Returns a pointer into
 // a static buffer, or nullptr to leave `text` unchanged. POD-bodied for rcp_guard.
 static const char *transform_entity(void *actor, const char *text) {
-  if (!g_target_marker && !g_target_health && !g_hide_self && !g_gen_names) return nullptr;  // Fast bail.
   if (!actor || !text) return nullptr;
 
   void *entity = g_current_entity;
@@ -469,9 +562,10 @@ static const char *transform_entity(void *actor, const char *text) {
     return empty;
   }
 
-  // For players, optionally regenerate the whole name line from entity fields per shownames level.
+  // For players, regenerate the whole name line from entity fields per shownames level
+  // (always on: mirrors the client at levels 1-4, unlocks the extended 5-7 combos).
   const char *base = text;
-  if (g_gen_names && type == kTypePlayer && *kShowNamesLevel > 0) base = generate_player_name(ent);
+  if (type == kTypePlayer && *kShowNamesLevel > 0) base = generate_player_name(ent);
 
   // Target embellishments: >>Name NN%<<. Decorate ONLY the first line (keeps any extra client
   // line, e.g. a pet's "(Owner's Pet)" line, after the "<<") so the marker wraps just the name.
@@ -517,7 +611,6 @@ static void force_state(void *entity) {
 // modify changed (target identity, target HP%, or a hideself toggle), force a text rebuild.
 // POD-bodied for rcp_guard.
 static void maybe_refresh_text(void *entity) {
-  if (!g_target_marker && !g_target_health && !g_hide_self && !g_gen_names) return;  // Fast bail.
   if (!entity) return;
 
   void *target = *kTarget;
@@ -553,9 +646,9 @@ static void maybe_refresh_text(void *entity) {
     force_state(entity);
   }
 
-  // Generated names: rebuild each player once (ring-buffered) so a gennames/shownames change is
+  // Generated names: rebuild each player once (ring-buffered) so a shownames change is
   // visible immediately, without waiting for the client to naturally re-set each player's name.
-  if (g_gen_names && *reinterpret_cast<uint8_t *>(static_cast<char *>(entity) + kEntType) == kTypePlayer) {
+  if (*reinterpret_cast<uint8_t *>(static_cast<char *>(entity) + kEntType) == kTypePlayer) {
     void *actor = *reinterpret_cast<void **>(static_cast<char *>(entity) + kEntActor);
     if (actor && !player_recently_refreshed(actor)) {
       mark_player_refreshed(actor);
@@ -604,10 +697,10 @@ static int __fastcall SetNameSpriteState_hk(void *self, int edx, int show) {
 }
 
 // Lazily detours the actor's set-string method the first time we have a live actor (its address
-// lives in eqgfx and isn't known until an actor exists). Only installs once a text option is on.
+// lives in eqgfx and isn't known until an actor exists). Always installs: name generation is
+// always active, so the text seam is always needed.
 static void ensure_setstr_hook(void *entity) {
   if (g_setstr_installed || !entity) return;
-  if (!g_target_marker && !g_target_health && !g_hide_self && !g_gen_names) return;
   void *actor = *reinterpret_cast<void **>(static_cast<char *>(entity) + kEntActor);
   if (!actor) return;
   void **vt = *reinterpret_cast<void ***>(actor);
@@ -625,11 +718,11 @@ static void ensure_setstr_hook(void *entity) {
 static void print_status() {
   char msg[320];
   std::snprintf(msg, sizeof(msg),
-                "rof2ClientPlus nameplates: concolors=%s | colors=%s | targetcolor=%s | targetblink=%s | "
-                "targetmarker=%s | targethealth=%s | hideself=%s | gennames=%s",
+                "rof2ClientPlus nameplates: concolors=%s | colors=%s | targetcolor=%s | targetblink=%s "
+                "(%dms) | targetmarker=%s | targethealth=%s | hideself=%s",
                 g_con_colors ? "on" : "off", g_state_colors ? "on" : "off", g_target_color ? "on" : "off",
-                g_target_blink ? "on" : "off", g_target_marker ? "on" : "off", g_target_health ? "on" : "off",
-                g_hide_self ? "on" : "off", g_gen_names ? "on" : "off");
+                g_target_blink ? "on" : "off", g_blink_ms, g_target_marker ? "on" : "off",
+                g_target_health ? "on" : "off", g_hide_self ? "on" : "off");
   Rcp::Game::print_chat(msg);
 }
 
@@ -661,15 +754,15 @@ NamePlate::NamePlate(RcpService *rcp) : rcp_(rcp) {
 
   // The text-setter detour (N2/N3) installs lazily from the tint hook once a live actor exists
   // (its address is in eqgfx). See ensure_setstr_hook. Nothing to install here.
-  logger::logf("[nameplate] text mods (targetmarker=%d targethealth=%d hideself=%d gennames=%d); setter installs in-game",
-               (int)g_target_marker, (int)g_target_health, (int)g_hide_self, (int)g_gen_names);
+  logger::logf("[nameplate] text mods (targetmarker=%d targethealth=%d hideself=%d); setter installs in-game",
+               (int)g_target_marker, (int)g_target_health, (int)g_hide_self);
 
-  // If text options were already enabled from the ini, refresh on first sight.
-  if (g_target_marker || g_target_health || g_hide_self || g_gen_names) mark_text_dirty();
+  // Name generation is always active, so always refresh nameplate text on first sight.
+  mark_text_dirty();
 
   // Intercept /shownames to capture the level (0-7) for our generator, then let the client's own
   // /shownames run (it rebuilds all nameplates, which re-runs our generation at the new level).
-  rcp->commands_hook->Add("/shownames", {"/showname", "/show"}, "Show names (extended 5-7 with gennames).",
+  rcp->commands_hook->Add("/shownames", {"/showname", "/show"}, "Show names (extended levels 5-7 supported).",
                           [](std::vector<std::string> &args) {
                             if (args.size() >= 2) {
                               if (args[1].rfind("off", 0) == 0)
@@ -686,7 +779,7 @@ NamePlate::NamePlate(RcpService *rcp) : rcp_(rcp) {
   rcp->commands_hook->Add(
       "/rcpnameplate", {"/rcpname"},
       "Nameplate options. '/rcpnameplate <concolors|colors|targetcolor|targetblink|targetmarker|targethealth|"
-      "hideself|gennames> [on|off]'. gennames enables /shownames 5-7 (title/first/last/guild combos).",
+      "hideself> [on|off]' or '/rcpnameplate blinkspeed <200-3000ms>'.",
       [](std::vector<std::string> &args) {
         if (args.size() >= 2) {
           const std::string &opt = args[1];
@@ -704,18 +797,17 @@ NamePlate::NamePlate(RcpService *rcp) : rcp_(rcp) {
             set_option(g_target_health, args);
           else if (opt == "hideself")
             set_option(g_hide_self, args);
-          else if (opt == "gennames")
-            set_option(g_gen_names, args);
-          else {
+          else if (opt == "blinkspeed" && args.size() >= 3) {
+            nameplate_settings::set_blink_ms(std::atoi(args[2].c_str()));
+          } else {
             Rcp::Game::print_chat(
-                "Usage: /rcpnameplate <concolors|colors|targetcolor|targetblink|targetmarker|targethealth|hideself|"
-                "gennames> [on|off]");
+                "Usage: /rcpnameplate <concolors|colors|targetcolor|targetblink|targetmarker|targethealth|hideself> "
+                "[on|off] | blinkspeed <200-3000>");
             return true;
           }
           // A text-option change won't show until the client rebuilds the nameplate, so force
-          // a rebuild of the target + self (+ players for gennames) on the next frame.
-          if (opt == "targetmarker" || opt == "targethealth" || opt == "hideself" || opt == "gennames")
-            mark_text_dirty();
+          // a rebuild of the target + self on the next frame.
+          if (opt == "targetmarker" || opt == "targethealth" || opt == "hideself") mark_text_dirty();
           save_settings();
         }
         print_status();

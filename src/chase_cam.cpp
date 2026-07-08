@@ -17,6 +17,7 @@
 #include "hook_wrapper.h"
 #include "io_ini.h"
 #include "logger.h"
+#include "memory.h"
 #include "rcp.h"
 
 // ---- Stock RoF2 addresses (confirmed in the disassembly; see PORTING_NOTES) ----
@@ -49,6 +50,13 @@ static constexpr int kCamDirHeading = 0x38;
 
 typedef void(__fastcall *Cam6Pos_t)(void *self, int edx, void *actor);
 static Cam6Pos_t g_orig_cam6 = nullptr;
+
+// gfMaxZoomCameraDistance: the .rdata float the wheel handler (0x518A70) clamps its
+// zoom accumulator (CEverQuest+0x5EC) against. Native value 53.0 (verified in the
+// exe). Patching it raises/lowers how far the wheel can zoom out while leaving the
+// wheel itself fully functional - which is exactly what a "max distance" should do.
+static constexpr uintptr_t kMaxZoomFloat = 0x9D0DE4;
+static constexpr float kNativeMaxZoom = 53.0f;
 
 // ---- World collision (camera pull-in). The client's own line-of-sight primitive:
 // build a CCollisionInfoTargetVisibility (ctor 0x8D4570), test it against the
@@ -89,43 +97,50 @@ static bool collide_world(float fx, float fy, float fz, float tx, float ty, floa
 // ---- Live settings (persisted to rof2ClientPlus.ini [Chase]). Off by default so
 // nothing changes until the user opts in with /rcpchase on, matching mouse_mods. ----
 static bool g_enabled = false;
-static float g_distance = 0.0f;  // 0 = use the native wheel zoom distance.
-static float g_height = 0.0f;    // World-unit Z raise above the native camera height.
-static bool g_collision = false;  // Pull the camera in when a wall blocks the view.
+static float g_max_distance = 0.0f;  // Max wheel zoom-out distance; 0 = the native max (53).
+static bool g_collision = false;     // Pull the camera in when a wall blocks the view.
 static int g_log = 0;            // Calibration log budget (dumps native camera state on enable).
 static int g_col_log = 0;        // Collision-pull log budget (verifies the raycast in-game).
 
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+// Applies the max-zoom setting to the client: while the feature is enabled with a
+// custom max, patch gfMaxZoomCameraDistance so the mouse wheel can zoom out to it;
+// otherwise restore the native 53. Idempotent - call after any settings change.
+static void apply_max_zoom() {
+  const float want = (g_enabled && g_max_distance > 0.0f) ? g_max_distance : kNativeMaxZoom;
+  if (*reinterpret_cast<float *>(kMaxZoomFloat) != want) {
+    mem::write<float>(static_cast<int>(kMaxZoomFloat), want);
+    logger::logf("[chase] gfMaxZoomCameraDistance -> %.1f", want);
+  }
+}
 
 static constexpr char kIniSection[] = "Chase";
 
 static void load_settings() {
   IO_ini ini(IO_ini::kRcpIniFilename);
   if (ini.exists(kIniSection, "Enabled")) g_enabled = ini.getValue<bool>(kIniSection, "Enabled");
-  if (ini.exists(kIniSection, "Distance")) g_distance = ini.getValue<float>(kIniSection, "Distance");
-  if (ini.exists(kIniSection, "Height")) g_height = ini.getValue<float>(kIniSection, "Height");
+  if (ini.exists(kIniSection, "MaxDistance")) g_max_distance = ini.getValue<float>(kIniSection, "MaxDistance");
   if (ini.exists(kIniSection, "Collision")) g_collision = ini.getValue<bool>(kIniSection, "Collision");
 }
 
 static void save_settings() {
   IO_ini ini(IO_ini::kRcpIniFilename);
   ini.setValue<bool>(kIniSection, "Enabled", g_enabled);
-  ini.setValue<float>(kIniSection, "Distance", g_distance);
-  ini.setValue<float>(kIniSection, "Height", g_height);
+  ini.setValue<float>(kIniSection, "MaxDistance", g_max_distance);
   ini.setValue<bool>(kIniSection, "Collision", g_collision);
 }
 
 namespace chase_settings {
 bool get_enabled() { return g_enabled; }
-float get_distance() { return g_distance; }
-float get_height() { return g_height; }
+float get_max_distance() { return g_max_distance; }
 bool get_collision() { return g_collision; }
-void set(bool enabled, float distance, float height, bool collision) {
+void set(bool enabled, float max_distance, bool collision) {
   if (enabled && !g_enabled) g_log = 30;  // Fresh enable -> capture calibration frames.
   g_enabled = enabled;
-  g_distance = clampf(distance, 0.0f, 100.0f);
-  g_height = clampf(height, -20.0f, 60.0f);
+  g_max_distance = max_distance <= 0.0f ? 0.0f : clampf(max_distance, 10.0f, 300.0f);
   g_collision = collision;
+  apply_max_zoom();
   save_settings();
 }
 }  // namespace chase_settings
@@ -177,44 +192,36 @@ static void __fastcall Cam6Pos_hk(void *self, int edx, void *actor) {
 
   if (nd < 0.1f) return;  // Degenerate (camera atop player); leave native.
 
-  const float dd = g_distance > 0.0f ? g_distance : nd;  // Target distance along the native ray.
-  const float s = dd / nd;
-  float cam_x = px + ox * s;
-  float cam_y = py + oy * s;
-  float cam_z = nz + g_height;  // native height + optional raise
+  // Distance is native: the wheel drives it, with its max raised via the
+  // gfMaxZoomCameraDistance patch (apply_max_zoom). Only collision remains here.
+  if (!g_collision) return;
 
   // Collision: if world geometry blocks the pivot->camera line, pull the camera in
   // to the clamp point (kept 10% short of the wall so it doesn't clip through).
-  if (g_collision) {
-    float clamp[3];
-    if (collide_world(px, py, nz, cam_x, cam_y, cam_z, clamp)) {
-      const float margin = 0.9f;
-      if (g_col_log > 0) {
-        logger::logf("[chase] collide wanted=(%.1f,%.1f,%.1f) clamp=(%.1f,%.1f,%.1f)", cam_x, cam_y, cam_z, clamp[0],
-                     clamp[1], clamp[2]);
-        --g_col_log;
-      }
-      cam_x = px + (clamp[0] - px) * margin;
-      cam_y = py + (clamp[1] - py) * margin;
-      cam_z = nz + (clamp[2] - nz) * margin;
+  float clamp[3];
+  if (collide_world(px, py, nz, nx, ny, nz, clamp)) {
+    const float margin = 0.9f;
+    if (g_col_log > 0) {
+      logger::logf("[chase] collide wanted=(%.1f,%.1f,%.1f) clamp=(%.1f,%.1f,%.1f)", nx, ny, nz, clamp[0], clamp[1],
+                   clamp[2]);
+      --g_col_log;
     }
+    *reinterpret_cast<float *>(cam + kCamPosX) = px + (clamp[0] - px) * margin;
+    *reinterpret_cast<float *>(cam + kCamPosY) = py + (clamp[1] - py) * margin;
+    *reinterpret_cast<float *>(cam + kCamPosZ) = nz + (clamp[2] - nz) * margin;
   }
-
-  *reinterpret_cast<float *>(cam + kCamPosX) = cam_x;
-  *reinterpret_cast<float *>(cam + kCamPosY) = cam_y;
-  *reinterpret_cast<float *>(cam + kCamPosZ) = cam_z;
   });  // rcp_guard::run("chase.cam6")
 }
 
 static void print_status() {
   char dist[24];
-  if (g_distance > 0.0f)
-    std::snprintf(dist, sizeof(dist), "%.1f", g_distance);
+  if (g_max_distance > 0.0f)
+    std::snprintf(dist, sizeof(dist), "%.0f", g_max_distance);
   else
-    std::snprintf(dist, sizeof(dist), "native");
+    std::snprintf(dist, sizeof(dist), "native (53)");
   char msg[192];
-  std::snprintf(msg, sizeof(msg), "rof2ClientPlus chase cam: %s | distance=%s | height=+%.1f | collision=%s",
-                g_enabled ? "ON" : "OFF", dist, g_height, g_collision ? "on" : "off");
+  std::snprintf(msg, sizeof(msg), "rof2ClientPlus chase cam: %s | max zoom=%s | collision=%s",
+                g_enabled ? "ON" : "OFF", dist, g_collision ? "on" : "off");
   Rcp::Game::print_chat(msg);
 }
 
@@ -226,13 +233,14 @@ ChaseCam::ChaseCam(RcpService *rcp) : rcp_(rcp) {
   rcp->hooks->Add("chase_cam6", static_cast<int>(kCam6Positioner), Cam6Pos_hk, hook_type_detour);
   g_orig_cam6 = rcp->hooks->hook_map["chase_cam6"]->original(Cam6Pos_hk);
   if (g_enabled) g_log = 30;
-  logger::logf("[chase] Cam6 positioner hooked at 0x%x (enabled=%d dist=%.1f height=%.1f)", (unsigned)kCam6Positioner,
-               (int)g_enabled, g_distance, g_height);
+  apply_max_zoom();  // Re-apply a persisted custom max zoom at load.
+  logger::logf("[chase] Cam6 positioner hooked at 0x%x (enabled=%d maxdist=%.1f)", (unsigned)kCam6Positioner,
+               (int)g_enabled, g_max_distance);
 
   rcp->commands_hook->Add(
       "/rcpchase", {"/rcpchasecam"},
-      "Third-person chase cam. '/rcpchase on|off', '/rcpchase dist <n|native>', '/rcpchase height <n>', "
-      "'/rcpchase collision on|off'.",
+      "Third-person chase cam. '/rcpchase on|off', '/rcpchase maxdist <10-300|native>' (how far the wheel can zoom "
+      "out), '/rcpchase collision on|off'.",
       [](std::vector<std::string> &args) {
         try {
           if (args.size() >= 2 && (args[1] == "off" || args[1] == "0")) {
@@ -245,12 +253,9 @@ ChaseCam::ChaseCam(RcpService *rcp) : rcp_(rcp) {
             g_col_log = g_collision ? 20 : 0;  // Log the first pull-ins to verify the raycast.
             if (!g_enabled) g_log = 30;
             g_enabled = true;
-          } else if (args.size() >= 3 && (args[1] == "dist" || args[1] == "distance")) {
-            g_distance = (args[2] == "native" || args[2] == "0") ? 0.0f : clampf(std::stof(args[2]), 1.0f, 100.0f);
-            if (!g_enabled) g_log = 30;
-            g_enabled = true;
-          } else if (args.size() >= 3 && args[1] == "height") {
-            g_height = clampf(std::stof(args[2]), -20.0f, 60.0f);
+          } else if (args.size() >= 3 && (args[1] == "maxdist" || args[1] == "dist" || args[1] == "distance")) {
+            g_max_distance =
+                (args[2] == "native" || args[2] == "0") ? 0.0f : clampf(std::stof(args[2]), 10.0f, 300.0f);
             if (!g_enabled) g_log = 30;
             g_enabled = true;
           } else {
@@ -258,9 +263,10 @@ ChaseCam::ChaseCam(RcpService *rcp) : rcp_(rcp) {
             g_enabled = !g_enabled;  // Bare /rcpchase toggles.
           }
         } catch (...) {
-          Rcp::Game::print_chat("rof2ClientPlus: usage '/rcpchase on|off | dist <n> | height <n>'");
+          Rcp::Game::print_chat("rof2ClientPlus: usage '/rcpchase on|off | maxdist <10-300|native> | collision on|off'");
           return true;
         }
+        apply_max_zoom();
         save_settings();
         print_status();
         return true;
