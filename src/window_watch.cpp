@@ -170,9 +170,11 @@ LRESULT CALLBACK wndproc_hk(HWND h, UINT msg, WPARAM w, LPARAM l) {
     }
     case WM_CLOSE:
       logger::log("[win] WM_CLOSE");
+      crash_handler::begin_shutdown();  // Quiesce our detours + hand teardown back to stock (graceful /exit).
       break;
     case WM_DESTROY:
       logger::log("[win] WM_DESTROY");
+      crash_handler::begin_shutdown();  // (Also covers /exit, which reaches teardown without a WM_CLOSE.)
       break;
     default:
       break;

@@ -368,7 +368,8 @@ bool g_np_draw_pending = false;
 std::vector<std::function<void(IDirect3DDevice9 *)>> *g_scene_draws = nullptr;
 
 void __cdecl scene_render_cb() {
-  if (g_prev_render_cb) g_prev_render_cb();  // Preserve any previously-registered callback.
+  if (g_prev_render_cb) g_prev_render_cb();  // Preserve any previously-registered callback (always).
+  if (crash_handler::shutting_down()) return;  // Don't arm a draw during teardown.
   g_np_draw_pending = true;  // Marks "a real 3D scene is being rendered this frame" (not RenderBlind).
 }
 
@@ -379,6 +380,8 @@ Render2DFn g_orig_render2d = nullptr;
 
 // C2DPrimitiveManager::Render detour: draw the plates just before the UI raster, once per scene.
 int __fastcall Render2D_hk(void *self, int edx, int a1, int a2) {
+  // Skip our pre-UI draw during teardown; chain straight to the client's raster.
+  if (crash_handler::shutting_down()) return g_orig_render2d(self, edx, a1, a2);
   if (g_np_draw_pending) {
     g_np_draw_pending = false;
     void *pRender = *kRenderInterface;

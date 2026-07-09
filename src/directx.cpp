@@ -33,6 +33,10 @@ void directx::add_render_callback(std::function<void(IDirect3DDevice9*)> callbac
 // callbacks (each guarded so a bad pointer degrades to a dropped frame instead of a
 // crash), then chain to the real EndScene. Runs on the game's render thread.
 static HRESULT WINAPI hkEndScene(IDirect3DDevice9* dev) {
+    // During teardown, present the frame but run none of our render callbacks -
+    // the device/game structures they read are being released.
+    if (crash_handler::shutting_down()) return g_original_endscene(dev);
+
     g_device = dev;
     LONG frame = InterlockedIncrement(&g_frame);
     if (frame == 1 || (frame % 300) == 0)

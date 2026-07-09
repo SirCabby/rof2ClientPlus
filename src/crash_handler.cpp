@@ -6,6 +6,7 @@
 #include <dbghelp.h>
 #include <psapi.h>
 
+#include <atomic>
 #include <csetjmp>
 #include <cstdint>
 #include <cstdio>
@@ -24,6 +25,14 @@ namespace {
 // Base address of our own module, so a dump can flag "the fault is in OUR code".
 HMODULE g_self_module = nullptr;
 bool g_installed = false;
+
+// Set once the client begins tearing down. Gates the post-mortem below (a dbghelp
+// stack walk during loader-locked teardown deadlocks -> the '/exit' hang) and is
+// polled by every per-frame/per-render detour body so they stop touching game
+// state that is being freed. Atomic because the window subclass sets it on the
+// main thread while render-thread bodies read it.
+std::atomic<bool> g_shutting_down{false};
+PVOID g_veh_handle = nullptr;  // AddVectoredExceptionHandler handle, kept so we can remove it on shutdown.
 
 // Resolves an address to "module.dll+0xoffset (0xADDRESS)". Falls back to the bare
 // address when no owning module is found (JIT'd/thunk memory). Never allocates.
@@ -174,6 +183,10 @@ LONG CALLBACK vectored_handler(EXCEPTION_POINTERS *ep) {
 // post-mortem, then CONTINUE_SEARCH so Wine's own crash reporting/termination still
 // happens (behavior is unchanged except that we captured the dump first).
 LONG WINAPI unhandled_filter(EXCEPTION_POINTERS *ep) {
+  // Once we are tearing down, never run the post-mortem: dbghelp under the loader
+  // lock hangs. (begin_shutdown also removes this filter, so this is belt-and-
+  // suspenders for a fault that races the removal.) Let stock teardown proceed.
+  if (g_shutting_down.load(std::memory_order_relaxed)) return EXCEPTION_CONTINUE_SEARCH;
   dump_crash(ep, "UNHANDLED");
   return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -189,8 +202,23 @@ void install() {
   GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                      reinterpret_cast<LPCSTR>(&install), &g_self_module);
 
-  AddVectoredExceptionHandler(1, vectored_handler);  // 1 = first in the chain (guard recovery).
+  g_veh_handle = AddVectoredExceptionHandler(1, vectored_handler);  // 1 = first in the chain (guard recovery).
   SetUnhandledExceptionFilter(unhandled_filter);
   logger::logf("[crash] handlers installed (self module base=%p)", (void *)g_self_module);
 }
+
+void begin_shutdown() {
+  bool expected = false;
+  if (!g_shutting_down.compare_exchange_strong(expected, true)) return;  // Only the first caller does the work.
+  logger::log("[crash] shutdown: removing exception handlers; teardown runs stock from here");
+  if (g_veh_handle) {
+    RemoveVectoredExceptionHandler(g_veh_handle);
+    g_veh_handle = nullptr;
+  }
+  // Restore the OS default unhandled filter: our post-mortem must not run during
+  // teardown (dbghelp deadlocks under the loader lock -> the '/exit' hang).
+  SetUnhandledExceptionFilter(nullptr);
+}
+
+bool shutting_down() { return g_shutting_down.load(std::memory_order_relaxed); }
 }  // namespace crash_handler

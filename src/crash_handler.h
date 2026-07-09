@@ -27,6 +27,22 @@ namespace crash_handler {
 // Installs the unhandled-exception filter + vectored handler. Idempotent; call as
 // early as possible (dllmain on_attach) so even first-frame faults are captured.
 void install();
+
+// Marks the client as shutting down (called from the window subclass on WM_CLOSE /
+// WM_DESTROY). Two jobs, both aimed at the "/exit sometimes hangs or crashes":
+//   1) Removes OUR exception handlers so Wine's own teardown (incl. the DXVK device
+//      release) proceeds exactly as stock. The post-mortem MUST NOT run during
+//      loader-locked process teardown - its dbghelp StackWalk64 deadlocks there,
+//      which is the hang. Restoring the default filter avoids that entirely.
+//   2) Flips shutting_down() so every per-frame / per-render detour body bails out
+//      instead of touching game state that is being freed.
+// Idempotent and safe from any thread; only the first call does the work.
+void begin_shutdown();
+
+// True once begin_shutdown() has run. Per-frame/per-render bodies check this and
+// early-out (drop the frame, chain to the original) so we never read freed state
+// during teardown. A relaxed atomic load - cheap enough for a hot path.
+bool shutting_down();
 }  // namespace crash_handler
 
 namespace rcp_guard {

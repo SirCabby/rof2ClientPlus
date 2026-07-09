@@ -80,21 +80,27 @@ install: $(TARGET)
 	@if [ ! -d "$(GAME_DIR)" ]; then \
 	  echo "ERROR: GAME_DIR '$(GAME_DIR)' does not exist."; exit 1; \
 	fi
-	cp -f $(TARGET) "$(GAME_DIR)/$(NAME).asi"
-	@echo ">> Installed to $(GAME_DIR)/$(NAME).asi"
-	mkdir -p "$(GAME_DIR)/uifiles/rcp"
-	cp -f uifiles/rcp/*.xml "$(GAME_DIR)/uifiles/rcp/"
-	@echo ">> Installed uifiles to $(GAME_DIR)/uifiles/rcp/"
-	mkdir -p "$(GAME_DIR)/uifiles/rcp/fonts"
-	cp -f uifiles/rcp/fonts/*.spritefont "$(GAME_DIR)/uifiles/rcp/fonts/"
-	@echo ">> Installed fonts to $(GAME_DIR)/uifiles/rcp/fonts/"
-	mkdir -p "$(GAME_DIR)/uifiles/rcp/targetrings"
-	cp -f uifiles/rcp/targetrings/*.tga "$(GAME_DIR)/uifiles/rcp/targetrings/"
-	@echo ">> Installed target-ring graphics to $(GAME_DIR)/uifiles/rcp/targetrings/"
-	@if [ -f $(HOSTFIX) ]; then \
-	  cp -f $(HOSTFIX) "$(GAME_DIR)/eq-window-fix"; \
-	  echo ">> Installed eq-window-fix (windowed-mode watcher)"; \
-	fi
+	@# Atomic install: write each file to a temp name in the SAME directory, then
+	@# rename(2) it over the target. rename is atomic and gives the target a fresh
+	@# inode, so a client that is STILL RUNNING while we deploy keeps its old, intact
+	@# mapping (the .asi is mmap'd; the fonts/textures/xml are read lazily). An
+	@# in-place `cp -f` overwrites the bytes underneath that mapping instead, and the
+	@# running client then faults in corrupt/zeroed pages -> the mid-session hang or
+	@# crash. One shell so the acp() helper is shared across all the copies below.
+	@set -e; \
+	acp() { d="$$2"; t="$$d.rcp-new.$$$$"; cp -f "$$1" "$$t" && mv -f "$$t" "$$d"; }; \
+	acp $(TARGET) "$(GAME_DIR)/$(NAME).asi"; \
+	echo ">> Installed (atomic) $(GAME_DIR)/$(NAME).asi"; \
+	mkdir -p "$(GAME_DIR)/uifiles/rcp"; \
+	for f in uifiles/rcp/*.xml; do [ -e "$$f" ] || continue; acp "$$f" "$(GAME_DIR)/uifiles/rcp/$${f##*/}"; done; \
+	echo ">> Installed (atomic) uifiles to $(GAME_DIR)/uifiles/rcp/"; \
+	mkdir -p "$(GAME_DIR)/uifiles/rcp/fonts"; \
+	for f in uifiles/rcp/fonts/*.spritefont; do [ -e "$$f" ] || continue; acp "$$f" "$(GAME_DIR)/uifiles/rcp/fonts/$${f##*/}"; done; \
+	echo ">> Installed (atomic) fonts to $(GAME_DIR)/uifiles/rcp/fonts/"; \
+	mkdir -p "$(GAME_DIR)/uifiles/rcp/targetrings"; \
+	for f in uifiles/rcp/targetrings/*.tga; do [ -e "$$f" ] || continue; acp "$$f" "$(GAME_DIR)/uifiles/rcp/targetrings/$${f##*/}"; done; \
+	echo ">> Installed (atomic) target-ring graphics to $(GAME_DIR)/uifiles/rcp/targetrings/"; \
+	if [ -f $(HOSTFIX) ]; then acp $(HOSTFIX) "$(GAME_DIR)/eq-window-fix"; echo ">> Installed (atomic) eq-window-fix (windowed-mode watcher)"; fi
 
 clean:
 	rm -rf $(BUILD)

@@ -49,6 +49,12 @@ static int __cdecl ProcessGameEvents_hk() {
     }();
     (void)created;
 
+    // Once the client is tearing down, do none of our per-frame work (it would
+    // touch game/UI state that is being freed) - just chain to the stock event
+    // processor so the exit sequence runs normally.
+    if (crash_handler::shutting_down())
+        return g_boot->hook_map["ProcessGameEvents"]->original(ProcessGameEvents_hk)();
+
     // Install the mouse hook once in-game (kept off the login/char-select input
     // path), then drive the options-window UI poll. The cursor-lock re-clip runs
     // every frame regardless of game state (it is a pure Win32 no-op when off), so
