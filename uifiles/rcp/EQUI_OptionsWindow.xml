@@ -4909,6 +4909,34 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_Equip">
+    <ScreenID>Rcp_Equip</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>212</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Right-click a wearable item in a bag to auto-equip it into the best slot. Alt+right-click activates an item's clicky effect. Same as /rcpequip.</TooltipReference>
+    <Text>Right-click to equip</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Button item="Rcp_ChaseEnabled">
     <ScreenID>Rcp_ChaseEnabled</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -6487,6 +6515,7 @@
     <Pieces>Rcp_Smooth</Pieces>
     <Pieces>Rcp_SmoothValue</Pieces>
     <Pieces>Rcp_LockMouse</Pieces>
+    <Pieces>Rcp_Equip</Pieces>
     <Pieces>Rcp_ChaseEnabled</Pieces>
     <Pieces>Rcp_ChaseCollision</Pieces>
     <Pieces>Rcp_ChaseDistLabel</Pieces>

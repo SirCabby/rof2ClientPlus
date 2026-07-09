@@ -816,3 +816,79 @@ Added to the `/rcpoptions` Display tab (NOT the stock options sliders): **Rcp_Fa
 `view_distance_settings::set_clip` / `set_actor_clip`. Regenerate order unchanged:
 `gen_option_overrides.py` then `gen_rcp_options_ui.py` (81 controls now). Full RE trail in the
 `view-distance-re` memory.
+
+---
+
+## GOTCHA: the vendored `game_functions` / `game_ui` / `game_structures` layer is STALE TAKP
+`src/game_functions.cpp`, `src/game_ui.h`, `src/game_structures.h`, `src/game_addresses.h` were vendored
+verbatim from Zeal and **still hold TAKP (Mac-client) addresses/offsets — they are NOT repointed to our
+RoF2 `eqgame.exe`.** They are byte-identical to Zeal's originals (e.g. `can_use_item`@0x4BB8E8,
+`can_item_equip_in_slot`@0x4F0DB4, `get_char_info`@0x7F94E8, `InvSlot::HandleLButtonUp`@0x421E48,
+`CInvSlotMgr::FindInvSlot`@0x423010, `InvSlotWnd::HandleRButtonUp`@0x5a7e80). Disassembling any of them in
+our binary shows mid-function/garbage, not a clean prologue — e.g. 0x5a7e80 is the inner loop of a
+vector-copy routine at 0x5a7e50, so hooking it corrupts code.
+
+**Every WORKING RoF2 feature (nameplate, target_ring, view_distance, no_fog, camera) is self-contained
+with its own independently-RE'd raw RoF2 addresses and deliberately avoids this vendored layer.** Treat
+the vendored `Rcp::Game::*` inventory/item/character helpers and the `InvSlot`/`InvSlotWnd`/`CInvSlotMgr`
+structs as UNTRUSTWORTHY for RoF2 until each address is re-verified by disasm. eqlib
+(`/home/joshua/workspace/GitHub/eqlib`) is a good RoF2 struct-SHAPE reference, but its addresses target a
+DIFFERENT RoF2 build (e.g. `CInvSlot__HandleRButtonUp_x=0x697250`) and do NOT match ours — re-find every
+address in our `eqgame.exe`.
+
+### The eqlib rescue: eqlib's RoF2 build == ours
+The first `/rcpequip` attempt was built on the vendored TAKP layer above and did nothing (all addresses
+wrong; the InvSlotWnd RButton "hook" even patched mid-function code). It was reverted, then **rebuilt
+RoF2-native** — and the key discovery that made it easy: **the eqlib fact-reference
+(`/home/joshua/workspace/GitHub/eqlib`) is compiled for our EXACT build.** Its own comment reads
+`@sizeof(CInvSlotMgr) == 0x2014 :: 2013-05-10` and every offset we spot-checked
+(`CInvSlot::HandleRButtonUp` 0x697250, `CInvSlotWnd::HandleLButtonUp` 0x69A5D0, `pinstLocalPlayer`
+0xDD2630 == target_ring's `kSelf`) lands on a clean function prologue / correct global in our
+`eqgame.exe`. So eqlib's `offsets/eqgame.h` addresses AND struct offsets are directly usable. (eqlib
+still targets a slightly different *patch* than some tools expect, so always confirm an address is a
+clean prologue before trusting it - but for the inventory system it was 1:1.)
+
+## Right-click to equip — `/rcpequip` (RoF2-native, DONE + confirmed in-game 2026-07-09)
+Lives in `src/equip_item.cpp`, fully self-contained with stock RoF2 addresses (eqlib-sourced, disasm-
+confirmed) - it does NOT touch the vendored TAKP layer. Ships OFF; `/rcpequip [on|off]` + a
+"Right-click to equip" checkbox on the `/rcpoptions` **Mouse** tab (`Rcp_Equip`). Persisted to
+`[EquipItem] RightClickToEquip`.
+
+### Behavior (matches Zeal's model)
+- **Right-click** a wearable item in a bag -> auto-equips into the first slot (priority order:
+  weapons/range, armor, jewelry, charm/power-source, ammo) its `EquipSlots` bitmask allows.
+- **Alt + right-click** any inventory item -> activates its clicky effect.
+- Everything else (the bag itself, non-wearables, worn items) falls through to the client's native
+  right-click unchanged. Additive: with the feature off, or on the fall-through paths, behavior is stock.
+
+### Mechanism
+Detour on **`CInvSlot::HandleRButtonUp` @0x697250** (thiscall `(CInvSlot*, const CXPoint&)`; the seam
+the client itself dispatches right-clicks to). Per-click:
+- Source `ItemGlobalIndex` is read from `this->pInvSlotWnd@0x4 -> ItemLocation@0x264`
+  (`{ int Location; short slots[3]; }`, 0x0c bytes; Possessions==0, worn 0..22, bag top-slots 23..32).
+- The item is fetched via **`CInvSlot::GetItem` @0x694780** (returns an 8-byte `ItemPtr` by hidden
+  return pointer; `ItemPtr[0]` is the raw `ItemClient*`). **The definition is at
+  `ItemClient::SharedItemDef@0x144`** (a `SharedPtr<ItemDefinition>` in the DERIVED class - NOT
+  `ItemBase::Item1@0x9c`, which is null on `ItemClient`; this cost a debugging round-trip).
+  `EquipSlots` is `ItemDefinition@0xf0` (bitmask `1<<eInventorySlot`).
+- Equip drives the client's own **`CInvSlotMgr::MoveItem` @0x698D80**
+  (`pinstCInvSlotMgr` @0xD1FD80; args are two `ItemGlobalIndex*` + 4 bools) - it does the whole
+  move/swap on indices, no `ItemClient*` needed.
+- **Alt+click clicky trick:** the native `HandleRButtonUp` casts a clicky on the no-Alt path and
+  *inspects* on the Alt path (it branches on `CXWndManager::GetKeyboardFlags@0x875BD0 & 0xC`). So to
+  make Alt+right-click *activate* the clicky we clear the two Alt bytes in the manager's cached flags
+  (`pinstCXWndManager` @0x15D3D00, `LAlt@0x9f`/`RAlt@0xa0`), call the original handler (which then takes
+  its own use/clicky path), and restore them - reusing the client's logic with zero packet RE.
+
+### Reference counting
+`GetItem` returns an `ItemPtr` (`VePointer<ItemClient>`, an INTRUSIVE smart pointer) by value, so the
+copy bumps the object's refcount. We grab the raw pointer and immediately `InterlockedDecrement` it back
+(the refcount is `VeBaseReferenceCount::ReferenceCount` @ item+0x4 - `VeBaseReferenceCount` is
+`ItemBase`'s first base: `{ vtable@0x0; int ReferenceCount@0x4 }`). The inventory keeps its own
+reference, so the count never hits 0 during our synchronous handler and the item stays valid; this just
+balances the copy so there's no per-equip leak.
+
+### Dropped vs Zeal
+Shift/Ctrl "pick the Nth valid slot" and the empty-slot-first preference (v1 is first-fit; MoveItem
+swaps if the target slot is occupied); the separate `ClickFromInventory`/`UseAltForClicky` settings
+(one `/rcpequip` toggle gates both behaviors); the bard-melody queue (no melody module here).

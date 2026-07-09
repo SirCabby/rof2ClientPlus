@@ -11,6 +11,7 @@
 
 #include "chase_cam.h"
 #include "commands.h"
+#include "equip_item.h"
 #include "font_overlay.h"
 #include "game_functions.h"
 #include "logger.h"
@@ -266,6 +267,7 @@ void RcpOptionsUI::create_window() {
   for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = get_child(wnd_, kTabChildNames[i]);
   cb_enabled_ = get_child(wnd_, "Rcp_Enabled");
   cb_lockmouse_ = get_child(wnd_, "Rcp_LockMouse");
+  cb_equip_ = get_child(wnd_, "Rcp_Equip");
   sl_sensx_ = get_child(wnd_, "Rcp_SensX");
   sl_sensy_ = get_child(wnd_, "Rcp_SensY");
   sl_smooth_ = get_child(wnd_, "Rcp_Smooth");
@@ -352,7 +354,7 @@ void RcpOptionsUI::set_active_tab(int tab) {
     last_tab_[i] = (i == tab);
   }
   void *mouse[] = {cb_enabled_, lbl_sensx_hdr_,  sl_sensx_,  lbl_sensx_,  lbl_sensy_hdr_, sl_sensy_,
-                   lbl_sensy_,  lbl_smooth_hdr_, sl_smooth_, lbl_smooth_, cb_lockmouse_};
+                   lbl_sensy_,  lbl_smooth_hdr_, sl_smooth_, lbl_smooth_, cb_lockmouse_, cb_equip_};
   void *camera[] = {cb_chase_enabled_, cb_chase_collision_, lbl_chase_dist_hdr_, sl_chase_dist_, lbl_chase_dist_};
   for (void *w : mouse) show_window(w, tab == 0);
   for (void *w : camera) show_window(w, tab == 1);
@@ -428,6 +430,7 @@ void RcpOptionsUI::populate_graphic_combo() {
 void RcpOptionsUI::sync_controls() {
   checkbox_set(cb_enabled_, mouse_settings::get_enabled());
   checkbox_set(cb_lockmouse_, mouse_settings::get_lock_mouse());
+  checkbox_set(cb_equip_, equip_item_settings::get_enabled());
   slider_set(sl_sensx_, sens_to_slider(mouse_settings::get_sens_x()));
   slider_set(sl_sensy_, sens_to_slider(mouse_settings::get_sens_y()));
   slider_set(sl_smooth_, smooth_to_slider(mouse_settings::get_smoothing()));
@@ -464,6 +467,7 @@ void RcpOptionsUI::sync_controls() {
 void RcpOptionsUI::seed_last_values() {
   last_enabled_ = checkbox_get(cb_enabled_);
   last_lockmouse_ = checkbox_get(cb_lockmouse_);
+  last_equip_ = checkbox_get(cb_equip_);
   last_vx_ = slider_get(sl_sensx_);
   last_vy_ = slider_get(sl_sensy_);
   last_vs_ = slider_get(sl_smooth_);
@@ -561,7 +565,7 @@ void RcpOptionsUI::on_frame() {
   // select, zoning) the client tears its UI down, so drop our handles to avoid
   // ever dereferencing a destroyed window; they are rebuilt on next /rcpoptions.
   if (!Rcp::Game::is_in_game()) {
-    wnd_ = cb_enabled_ = cb_lockmouse_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
+    wnd_ = cb_enabled_ = cb_lockmouse_ = cb_equip_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
     lbl_sensx_hdr_ = lbl_sensy_hdr_ = lbl_smooth_hdr_ = lbl_sensx_ = lbl_sensy_ = lbl_smooth_ = nullptr;
     cb_chase_enabled_ = cb_chase_collision_ = sl_chase_dist_ = lbl_chase_dist_hdr_ = lbl_chase_dist_ = nullptr;
     sl_blink_ = lbl_blink_hdr_ = lbl_blink_ = nullptr;
@@ -602,6 +606,7 @@ void RcpOptionsUI::on_frame() {
 
   bool en = checkbox_get(cb_enabled_);
   bool lock = checkbox_get(cb_lockmouse_);
+  bool equip = checkbox_get(cb_equip_);
   int vx = slider_get(sl_sensx_), vy = slider_get(sl_sensy_), vs = slider_get(sl_smooth_);
 
   // Only push to the settings when the user actually moved a control this frame,
@@ -613,8 +618,11 @@ void RcpOptionsUI::on_frame() {
   // Cursor-lock is an independent setting (its own ini key + immediate release on
   // off), so apply it separately from the sensitivity block above.
   if (lock != last_lockmouse_) mouse_settings::set_lock_mouse(lock);
+  // Right-click-to-equip is its own independent toggle (own module + ini key).
+  if (equip != last_equip_) equip_item_settings::set_enabled(equip);
   last_enabled_ = en;
   last_lockmouse_ = lock;
+  last_equip_ = equip;
   last_vx_ = vx;
   last_vy_ = vy;
   last_vs_ = vs;

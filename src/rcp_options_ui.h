@@ -53,6 +53,7 @@ class RcpOptionsUI {
   // Mouse tab.
   void *cb_enabled_ = nullptr;
   void *cb_lockmouse_ = nullptr;
+  void *cb_equip_ = nullptr;  // "Right-click to equip" (equip_item_settings).
   void *sl_sensx_ = nullptr;
   void *sl_sensy_ = nullptr;
   void *sl_smooth_ = nullptr;
@@ -124,6 +125,7 @@ class RcpOptionsUI {
   // continuously overwriting settings (which would fight the /rcp* commands).
   bool last_enabled_ = false;
   bool last_lockmouse_ = false;
+  bool last_equip_ = false;
   int last_vx_ = -1, last_vy_ = -1, last_vs_ = -1;
   bool last_chase_enabled_ = false;
   bool last_chase_collision_ = false;

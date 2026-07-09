@@ -16,6 +16,11 @@ A client-side mod for the EverQuest **Rain of Fear 2** client, in the spirit of
 - An **options window** with a **Cam** tab (Enabled, sensitivity sliders, FOV,
   pan delay, view-cycle toggles), opened/closed with **`/rcpoptions`** (alias
   `/rcpo`). Settings persist to `rof2ClientPlus.ini` next to `eqgame.exe`.
+- **`/rcpequip`** — right-click a wearable item in a bag to auto-equip it into
+  the best slot; **Alt+right-click** any inventory item activates its clicky
+  effect. Ships off; toggle with `/rcpequip on|off` or the **Right-click to
+  equip** checkbox on the `/rcpoptions` Mouse tab. A RoF2-native port of Zeal's
+  `equip_item`.
 - `/rcp` lists all commands. `/uierrors on|off` toggles UI skin error reporting.
 
 > **Attribution:** large portions of this project are adapted from Zeal

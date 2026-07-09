@@ -9,6 +9,7 @@
 #include "chase_cam.h"
 #include "commands.h"
 #include "entity_manager.h"
+#include "equip_item.h"
 #include "font_overlay.h"
 #include "game_functions.h"
 #include "hook_wrapper.h"
@@ -66,6 +67,8 @@ RcpService::RcpService() {
   target_ring = std::make_unique<TargetRing>(this);  // /rcpring: draws the solid ring at font_overlay's in-scene seam.
   logger::log("  -> ViewDistance");
   view_distance = std::make_unique<ViewDistance>(this);  // /rcpviewdist: forces the terrain clip-plane int past the slider cap.
+  logger::log("  -> EquipItem");
+  equip_item = std::make_unique<EquipItem>(this);  // /rcpequip: right-click a bag item to auto-equip (RoF2-native CInvSlot RButton detour).
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

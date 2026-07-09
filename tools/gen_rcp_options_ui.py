@@ -175,6 +175,10 @@ def build_controls():
     y += 42
     c.append(("Rcp_LockMouse", button, ("Rcp_LockMouse", COL_X, y, 250, 20, "Lock mouse to window",
                                         "Confine the mouse cursor to the game window (released when you alt-tab away)")))
+    y += 26
+    c.append(("Rcp_Equip", button, ("Rcp_Equip", COL_X, y, 250, 20, "Right-click to equip",
+                                    "Right-click a wearable item in a bag to auto-equip it into the best slot. "
+                                    "Alt+right-click activates an item's clicky effect. Same as /rcpequip.")))
 
     # ---- Tab 1: Camera (chase) ----
     y = CONTENT_Y
