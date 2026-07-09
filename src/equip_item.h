@@ -13,6 +13,10 @@
 // click. Otherwise we call the original so the client's native right-click (item inspect, use, open
 // bag, etc.) runs unchanged - so this is purely additive and does nothing until '/rcpequip on'.
 //
+// Modifier scheme: plain right-click equips, but a CLICKY item is left to the client's native handler
+// so it casts (the client already does this on a no-Alt right-click). Alt+right-click always equips,
+// so a clicky can still be equipped with Alt.
+//
 // '/rcpequip [on|off]'. Ships OFF. Persisted to rof2ClientPlus.ini [EquipItem] RightClickToEquip.
 #pragma once
 

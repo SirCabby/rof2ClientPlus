@@ -854,12 +854,16 @@ confirmed) - it does NOT touch the vendored TAKP layer. Ships OFF; `/rcpequip [o
 "Right-click to equip" checkbox on the `/rcpoptions` **Mouse** tab (`Rcp_Equip`). Persisted to
 `[EquipItem] RightClickToEquip`.
 
-### Behavior (matches Zeal's model)
+### Behavior
 - **Right-click** a wearable item in a bag -> auto-equips into the first slot (priority order:
-  weapons/range, armor, jewelry, charm/power-source, ammo) its `EquipSlots` bitmask allows.
-- **Alt + right-click** any inventory item -> activates its clicky effect.
+  weapons/range, armor, jewelry, charm/power-source, ammo) its `EquipSlots` bitmask allows - UNLESS the
+  item is a **clicky**, in which case it falls through and the client casts it (which is what a plain
+  right-click does natively). So clickies cast, plain gear equips.
+- **Alt + right-click** a wearable item -> always equips (so a clicky can still be equipped).
 - Everything else (the bag itself, non-wearables, worn items) falls through to the client's native
   right-click unchanged. Additive: with the feature off, or on the fall-through paths, behavior is stock.
+- "Clicky" = `ItemDefinition.SpellData@0x284 -> Spells[ItemSpellType_Clicky=0].SpellID (@+0x00) > 0`
+  (the first spell slot also covers mount/illusion/familiar/blessing - all right-click activatable).
 
 ### Mechanism
 Detour on **`CInvSlot::HandleRButtonUp` @0x697250** (thiscall `(CInvSlot*, const CXPoint&)`; the seam
@@ -874,11 +878,13 @@ the client itself dispatches right-clicks to). Per-click:
 - Equip drives the client's own **`CInvSlotMgr::MoveItem` @0x698D80**
   (`pinstCInvSlotMgr` @0xD1FD80; args are two `ItemGlobalIndex*` + 4 bools) - it does the whole
   move/swap on indices, no `ItemClient*` needed.
-- **Alt+click clicky trick:** the native `HandleRButtonUp` casts a clicky on the no-Alt path and
-  *inspects* on the Alt path (it branches on `CXWndManager::GetKeyboardFlags@0x875BD0 & 0xC`). So to
-  make Alt+right-click *activate* the clicky we clear the two Alt bytes in the manager's cached flags
-  (`pinstCXWndManager` @0x15D3D00, `LAlt@0x9f`/`RAlt@0xa0`), call the original handler (which then takes
-  its own use/clicky path), and restore them - reusing the client's logic with zero packet RE.
+- **Modifier read:** the Alt state comes from the manager's cached keyboard-flag bytes
+  (`pinstCXWndManager` @0x15D3D00, `LAlt@0x9f`/`RAlt@0xa0`; these are what `GetKeyboardFlags@0x875BD0`
+  reads). Plain right-click passes `skip_clicky=true` to the equip path (a clicky then falls through and
+  the client's own no-Alt handler casts it); Alt passes `skip_clicky=false` (always equip). No flag
+  patching / packet RE - clicky casting is just the client's native right-click that we decline to
+  absorb. (An earlier version mapped it the other way and used an Alt-flag-clearing trick to force the
+  cast; the current scheme is simpler because native plain-right-click already casts.)
 
 ### Reference counting
 `GetItem` returns an `ItemPtr` (`VePointer<ItemClient>`, an INTRUSIVE smart pointer) by value, so the

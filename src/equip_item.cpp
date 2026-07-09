@@ -31,9 +31,8 @@ constexpr int kCInvSlotMgr_MoveItem = 0x698D80;
 void **const kInvSlotMgr = reinterpret_cast<void **>(0xD1FD80);  // pinstCInvSlotMgr
 
 // pinstCXWndManager + its cached keyboard-flag bytes (read by GetKeyboardFlags): /*0x9d*/ Shift,
-// /*0x9e*/ Ctrl, /*0x9f*/ LAlt, /*0xa0*/ RAlt. The client's own HandleRButtonUp casts a clicky on the
-// no-Alt path and inspects on the Alt path, so to make Alt+right-click ACTIVATE a clicky we clear the
-// Alt bytes, run the original handler (which then takes the use/clicky path), and restore them.
+// /*0x9e*/ Ctrl, /*0x9f*/ LAlt, /*0xa0*/ RAlt. We read the Alt bytes to tell an equip (Alt) from a
+// plain right-click (which lets a clicky cast natively).
 void **const kCXWndManager = reinterpret_cast<void **>(0x15D3D00);
 constexpr int kOffKb_LAlt = 0x9f;
 constexpr int kOffKb_RAlt = 0xa0;
@@ -51,6 +50,9 @@ constexpr int kOffItem_RefCount = 0x04;
 // ItemDefinition: /*0xf0*/ int EquipSlots (bitmask, 1<<InvSlotIndex). Note: offset 0x00 is Name[],
 // NOT a type field - non-wearables are filtered by EquipSlots == 0 (bags/books have no equip slots).
 constexpr int kOffDef_EquipSlots = 0xf0;
+// ItemDefinition: /*0x284*/ ItemSpellData SpellData -> Spells[ItemSpellType_Clicky=0].SpellID @ +0x00.
+// A right-click-activatable item (clicky/mount/illusion/etc.) has SpellID > 0 in that first slot.
+constexpr int kOffDef_ClickySpellID = 0x284;
 
 // ItemContainerInstance / worn slot numbering (eqlib eInventorySlot).
 constexpr int kLocPossessions = 0;
@@ -110,9 +112,11 @@ void *get_slot_item(void *inv_slot) {
   return item;
 }
 
-// Equip the wearable item in `inv_slot` (whose location is `src`) into the best worn slot. Returns
-// true if we handled it (absorb), false to let the client's native right-click run.
-bool try_equip(void *inv_slot, const GlobalIndex &src) {
+// Equip the wearable item in `inv_slot` (whose location is `src`) into the best worn slot. When
+// `skip_clicky` is set, a right-click-activatable item is left for the client's native handler (so a
+// plain right-click casts the clicky instead of equipping it). Returns true if we handled it (absorb),
+// false to let the client's native right-click run.
+bool try_equip(void *inv_slot, const GlobalIndex &src, bool skip_clicky) {
   // Only equip from the general-inventory area (bags + their contents / a general slot). Worn slots
   // (0..22) are already equipped; the bag itself / non-wearables fall through below.
   if (src.slots[0] < kInvSlot_FirstBag || src.slots[0] > kInvSlot_LastBag) return false;
@@ -121,6 +125,9 @@ bool try_equip(void *inv_slot, const GlobalIndex &src) {
   void *def = item ? *reinterpret_cast<void **>(reinterpret_cast<char *>(item) + kOffItem_Definition) : nullptr;
   int equip_slots = def ? *reinterpret_cast<int *>(reinterpret_cast<char *>(def) + kOffDef_EquipSlots) : 0;
   if (!item || !def || equip_slots == 0) return false;  // Not a wearable item -> client handles it.
+
+  if (skip_clicky && *reinterpret_cast<int *>(reinterpret_cast<char *>(def) + kOffDef_ClickySpellID) > 0)
+    return false;  // Clicky item on a plain right-click -> let the client cast it (Alt+click equips).
 
   // Pick the first slot in priority order the item can be worn in.
   int dst_slot = -1;
@@ -142,8 +149,9 @@ bool try_equip(void *inv_slot, const GlobalIndex &src) {
 }
 
 // Detour: void __thiscall CInvSlot::HandleRButtonUp(this, const CXPoint& pt).
-//   plain right-click on a wearable bag item -> equip it
-//   Alt + right-click on any inventory item  -> activate its clicky (native use path)
+//   plain right-click on a wearable bag item -> equip it, UNLESS it is a clicky (then the client
+//                                               casts it, as it does natively)
+//   Alt + right-click on a wearable bag item -> equip it (equips clickies too)
 //   everything else                          -> the client's native right-click, unchanged
 void __fastcall CInvSlot_HandleRButtonUp(void *thiz, int unused_edx, const void *pt) {
   auto call_original = [&] {
@@ -153,20 +161,10 @@ void __fastcall CInvSlot_HandleRButtonUp(void *thiz, int unused_edx, const void 
   GlobalIndex src;
   void *wmgr = *kCXWndManager;
   if (g_enabled && wmgr && read_slot_location(thiz, &src) && src.location == kLocPossessions) {
-    uint8_t *lalt = reinterpret_cast<uint8_t *>(wmgr) + kOffKb_LAlt;
-    uint8_t *ralt = reinterpret_cast<uint8_t *>(wmgr) + kOffKb_RAlt;
-    if (*lalt || *ralt) {
-      // Alt+right-click: activate the clicky. Clear the Alt flag so the client's own handler takes
-      // its use/clicky path (Alt would otherwise open the item-inspect window), then restore.
-      uint8_t sl = *lalt, sr = *ralt;
-      *lalt = 0;
-      *ralt = 0;
-      call_original();
-      *lalt = sl;
-      *ralt = sr;
-      return;  // Absorbed (we ran the original ourselves).
-    }
-    if (try_equip(thiz, src)) return;  // Plain right-click on a wearable bag item -> equipped.
+    bool alt = *(reinterpret_cast<uint8_t *>(wmgr) + kOffKb_LAlt) || *(reinterpret_cast<uint8_t *>(wmgr) + kOffKb_RAlt);
+    // Alt+right-click equips anything (incl. clickies); plain right-click equips non-clickies but lets
+    // the client cast a clicky. In both cases a non-wearable falls through to the native handler.
+    if (try_equip(thiz, src, /*skip_clicky=*/!alt)) return;
   }
   call_original();
 }

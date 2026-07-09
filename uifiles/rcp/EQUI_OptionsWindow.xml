@@ -4921,7 +4921,7 @@
       <CY>20</CY>
     </Size>
     <Style_Checkbox>true</Style_Checkbox>
-    <TooltipReference>Right-click a wearable item in a bag to auto-equip it into the best slot. Alt+right-click activates an item's clicky effect. Same as /rcpequip.</TooltipReference>
+    <TooltipReference>Right-click a wearable item in a bag to auto-equip it into the best slot (a clicky item casts instead; Alt+right-click equips it). Same as /rcpequip.</TooltipReference>
     <Text>Right-click to equip</Text>
     <TextColor>
       <R>255</R>
