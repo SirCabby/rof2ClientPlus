@@ -53,7 +53,7 @@ WHITE = (255, 255, 255)
 YELLOW = (255, 255, 0)
 
 # ---- window + layout ----
-WINDOW_CX = 424  # Wide enough for the 6-tab strip at the proven 64 px tab width (tab 5 right edge 411).
+WINDOW_CX = 492  # Wide enough for the 7-tab strip at the proven 64 px tab width (tab 6 right edge 478).
 WINDOW_CY = 424  # Nameplate tab needs ~356; the extra room lets the Ring-tab graphic combobox (pushed
                  # down a row by the melee-range checkbox) drop its list (bottom ~410) inside the window.
 TAB_Y = 6            # tab-strip row
@@ -142,6 +142,18 @@ def combobox(name, x, y, cx, cy, list_height=110):
     return out
 
 
+def listbox(name, x, y, cx, cy, col_width):
+    # A native RoF2 Listbox (CListWnd) with one text column + a vertical scrollbar (Style_VScroll), the
+    # same schema stock windows use (e.g. FW_FriendsList in EQUI_FriendsWnd.xml). The C++ fills its rows
+    # at runtime (CListWnd::AddString) and polls GetCurSel, so no <Choices> are seeded here.
+    out = [f'  <Listbox item="{name}">', f"    <ScreenID>{name}</ScreenID>",
+           "    <RelativePosition>true</RelativePosition>", "    <DrawTemplate>WDT_Inner</DrawTemplate>"]
+    out += loc_size(x, y, cx, cy)
+    out += ["    <Columns>", f"      <Width>{col_width}</Width>", "    </Columns>",
+            "    <Style_Border>true</Style_Border>", "    <Style_VScroll>true</Style_VScroll>", "  </Listbox>"]
+    return out
+
+
 def build_controls():
     """Returns the control list; the order is also the <Pieces> order."""
     c = []
@@ -152,7 +164,8 @@ def build_controls():
             ("Rcp_TabNameplate", "Nameplate", "Nameplate toggles"),
             ("Rcp_TabColors", "Colors", "Nameplate colors"),
             ("Rcp_TabDisplay", "Display", "Display and world settings"),
-            ("Rcp_TabRing", "Ring", "Target ring settings")]
+            ("Rcp_TabRing", "Ring", "Target ring settings"),
+            ("Rcp_TabSounds", "Sounds", "Sound toggles")]
     for i, (name, text, tip) in enumerate(tabs):
         c.append((name, button, (name, COL_X + i * (TAB_W + 3), TAB_Y, TAB_W, TAB_H, text, tip)))
 
@@ -282,6 +295,26 @@ def build_controls():
     c.append(("Rcp_RingGraphic", combobox, ("Rcp_RingGraphic", COL_X + 86, y, 220, 22)))
     c.append(("Rcp_RingSpin", button, ("Rcp_RingSpin", COL_X, y + 28, 250, 20, "Rotate ring graphic",
                                        "Slowly rotate the ring graphic; when off, the graphic faces the target's heading")))
+
+    # ---- Tab 6: Sounds (track + adjust individual sounds; /rcpsound) ----
+    # A tracked-sound list you curate: pick a recently-played sound from the combobox to add it, click a
+    # row in the scrollable list to select it, set its volume with the slider (0 = mute), or remove it.
+    # The list is a native CListWnd (scrollbar, any number of rows); the C++ populates + polls it.
+    y = CONTENT_Y
+    c.append(("Rcp_SndAddLabel", label, ("Rcp_SndAddLabel", COL_X, y, 320, 14, "Add a played sound to the list:")))
+    c.append(("Rcp_SndAddCombo", combobox, ("Rcp_SndAddCombo", COL_X, y + 16, 300, 22)))
+    y += 44
+    c.append(("Rcp_SndListLabel", label, ("Rcp_SndListLabel", COL_X, y, 320, 14,
+                                          "Tracked sounds (click one to adjust; scroll for more):")))
+    y += 18
+    c.append(("Rcp_SndList", listbox, ("Rcp_SndList", COL_X, y, 300, 250, 282)))
+    y += 256
+    c.append(("Rcp_SndVolLabel", label, ("Rcp_SndVolLabel", COL_X, y + 2, 56, 16, "Volume")))
+    c.append(("Rcp_SndVol", slider, ("Rcp_SndVol", COL_X + 60, y, 150, 16)))
+    c.append(("Rcp_SndVolValue", label, ("Rcp_SndVolValue", COL_X + 218, y + 2, 60, 16, "-", YELLOW)))
+    y += 26
+    c.append(("Rcp_SndReset", button, ("Rcp_SndReset", COL_X, y, 220, 20, "Remove selected from list",
+                                       "Stop tracking the selected sound; it plays normally again")))
     return c
 
 

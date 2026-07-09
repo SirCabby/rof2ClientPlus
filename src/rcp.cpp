@@ -21,6 +21,7 @@
 #include "nameplate.h"
 #include "no_fog.h"
 #include "rcp_options_ui.h"
+#include "sound_mods.h"
 #include "target_ring.h"
 #include "view_distance.h"
 #include "ui_manager.h"
@@ -72,6 +73,8 @@ RcpService::RcpService() {
   equip_item = std::make_unique<EquipItem>(this);  // /rcpequip: right-click a bag item to auto-equip (RoF2-native CInvSlot RButton detour).
   logger::log("  -> ChatShortcuts");
   chat_shortcuts = std::make_unique<ChatShortcuts>(this);  // /rcpchat: Zeal-style chat tokens (%n/%h/%loc/%thp) via DoPercentConvert detour.
+  logger::log("  -> SoundMods");
+  sound_mods = std::make_unique<SoundMods>(this);  // /rcpsound: mute sounds by name (Asset::Play detour; thunder to start).
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

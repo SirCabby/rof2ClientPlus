@@ -19,6 +19,7 @@
 #include "nameplate.h"
 #include "no_fog.h"
 #include "rcp.h"
+#include "sound_mods.h"
 #include "target_ring.h"
 #include "view_distance.h"
 
@@ -54,6 +55,23 @@ static constexpr int kComboSetChoice = 0x86A740;     // void SetChoice(int)  __t
 // check (disasm-verified), so calling any of them with a null list crashes. These run on the main
 // thread (not rcp_guard-wrapped), so we gate on pListWnd being present.
 static constexpr int kComboListWndOffset = 0x1d8;
+
+// CListWnd (eqlib UI.h + offsets/eqgame.h; disasm-verified against OUR build: GetCurSel@0x853430 reads
+// CurSel@[this+0x1f8] and compares it to the row count at [this+0x1d8] = ItemsArray.m_length, exactly as
+// eqlib describes). Drives the scrollable tracked-sound list on the Sounds tab.
+static constexpr int kListAddString = 0x8580C0;   // int AddString(const CXStr&, COLORREF, uint32 data, void* pTa, char* tip)
+static constexpr int kListGetCurSel = 0x853430;   // int GetCurSel() const  __thiscall(this)
+static constexpr int kListSetCurSel = 0x853470;   // void SetCurSel(int)  __thiscall(this, int)
+static constexpr int kListSetItemText = 0x8575B0; // void SetItemText(int row, int col, const CXStr&)  __thiscall
+static constexpr int kListRemoveLine = 0x8582A0;  // void RemoveLine(int)  __thiscall(this, int)
+static constexpr int kListItemsCountOffset = 0x1d8;    // CListWnd::ItemsArray -> ArrayClass m_length @ +0 = row count
+static constexpr int kListHeaderHeightOffset = 0x208;  // CListWnd::HeaderHeight (scrollbar-rect header inset)
+// CListWnd::ListWndStyle @ this+0x274; bit 0x200000 = "has column header". Both GetItemRect (item layout /
+// hit-test, 0x8551d8) and the scrollbar rect (0x8558dc) gate the header inset on this bit, and the item
+// rect computes the inset height fresh (font+4) rather than from HeaderHeight - so CLEARING this bit is
+// what reflows the items to the top (zeroing HeaderHeight alone only moved the scrollbar). Disasm-verified.
+static constexpr int kListStyleOffset = 0x274;
+static constexpr uint32_t kListStyle_ColumnHeader = 0x200000u;
 
 // ---- thin wrappers over the client's __thiscall methods ----
 
@@ -140,6 +158,45 @@ static int combo_get_cur_choice(void *combo) {
 }
 static void combo_set_choice(void *combo, int index) {
   if (combo_ready(combo)) reinterpret_cast<void(__thiscall *)(void *, int)>(kComboSetChoice)(combo, index);
+}
+// True while the dropdown is showing its choice list (the popup CListWnd @ combo+0x1d8 is visible), so
+// callers can avoid rebuilding the choices out from under the user mid-browse.
+static bool combo_popup_open(void *combo) {
+  if (!combo) return false;
+  void *list = *reinterpret_cast<void **>(reinterpret_cast<char *>(combo) + kComboListWndOffset);
+  return list && is_visible(list);
+}
+
+// ---- CListWnd wrappers (drive the scrollable tracked-sound list). All gate on a non-null list. ----
+static int list_row_count(void *list) {
+  return list ? *reinterpret_cast<int *>(reinterpret_cast<char *>(list) + kListItemsCountOffset) : 0;
+}
+static void list_clear(void *list) {
+  if (!list) return;
+  for (int i = list_row_count(list) - 1; i >= 0; --i)
+    reinterpret_cast<void(__thiscall *)(void *, int)>(kListRemoveLine)(list, i);
+}
+static int list_add_string(void *list, const char *text, uint32_t argb) {
+  if (!list) return -1;
+  uint32_t cxstr;
+  cxstr_init(&cxstr, text);
+  int idx = reinterpret_cast<int(__thiscall *)(void *, const void *, uint32_t, uint32_t, void *, const char *)>(
+      kListAddString)(list, &cxstr, argb, 0, nullptr, nullptr);
+  reinterpret_cast<void(__thiscall *)(void *)>(kCXStrDtor)(&cxstr);  // AddString copies; release our temp.
+  return idx;
+}
+static void list_set_item_text(void *list, int row, const char *text) {
+  if (!list) return;
+  uint32_t cxstr;
+  cxstr_init(&cxstr, text);
+  reinterpret_cast<void(__thiscall *)(void *, int, int, const void *)>(kListSetItemText)(list, row, 0, &cxstr);
+  reinterpret_cast<void(__thiscall *)(void *)>(kCXStrDtor)(&cxstr);
+}
+static int list_get_cur_sel(void *list) {
+  return list ? reinterpret_cast<int(__thiscall *)(const void *)>(kListGetCurSel)(list) : -1;
+}
+static void list_set_cur_sel(void *list, int row) {
+  if (list) reinterpret_cast<void(__thiscall *)(void *, int)>(kListSetCurSel)(list, row);
 }
 
 // ---- slider <-> setting mappings ----
@@ -232,7 +289,8 @@ static void np_read_settings(bool out[7]) {
 
 // Tab strip child names (index == tab id used throughout).
 static const char *const kTabChildNames[] = {"Rcp_TabMouse",   "Rcp_TabCamera",  "Rcp_TabNameplate",
-                                             "Rcp_TabColors", "Rcp_TabDisplay", "Rcp_TabRing"};
+                                             "Rcp_TabColors", "Rcp_TabDisplay", "Rcp_TabRing",
+                                             "Rcp_TabSounds"};
 
 // ---- Window-template delivery (no code in the load path at all) ----
 //
@@ -322,6 +380,14 @@ void RcpOptionsUI::create_window() {
   combo_ring_graphic_ = get_child(wnd_, "Rcp_RingGraphic");
   cb_ring_spin_ = get_child(wnd_, "Rcp_RingSpin");
   cb_ring_melee_ = get_child(wnd_, "Rcp_RingMelee");
+  lbl_snd_add_ = get_child(wnd_, "Rcp_SndAddLabel");
+  combo_snd_add_ = get_child(wnd_, "Rcp_SndAddCombo");
+  lbl_snd_list_ = get_child(wnd_, "Rcp_SndListLabel");
+  list_snd_ = get_child(wnd_, "Rcp_SndList");
+  lbl_snd_vol_hdr_ = get_child(wnd_, "Rcp_SndVolLabel");
+  sl_snd_vol_ = get_child(wnd_, "Rcp_SndVol");
+  lbl_snd_vol_ = get_child(wnd_, "Rcp_SndVolValue");
+  btn_snd_reset_ = get_child(wnd_, "Rcp_SndReset");
   logger::logf("[ui] controls bound: tabs=%p,%p,%p,%p mouse(en=%p sx=%p) chase(en=%p dist=%p) np0=%p role0=%p",
                btn_tab_[0], btn_tab_[1], btn_tab_[2], btn_tab_[3], cb_enabled_, sl_sensx_, cb_chase_enabled_,
                sl_chase_dist_, cb_np_[0], btn_role_[0]);
@@ -337,10 +403,12 @@ void RcpOptionsUI::create_window() {
   slider_set_range(sl_ring_opacity_, kRingOpacitySliderMax);  // 0..100 -> 0..1 opacity.
   slider_set_range(sl_far_, kViewDistSliderMax);    // 0..200 -> 0..20000 world units terrain far clip.
   slider_set_range(sl_actor_, kViewDistSliderMax);  // 0..200 -> 0..20000 world units actor draw distance.
+  slider_set_range(sl_snd_vol_, 300);               // 0..300 percent volume (0 = mute, 100 = unchanged, >100 boosts).
 
   refresh_role_tints();
   set_text_color(btn_ring_color_, target_ring_settings::get_color());  // Ring color swatch (its own color store).
   populate_graphic_combo();     // Fill the ring-graphic dropdown from disk + select the current one.
+  populate_sound_add_combo();   // Fill the "add sound" dropdown from recently-played untracked sounds.
   set_active_tab(active_tab_);  // Latch the strip + show only the active group.
   show_window(wnd_, false);     // Created hidden; /rcpoptions reveals it.
 }
@@ -379,6 +447,12 @@ void RcpOptionsUI::set_active_tab(int tab) {
                   lbl_ring_opacity_hdr_, sl_ring_opacity_,   lbl_ring_opacity_,
                   lbl_ring_graphic_hdr_, combo_ring_graphic_, cb_ring_spin_};
   for (void *w : ring) show_window(w, tab == 5);
+  void *sounds[] = {lbl_snd_add_,     combo_snd_add_, lbl_snd_list_,  list_snd_,
+                    lbl_snd_vol_hdr_, sl_snd_vol_,    lbl_snd_vol_,   btn_snd_reset_};
+  for (void *w : sounds) show_window(w, tab == 6);
+  // Sync the list contents when the Sounds tab is entered (the CListWnd keeps its rows when hidden, so
+  // this only does work when the tracked set actually changed since we last painted it).
+  if (tab == 6) refresh_sound_list();
 }
 
 // Paint each color-role button's text with its current palette color.
@@ -426,6 +500,95 @@ void RcpOptionsUI::populate_graphic_combo() {
   last_ring_graphic_choice_ = combo_get_cur_choice(combo_ring_graphic_);
 }
 
+// Fill the Sounds-tab "add a sound" dropdown from the recently-played sounds not already tracked.
+// snd_add_choices_[0] is a placeholder; index i>0 maps to a display name the poll passes to add_tracked.
+// Selecting the placeholder (index 0) is a no-op, so re-populating resets the combo cleanly.
+void RcpOptionsUI::populate_sound_add_combo() {
+  if (!combo_snd_add_) return;
+  snd_add_choices_ = sound_settings::get_recent_untracked(30);
+  snd_add_choices_.insert(snd_add_choices_.begin(), "-- add a sound --");
+  combo_delete_all(combo_snd_add_);
+  for (const std::string &name : snd_add_choices_) combo_insert_choice(combo_snd_add_, name.c_str());
+  combo_set_choice(combo_snd_add_, 0);
+  last_snd_add_choice_ = combo_get_cur_choice(combo_snd_add_);
+}
+
+// Repaint the tracked-sound rows (name + volume, selection highlight) and, on a selection change, sync
+// the volume slider to the selected sound. Cheap when nothing changed: a signature of the list guards
+// the per-row SetWindowText/Show calls so we don't repaint (or fight the user) every frame.
+// Row label for a tracked sound: "name    50%" or "name    MUTED".
+static std::string sound_row_text(const sound_settings::TrackedSound &t) {
+  char buf[192];
+  if (t.vol_pct == 0)
+    std::snprintf(buf, sizeof(buf), "%s    MUTED", t.display.c_str());
+  else
+    std::snprintf(buf, sizeof(buf), "%s    %d%%", t.display.c_str(), t.vol_pct);
+  return buf;
+}
+
+void RcpOptionsUI::refresh_sound_list() {
+  if (!list_snd_) return;
+  // Remove the empty column-header row (a ~1-row gap above the items). Clearing the "has column header"
+  // style bit reflows the items to the top (item layout gates the header inset on it); also zero
+  // HeaderHeight so the scrollbar spans the full height and nothing draws a stray header. Idempotent, so
+  // we just re-assert both every refresh.
+  char *lw = reinterpret_cast<char *>(list_snd_);
+  *reinterpret_cast<uint32_t *>(lw + kListStyleOffset) &= ~kListStyle_ColumnHeader;
+  *reinterpret_cast<int *>(lw + kListHeaderHeightOffset) = 0;
+  std::vector<sound_settings::TrackedSound> tracked = sound_settings::get_tracked();  // sorted by display
+
+  std::vector<std::string> stems, texts;
+  stems.reserve(tracked.size());
+  texts.reserve(tracked.size());
+  for (const auto &t : tracked) {
+    stems.push_back(t.stem);
+    texts.push_back(sound_row_text(t));
+  }
+
+  // Drop the selection if its sound is no longer tracked (e.g. removed by a /rcpsound command).
+  int sel_idx = -1;
+  for (size_t i = 0; i < stems.size(); ++i)
+    if (stems[i] == snd_selected_) { sel_idx = static_cast<int>(i); break; }
+  if (!snd_selected_.empty() && sel_idx < 0) snd_selected_.clear();
+
+  if (stems != snd_row_stems_) {
+    // Structural change (a sound was added/removed): rebuild the whole list. Infrequent, so the scroll
+    // reset is acceptable; volume-only edits take the in-place branch below and keep the scroll position.
+    list_clear(list_snd_);
+    for (const std::string &txt : texts) list_add_string(list_snd_, txt.c_str(), 0xFFFFFFFFu);
+    snd_row_stems_ = stems;
+    snd_row_texts_ = texts;
+    list_set_cur_sel(list_snd_, sel_idx);  // -1 clears the selection
+    last_snd_sel_row_ = sel_idx;
+    snd_selection_dirty_ = true;  // re-sync the slider to the (re-found) selection
+  } else {
+    // Same set of sounds: update only the rows whose text changed (a volume edit) - no rebuild, so the
+    // user's scroll position and selection are preserved.
+    for (size_t i = 0; i < texts.size(); ++i)
+      if (i >= snd_row_texts_.size() || texts[i] != snd_row_texts_[i]) {
+        list_set_item_text(list_snd_, static_cast<int>(i), texts[i].c_str());
+      }
+    snd_row_texts_ = texts;
+  }
+
+  // On a selection change, snap the volume slider + value label to the selected sound's volume.
+  if (snd_selection_dirty_) {
+    snd_selection_dirty_ = false;
+    int vol = -1;
+    for (const auto &t : tracked)
+      if (t.stem == snd_selected_) { vol = t.vol_pct; break; }
+    slider_set(sl_snd_vol_, vol < 0 ? 0 : vol);
+    last_snd_vol_ = vol < 0 ? 0 : vol;
+    if (vol < 0) {
+      set_label_text(lbl_snd_vol_, "-");
+    } else {
+      char vb[16];
+      std::snprintf(vb, sizeof(vb), "%d%%", vol);
+      set_label_text(lbl_snd_vol_, vb);
+    }
+  }
+}
+
 // Push current settings into the controls (called when opening).
 void RcpOptionsUI::sync_controls() {
   checkbox_set(cb_enabled_, mouse_settings::get_enabled());
@@ -458,6 +621,8 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_ring_inner_, ring_radius_to_slider(target_ring_settings::get_inner()));
   slider_set(sl_ring_opacity_, ring_opacity_to_slider(target_ring_settings::get_opacity()));
   populate_graphic_combo();  // Refresh the dropdown choices + selection from disk/settings.
+  populate_sound_add_combo();  // Refresh the "add sound" choices from the latest history.
+  refresh_sound_list();        // Paint the tracked-sound rows + selection.
   refresh_role_tints();
   set_text_color(btn_ring_color_, target_ring_settings::get_color());
 }
@@ -496,6 +661,10 @@ void RcpOptionsUI::seed_last_values() {
   last_ring_graphic_choice_ = combo_get_cur_choice(combo_ring_graphic_);
   last_ring_spin_ = checkbox_get(cb_ring_spin_);
   last_ring_melee_ = checkbox_get(cb_ring_melee_);
+  last_snd_add_choice_ = combo_get_cur_choice(combo_snd_add_);
+  last_snd_vol_ = slider_get(sl_snd_vol_);
+  last_snd_reset_ = checkbox_get(btn_snd_reset_);
+  last_snd_sel_row_ = list_get_cur_sel(list_snd_);
 }
 
 void RcpOptionsUI::update_labels() {
@@ -578,6 +747,12 @@ void RcpOptionsUI::on_frame() {
     sl_ring_inner_ = lbl_ring_inner_hdr_ = lbl_ring_inner_ = nullptr;
     sl_ring_opacity_ = lbl_ring_opacity_hdr_ = lbl_ring_opacity_ = nullptr;
     lbl_ring_graphic_hdr_ = combo_ring_graphic_ = cb_ring_spin_ = cb_ring_melee_ = nullptr;
+    lbl_snd_add_ = combo_snd_add_ = lbl_snd_list_ = list_snd_ = nullptr;
+    lbl_snd_vol_hdr_ = sl_snd_vol_ = lbl_snd_vol_ = btn_snd_reset_ = nullptr;
+    snd_row_stems_.clear();
+    snd_row_texts_.clear();
+    snd_add_choices_.clear();
+    snd_selected_.clear();
     graphic_choices_.clear();
     last_ring_graphic_choice_ = -1;
     for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
@@ -763,6 +938,61 @@ void RcpOptionsUI::on_frame() {
       const std::string &name = graphic_choices_[gc];
       target_ring_settings::set_graphic(name == "None" ? std::string() : name);
     }
+  }
+
+  // Sounds tab: manage the tracked-sound list (only while it is the active tab).
+  if (active_tab_ == 6) {
+    // Add-from-recent combobox: index 0 is the placeholder; any other pick starts tracking that sound.
+    int add_sel = combo_get_cur_choice(combo_snd_add_);
+    if (add_sel != last_snd_add_choice_) {
+      last_snd_add_choice_ = add_sel;
+      if (add_sel > 0 && add_sel < static_cast<int>(snd_add_choices_.size())) {
+        snd_selected_ = sound_settings::add_tracked(snd_add_choices_[add_sel]);
+        snd_selection_dirty_ = true;
+        populate_sound_add_combo();  // now tracked -> drop from the add list + reset to the placeholder
+      }
+    } else if (!combo_popup_open(combo_snd_add_)) {
+      // Keep the dropdown current as new sounds play - but only when the user isn't browsing it (else we
+      // would rebuild the list out from under them) and only when it actually changed (avoids per-frame
+      // combo churn). The placeholder-first choice list is compared as-is.
+      std::vector<std::string> latest = sound_settings::get_recent_untracked(30);
+      latest.insert(latest.begin(), "-- add a sound --");
+      if (latest != snd_add_choices_) populate_sound_add_combo();
+    }
+    // Tracked list: the native CListWnd handles clicks + scrolling; poll its selected row and map it
+    // back to a stem when the user picks a different row.
+    int sel_row = list_get_cur_sel(list_snd_);
+    if (sel_row != last_snd_sel_row_) {
+      last_snd_sel_row_ = sel_row;
+      if (sel_row >= 0 && sel_row < static_cast<int>(snd_row_stems_.size())) {
+        snd_selected_ = snd_row_stems_[sel_row];
+        snd_selection_dirty_ = true;
+      }
+    }
+    // Volume slider -> selected sound (only on a real change, and only when something is selected).
+    int sv = slider_get(sl_snd_vol_);
+    if (sv != last_snd_vol_) {
+      last_snd_vol_ = sv;
+      if (!snd_selected_.empty()) {
+        sound_settings::set_volume(snd_selected_, sv);
+        char vb[16];
+        std::snprintf(vb, sizeof(vb), "%d%%", sv);
+        set_label_text(lbl_snd_vol_, vb);  // live value label (refresh only re-syncs it on selection change)
+      }
+    }
+    // Reset button (momentary): stop tracking the selected sound.
+    bool rst = checkbox_get(btn_snd_reset_);
+    if (rst != last_snd_reset_) {
+      checkbox_set(btn_snd_reset_, false);
+      last_snd_reset_ = false;
+      if (rst && !snd_selected_.empty()) {
+        sound_settings::remove_tracked(snd_selected_);
+        snd_selected_.clear();
+        snd_selection_dirty_ = true;
+        populate_sound_add_combo();  // untracked again -> reappears in the add list
+      }
+    }
+    refresh_sound_list();  // repaint rows + selection + (when a selection changed) the slider
   }
 
   // Color-role buttons: a click (checked-state change) opens the stock color

@@ -5,6 +5,8 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 // Declare a single function from game_functions.h to avoid pulling in too many headers.
 namespace Rcp::Game {
@@ -51,6 +53,27 @@ class IO_ini {
     }
 
     return sectionNames;
+  }
+
+  // Returns every key=value pair in a section (for sections whose keys are not known ahead of time,
+  // e.g. an open-ended set of per-sound overrides). Empty if the section is absent.
+  std::vector<std::pair<std::string, std::string>> getSection(const std::string &section) const {
+    std::vector<std::pair<std::string, std::string>> out;
+    std::vector<char> buf(8192);
+    DWORD n = GetPrivateProfileSectionA(section.c_str(), buf.data(), static_cast<DWORD>(buf.size()), filename.c_str());
+    if (n == 0) return out;
+    for (char *p = buf.data(); *p != '\0'; p += strlen(p) + 1) {
+      std::string line(p);
+      size_t eq = line.find('=');
+      if (eq == std::string::npos) continue;
+      out.emplace_back(line.substr(0, eq), line.substr(eq + 1));
+    }
+    return out;
+  }
+
+  // Deletes a single key from a section (WritePrivateProfileString with a null value).
+  bool deleteKey(const std::string &section, const std::string &key) {
+    return WritePrivateProfileStringA(section.c_str(), key.c_str(), nullptr, filename.c_str()) != 0;
   }
 
   bool deleteSection(const std::string &sectionName) {

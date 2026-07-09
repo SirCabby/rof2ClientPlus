@@ -950,3 +950,109 @@ introduces a token, so order is irrelevant), then tail-call the original for the
 Game-memory reads happen inside `rcp_guard::run`; the `std::string` build/replace runs AFTER the guard
 (heap-only, can't fault). Write-back is bounded to 2000 bytes, comfortably under the client's own
 `0x800` working buffer that every DoPercentConvert caller must already provide.
+
+---
+
+## Disable sounds by name (`src/sound_mods.cpp`, `/rcpsound`) — DONE (awaiting in-game confirm)
+
+Goal: an in-game way to mute specific game sounds, starting with the storm **thunder** (`thunder1.wav`
+/ `thunder2.wav`, packaged in `snd2.pfs`), via a **"Sounds" tab** in `/rcpoptions`, structured so more
+sound types can be added later. Toggling mutes/unmutes **instantly, both directions** (no zoning).
+
+### Key finding — RoF2 sound architecture (all disasm-verified against the mss32.dll call graph)
+The exe **never names individual wavs** (thunder1/2.wav come from the packaged data, not code — a
+`strings eqgame.exe | grep thunder` only hits zone names). Sounds are loaded by filename into an
+**audio-asset object**, then played by index, so name-based filtering must happen where the asset is
+known. The RE that pinned the seam:
+- **Audio-asset ctor `0x5BE830`** (`__thiscall`, `ret 0x14` = 5 args): copies the source filename into
+  an **inline buffer at `asset+0x8`**, detects the extension (`strrchr('.')`) and stores a **format at
+  `asset+0x210`** (1=`.wav`, 2=`.mp3`, 3=`.ogg`, 4=`.xmi`), plus the file bytes `@+0x208` and size
+  `@+0x20c`. So every asset retains its own filename.
+- **The single play choke is `Asset::Play` @ `0x5BFBD0`** — `__thiscall(this=asset, void* param)`,
+  `ret 4`. It reads `this+0x210`/`+0x214`, dispatches 2D/3D/stream by format, and does the positional
+  attenuation, so **every** sound start funnels through it. Its main caller, the "play sound at index N"
+  helper `0x4A9140`, is called from all over the binary (combat, spells, UI, weather). The function's
+  own null/early-outs `xor eax,eax; ret 4`, so **returning 0 without calling the original cleanly
+  suppresses a sound** — a "did not play" result callers already handle.
+- Miles (`mss32.dll`) sits one layer below and is **name-blind**: 2D loads via
+  `AIL_set_named_sample_file` pass only a **format tag** string (`.mp3`/`.wav`/`.ogg` @ `0x9ca298`/
+  `0x9ca308`/`0x9d93dc`), not the wav name; 3D uses `AIL_set_3D_sample_file` (image only). The IAT lives
+  at VA `0x9C04D4` (= winedump import offset + image base `0x400000`); the load/play wrappers cluster at
+  `0x5BE000..0x5BFA00`. So hooking Miles can't filter by name — the asset layer is the right seam.
+
+### Mechanism — one detour on `Asset::Play`, live name check (mute) + gain scale (volume)
+`sound_mods.cpp` detours `0x5BFBD0`. Every play, it reads `(char*)(this+0x8)` **inside `rcp_guard::run`**
+(a raw read that could fault on a stale asset), then does all string/map work AFTER the guard (heap-only,
+can't fault — same split as `chat_shortcuts.cpp`). Two levers, both **per-play against the live setting**
+so they take effect **instantly, both directions, with no data destruction and no zoning** — no need to
+locate the SoundManager instance or sweep loaded assets (both considered and rejected as more surface):
+- **Mute** → `return 0` (skip), the value the function's own null/early-outs already produce.
+- **Volume** → the play request `param`'s first float (`param+0x0`) is the **requested gain** (Play
+  early-outs silently when it is ≤ 0), so we transiently `*param *= pct/100`, call the original, then
+  **restore** `*param` (the caller's struct is left untouched; Play copies the gain into its queued
+  instance synchronously, so restoring after it returns is safe). `param == null` (some default-volume
+  2D sounds) → volume can't scale, but mute still works.
+
+**CONFIRMED in-game 2026-07-09** (thunder muting). The `param+0x0` = linear-gain assumption still needs
+an in-game check for the volume path (the ≤0→silent gate strongly implies it); mute is proven.
+
+### History + per-sound overrides (dynamic management)
+The hook also records a bounded **history** (`std::map<stem, {display, count, last_tick, vol_pct}>`,
+`GetTickCount` for recency, capped 512, guarded by a `std::mutex` since the play hook and the chat
+commands both touch it). `vol_pct`: −1 = no override (100%), 0 = mute, 1..100 = volume. Preset **named
+categories** (`SoundCategory`, seeded `thunder → {thunder1.wav, thunder2.wav}`) remain for the tab
+checkbox; the play hook mutes if the stem is in an enabled category OR its `vol_pct == 0`, and scales if
+`0 < vol_pct < 100`. All matching is on the **basename stem** (lowercased, path/ext-insensitive).
+
+Commands (`/rcpsound`): `recent [N]` lists the newest-first played sounds numbered (with count + %/MUTED
+state, caching index→stem for `#` refs); `vol <name|#> <0-100>` sets a sound's volume (0 = mute; a
+`<name>` is stem-matched so it works for not-yet-played sounds, a `<#>` indexes the last `recent` list);
+`reset <name|#>` stops tracking a sound; `thunder on|off` (category); `log on|off` (file log of distinct
+names); `clear` (wipe history, keep overrides); bare = status. (`mute`/`unmute` were dropped per user —
+`vol 0` mutes.) Per-sound overrides persist to a dedicated **`[SoundOverrides]`** section (key = stem,
+value = percent; `deleteKey` on reset) via two new `IO_ini` helpers (`getSection`, `deleteKey`);
+categories/log stay in `[Sounds]`.
+
+### Sounds tab — the tracked-sound manager (DONE)
+The **"Sounds" tab** (tab index 6; tab strip grew 6→7, window widened 424→**492**, tab-6 right edge 478)
+is a curated **tracked-sound list** (the preset "Disable thunder" checkbox was removed 2026-07-09 —
+redundant once thunder can be muted from the list like any other sound; the `/rcpsound thunder` command +
+category backend were kept, and the remaining controls shifted up ~28px, 100 controls): an **"Add a
+played sound" combobox** (populated from `sound_settings::get_recent_untracked(30)` — recently-played sounds not yet
+tracked), up to **`kSndRowCount`(10) row buttons** (each shows `name    NN%`/`MUTED`; click selects it,
+radio-style like the tab strip), a **volume slider** (0..100, 0 = mute) + value label bound to the
+selected row, and a **"Remove selected from list"** button. All poll-driven (no `WndNotification`),
+mirroring the Colors-tab role buttons + Ring-tab combobox. `refresh_sound_list()` repaints rows only when
+a signature of the list changes (so it doesn't fight the user or spam `SetWindowText`); a
+`snd_selection_dirty_` flag snaps the slider to the selection's volume on a select/add/remove, and the
+slider is left alone mid-drag (its `set_volume` updates the row text live). Adding a sound selects it;
+removing it clears the selection and returns it to the add combo. `sound_settings` exposes
+`get_tracked` / `get_recent_untracked` / `add_tracked` (returns the stem) / `set_volume` /
+`remove_tracked`. Regen order unchanged (`gen_option_overrides.py` then `gen_rcp_options_ui.py`, **101
+controls**).
+
+**In-game verification (user):** open the Sounds tab, pick a recently-played sound from the combobox → it
+appears as a row; click the row and drag the volume slider (row text updates live); "Remove selected"
+drops it. Commands `/rcpsound recent`, `vol 3 50`, `reset 3` do the same. If `vol` doesn't audibly change
+a sound (only 0/mute does), `param+0x0` is a gate not the output gain and the volume lever needs re-RE
+(the queued-instance gain field / the `AIL_set_sample_volume_levels @0x9c053c` path). Built + installed
+2026-07-09.
+
+**Bugfix (2026-07-09):** persisted overrides loaded fine (verified `GetPrivateProfileSectionA` + the
+`[SoundOverrides]` read under Wine) but the tracked list rendered EMPTY on window open until the user
+interacted. Cause: `refresh_sound_list`'s content-signature guard skipped the repaint on tab entry while
+`set_active_tab` had hidden the rows on other tabs, so an unchanged list never re-`show_window`'d them on
+return. Fix: `set_active_tab` clears `snd_list_sig_` and always calls `refresh_sound_list` (forcing a
+repaint on any tab change), and each row's `show_window` is gated on `active_tab_ == 6`.
+
+**Scrollable-list upgrade (2026-07-09):** the 10 fixed row buttons were replaced by a native **`CListWnd`**
+(`Rcp_SndList`) so the tracked list scrolls to any count. SIDL is the stock `<Listbox>` schema (one
+`<Columns><Width>` + `Style_VScroll`, modeled on `FW_FriendsList`). CListWnd methods (eqlib +
+disasm-verified against our build — `GetCurSel@0x853430` reads `CurSel@this+0x1f8` vs row count
+`ItemsArray.m_length@this+0x1d8`): `AddString@0x8580C0`, `GetCurSel@0x853430`, `SetCurSel@0x853470`,
+`SetItemText@0x8575B0`, `RemoveLine@0x8582A0`; row count `*(int*)(list+0x1d8)`. Thin wrappers in
+`rcp_options_ui.cpp` (all gated on non-null). `refresh_sound_list` now rebuilds the list only on a
+**structural** change (the stem set differs); a volume-only edit updates just the changed row via
+`SetItemText`, preserving scroll position + selection. Row selection is the list's own polled `GetCurSel`
+(no more checkbox rows). This is the first standalone `CListWnd` in the mod — **awaiting in-game verify**
+that a runtime-instantiated list renders, routes row clicks, and scrolls.

@@ -43,8 +43,10 @@ class RcpOptionsUI {
   void refresh_role_tints();     // Paint each color-role button with its current color.
   void open_color_picker(int role);  // Open the stock picker seeded with a role's color.
   void populate_graphic_combo();     // Fill the ring-graphic combobox from disk + select the current one.
+  void populate_sound_add_combo();   // Fill the "add sound" combobox from recently-played untracked sounds.
+  void refresh_sound_list();         // Repaint the tracked-sound rows + selection highlight + volume slider.
 
-  static constexpr int kTabCount = 6;   // Mouse / Camera / Nameplate / Colors / Display / Ring.
+  static constexpr int kTabCount = 7;   // Mouse / Camera / Nameplate / Colors / Display / Ring / Sounds.
   static constexpr int kNpCount = 7;    // Nameplate toggle checkboxes (kNpChildNames).
   static constexpr int kRoleCount = 18; // Color roles; == nameplate_colors::count().
 
@@ -109,6 +111,15 @@ class RcpOptionsUI {
   void *combo_ring_graphic_ = nullptr;      // Native Combobox: choices == available graphics.
   void *cb_ring_spin_ = nullptr;            // "Rotate ring graphic" (spin vs face-heading).
   void *cb_ring_melee_ = nullptr;           // "Scale to melee range" (outer edge tracks target melee range).
+  // Sounds tab (track + adjust individual sounds; sound_settings).
+  void *lbl_snd_add_ = nullptr;
+  void *combo_snd_add_ = nullptr;   // "Add a played sound to the list" picker (recent untracked sounds).
+  void *lbl_snd_list_ = nullptr;
+  void *list_snd_ = nullptr;        // Scrollable tracked-sound list (native CListWnd): rows show name + volume.
+  void *lbl_snd_vol_hdr_ = nullptr;
+  void *sl_snd_vol_ = nullptr;      // Volume of the selected tracked sound (0..100; 0 = mute).
+  void *lbl_snd_vol_ = nullptr;
+  void *btn_snd_reset_ = nullptr;   // "Remove selected from list" (untrack the selected sound).
   bool create_attempted_ = false;
 
   // Tab state.
@@ -148,6 +159,16 @@ class RcpOptionsUI {
   int last_ring_opacity_ = -1;
   bool last_ring_spin_ = false;
   bool last_ring_melee_ = false;
+  // Sounds tab state.
+  std::string snd_selected_;                  // stem of the selected tracked sound ("" = none).
+  bool snd_selection_dirty_ = false;          // set on a selection change -> refresh re-syncs the slider.
+  std::vector<std::string> snd_row_stems_;    // list row index -> stem (mirrors the CListWnd row order).
+  std::vector<std::string> snd_row_texts_;    // list row index -> current row text (so we update in place, not rebuild).
+  std::vector<std::string> snd_add_choices_;  // add-combo index -> display name (index 0 is the placeholder).
+  int last_snd_add_choice_ = -1;
+  int last_snd_sel_row_ = -1;                 // last CListWnd GetCurSel we saw (detect user row clicks).
+  int last_snd_vol_ = -1;
+  bool last_snd_reset_ = false;
   // Ring-graphic combobox: the choice list (index -> name, "None" first) currently loaded into the
   // combo, and the last selected index we applied (so the poll only reacts to real user changes).
   std::vector<std::string> graphic_choices_;
