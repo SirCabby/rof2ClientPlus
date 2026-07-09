@@ -145,9 +145,15 @@ int GetSpellCastingTime();  // Used by CCastingWnd. Returns -1 if done otherwise
 DWORD GetLevelCon(Rcp::GameStructures::Entity *ent);
 bool IsPlayableRace(WORD race);
 const char *get_aa_title_name(BYTE class_id, int aa_rank, BYTE gender_id);
-float CalcCombatRange(Rcp::GameStructures::Entity *entity1, Rcp::GameStructures::Entity *entity2);
-float CalcZOffset(Rcp::GameStructures::Entity *ent);
-float CalcBoundingRadius(Rcp::GameStructures::Entity *ent);
+// Melee/combat-range math (raw field values, so any caller can supply them from its own struct
+// offsets - the vendored Entity struct is TAKP-only, but this formula is shared with RoF2). size is
+// the entity's model size/scale field (shrink/grow); gender is only consulted by CalcZOffset.
+// CalcCombatRange(self..., target..., target_moving) returns the world-unit distance within which a
+// melee swing at the target lands (clamped 14..75).
+float CalcBoundingRadius(int race, float size, int gender);
+float CalcZOffset(int race, float size, int gender);
+float CalcCombatRange(int self_race, float self_size, int self_gender, int target_race, float target_size,
+                      int target_gender, bool target_moving);
 void DoPercentConvert(std::string &str);
 Rcp::GameStructures::Entity *get_player_partial_name(const char *name);
 bool move_item(int a1, int slot, int a2, int a3);

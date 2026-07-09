@@ -1041,11 +1041,8 @@ bool can_move() {
   return false;
 }
 
-float CalcBoundingRadius(Rcp::GameStructures::Entity *ent) {
-  int myrace = ent->Race;
-  float mysize = ent->Height;
+float CalcBoundingRadius(int myrace, float mysize, int /*mygender - unused by the radius table*/) {
   float base_size = 5.0f;
-  int mygender = ent->Gender;
   float myradius = 6.0f;
   switch (myrace) {
     case 1:   // "Human"
@@ -1628,9 +1625,9 @@ float CalcBoundingRadius(Rcp::GameStructures::Entity *ent) {
   return myradius;
 }
 
-float CalcZOffset(Rcp::GameStructures::Entity *ent) {
-  float size = std::clamp(ent->Height, 0.f, 20.f);  // rule has bestzsizemax at 20 on server code
-  switch (ent->Race) {
+float CalcZOffset(int race, float rawsize, int gender) {
+  float size = std::clamp(rawsize, 0.f, 20.f);  // rule has bestzsizemax at 20 on server code
+  switch (race) {
     case 49:   // dragon
     case 158:  // wurm
     case 196:  // ghost dragon
@@ -1639,15 +1636,19 @@ float CalcZOffset(Rcp::GameStructures::Entity *ent) {
       return (size / 5.0f * 3.125f * 0.44999999f);
     case 42:   // wolf
     case 120:  // wolf elemntal
-      if (ent->Gender == 2) return (size / 5.0f * 3.125f * 0.44999999f);
+      if (gender == 2) return (size / 5.0f * 3.125f * 0.44999999f);
   }
   return (size / 5.0f * 3.125f);
 }
 
-float CalcCombatRange(Rcp::GameStructures::Entity *entity1, Rcp::GameStructures::Entity *entity2) {
-  float size_mod = (CalcBoundingRadius(entity1) + CalcBoundingRadius(entity2)) * 0.75f;
-  float z_diff = std::abs(CalcZOffset(entity1) - CalcZOffset(entity2));
-  if (entity2->MovementSpeed > 0) size_mod += 2.0f;
+float CalcCombatRange(int self_race, float self_size, int self_gender, int target_race, float target_size,
+                      int target_gender, bool target_moving) {
+  float size_mod = (CalcBoundingRadius(self_race, self_size, self_gender) +
+                    CalcBoundingRadius(target_race, target_size, target_gender)) *
+                   0.75f;
+  float z_diff = std::abs(CalcZOffset(self_race, self_size, self_gender) -
+                          CalcZOffset(target_race, target_size, target_gender));
+  if (target_moving) size_mod += 2.0f;
   size_mod += z_diff;
   size_mod = std::clamp(size_mod, 14.f, 75.f);
   return size_mod;

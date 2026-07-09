@@ -54,8 +54,8 @@ YELLOW = (255, 255, 0)
 
 # ---- window + layout ----
 WINDOW_CX = 424  # Wide enough for the 6-tab strip at the proven 64 px tab width (tab 5 right edge 411).
-WINDOW_CY = 400  # Nameplate tab needs ~356; the extra room lets the Ring-tab graphic combobox drop
-                 # its list (bottom ~388) fully inside the window.
+WINDOW_CY = 424  # Nameplate tab needs ~356; the extra room lets the Ring-tab graphic combobox (pushed
+                 # down a row by the melee-range checkbox) drop its list (bottom ~410) inside the window.
 TAB_Y = 6            # tab-strip row
 TAB_W, TAB_H = 64, 20
 CONTENT_Y = 34       # first content row under the tab strip
@@ -242,6 +242,9 @@ def build_controls():
     y += 22
     c.append(("Rcp_RingConColor", button, ("Rcp_RingConColor", COL_X, y, 250, 20, "Con colors (by target level)",
                                            "Color the ring by the target's con level instead of the fixed color below")))
+    y += 22
+    c.append(("Rcp_RingMelee", button, ("Rcp_RingMelee", COL_X, y, 250, 20, "Scale to melee range",
+                                        "Size the ring's outer edge to the target's melee range (how close you must be to land a melee hit); overrides the outer radius")))
     y += 26
     # Color swatch: the C++ tints this button's text to the live ring color and opens the stock
     # color picker on click (same mechanism as the nameplate color roles). Used when con colors are off.

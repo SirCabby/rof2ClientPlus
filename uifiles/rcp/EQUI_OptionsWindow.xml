@@ -6051,12 +6051,40 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_RingMelee">
+    <ScreenID>Rcp_RingMelee</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>100</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Size the ring's outer edge to the target's melee range (how close you must be to land a melee hit); overrides the outer radius</TooltipReference>
+    <Text>Scale to melee range</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Button item="Rcp_RingColor">
     <ScreenID>Rcp_RingColor</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>104</Y>
+      <Y>126</Y>
     </Location>
     <Size>
       <CX>160</CX>
@@ -6084,7 +6112,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>130</Y>
+      <Y>152</Y>
     </Location>
     <Size>
       <CX>200</CX>
@@ -6104,7 +6132,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>146</Y>
+      <Y>168</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -6118,7 +6146,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>146</Y>
+      <Y>168</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -6138,7 +6166,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>172</Y>
+      <Y>194</Y>
     </Location>
     <Size>
       <CX>200</CX>
@@ -6158,7 +6186,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>188</Y>
+      <Y>210</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -6172,7 +6200,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>188</Y>
+      <Y>210</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -6192,7 +6220,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>214</Y>
+      <Y>236</Y>
     </Location>
     <Size>
       <CX>200</CX>
@@ -6212,7 +6240,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>230</Y>
+      <Y>252</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -6226,7 +6254,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>230</Y>
+      <Y>252</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -6246,7 +6274,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>259</Y>
+      <Y>281</Y>
     </Location>
     <Size>
       <CX>84</CX>
@@ -6267,7 +6295,7 @@
     <DrawTemplate>WDT_Inner</DrawTemplate>
     <Location>
       <X>98</X>
-      <Y>256</Y>
+      <Y>278</Y>
     </Location>
     <Size>
       <CX>220</CX>
@@ -6289,7 +6317,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>284</Y>
+      <Y>306</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -6321,7 +6349,7 @@
     </Location>
     <Size>
       <CX>424</CX>
-      <CY>400</CY>
+      <CY>424</CY>
     </Size>
     <Text>rof2ClientPlus Options</Text>
     <Style_VScroll>false</Style_VScroll>
@@ -6395,6 +6423,7 @@
     <Pieces>Rcp_RingEnabled</Pieces>
     <Pieces>Rcp_RingHideSelf</Pieces>
     <Pieces>Rcp_RingConColor</Pieces>
+    <Pieces>Rcp_RingMelee</Pieces>
     <Pieces>Rcp_RingColor</Pieces>
     <Pieces>Rcp_RingOuterLabel</Pieces>
     <Pieces>Rcp_RingOuter</Pieces>

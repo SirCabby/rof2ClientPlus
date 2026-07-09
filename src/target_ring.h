@@ -55,4 +55,6 @@ void set_graphic(const std::string &name);  // "" or "none"/"None" selects the s
 std::vector<std::string> get_available_graphics();  // "None", then each *.tga stem in uifiles/rcp/targetrings.
 bool get_spin();       // true = the ring graphic slowly rotates; false = it faces the target's heading.
 void set_spin(bool on);
+bool get_melee_range();       // true = the outer radius tracks the target's melee range (overrides get_outer()).
+void set_melee_range(bool on);
 }  // namespace target_ring_settings

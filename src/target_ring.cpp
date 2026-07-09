@@ -6,6 +6,7 @@
 #include <d3dx9.h>  // D3DXCreateTextureFromFileA (optional ring graphic).
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -44,6 +45,10 @@ constexpr int kEntPos2 = 0x6c;         // vertical position reference (above the
 constexpr int kEntFloorHeight = 0x28;  // float: absolute Z of the floor beneath the entity
 constexpr int kEntHeading = 0x80;      // float, EQ heading 0..512 (== 0..2pi); used for face-heading.
 constexpr int kEntActor = 0x101c;      // CActor*; NULL => not in-world / no graphics yet.
+// For the optional melee-range scaling (Rcp::Game::CalcCombatRange needs each entity's race + model
+// size). RoF2 offsets from PORTING_NOTES (eqlib + disasm): Race@0xeb4, Size(shrink/grow scale)@0x13c.
+constexpr int kEntRace = 0xeb4;   // uint16 race id (RACE_x); table entries only reach ~360, else default.
+constexpr int kEntSize = 0x13c;   // float model size/scale (== TAKP "Height"; AvatarHeight@0x138 is separate).
 
 // ---- live settings (persisted to rof2ClientPlus.ini [TargetRing]). Off by default. ----
 bool g_enabled = false;
@@ -56,8 +61,10 @@ bool g_hide_self = true;
 std::string g_graphic;    // Optional ring graphic (Zeal-style texture). "" = solid donut, no texture.
 bool g_spin = true;       // true = the graphic slowly rotates; false = it faces the target's heading.
 float g_face_offset_deg = 0.0f;  // Face-heading fine-alignment: added to the angle (degrees, 0..360).
+bool g_melee_range = false;  // true = the outer radius tracks the target's melee range (overrides Outer).
 
-int g_z_log = 0;  // Log the computed ring Z (pos vs floor) for a few frames after enabling.
+int g_z_log = 0;      // Log the computed ring Z (pos vs floor) for a few frames after enabling.
+int g_range_log = 0;  // Log the computed melee range (race/size inputs) for a few frames after enabling.
 
 constexpr float kRadiusMax = 30.0f;    // slider/command upper bound for both radii
 constexpr int kNumSegments = 96;       // ring smoothness (triangle-strip segments)
@@ -132,6 +139,7 @@ void load_settings() {
   if (graphic_is_none(g_graphic)) g_graphic.clear();
   if (ini.exists(kIniSection, "Spin")) g_spin = ini.getValue<bool>(kIniSection, "Spin");
   if (ini.exists(kIniSection, "FaceOffset")) g_face_offset_deg = ini.getValue<float>(kIniSection, "FaceOffset");
+  if (ini.exists(kIniSection, "MeleeRange")) g_melee_range = ini.getValue<bool>(kIniSection, "MeleeRange");
   g_graphic_dirty = true;  // Load the persisted graphic on the first drawn frame.
   g_color &= 0xffffff;
   g_outer = clampf(g_outer, 0.0f, kRadiusMax);
@@ -153,6 +161,31 @@ void save_settings() {
   ini.setValue<std::string>(kIniSection, "Graphic", g_graphic.empty() ? "None" : g_graphic);
   ini.setValue<bool>(kIniSection, "Spin", g_spin);
   ini.setValue<float>(kIniSection, "FaceOffset", g_face_offset_deg);
+  ini.setValue<bool>(kIniSection, "MeleeRange", g_melee_range);
+}
+
+// Compute the world-unit radius at which a melee swing at `target` lands, from the player (`self`)
+// and target model race/size. Mirrors the client's combat-range formula (Rcp::Game::CalcCombatRange:
+// (boundingRadius(self)+boundingRadius(target))*0.75 + |zOffset diff|, clamped 14..75). Gender only
+// nudges a couple of wolf/tiger z-offsets, and the moving +2 needs a velocity offset we don't read
+// here, so both are passed as 0/false - close enough for a ground indicator. Falls back to a default
+// player build (race 1, size 5) when self isn't resolvable yet.
+float melee_range_radius(char *self, char *target) {
+  const int target_race = *reinterpret_cast<uint16_t *>(target + kEntRace);
+  const float target_size = *reinterpret_cast<float *>(target + kEntSize);
+  int self_race = 1;        // Playable races all resolve to a 5.0 bounding radius.
+  float self_size = 5.0f;
+  if (self) {
+    self_race = *reinterpret_cast<uint16_t *>(self + kEntRace);
+    self_size = *reinterpret_cast<float *>(self + kEntSize);
+  }
+  const float r = Rcp::Game::CalcCombatRange(self_race, self_size, 0, target_race, target_size, 0, false);
+  if (g_range_log > 0) {
+    logger::logf("[ring] melee range: self(race=%d size=%.2f) target(race=%d size=%.2f) -> %.2f", self_race,
+                 self_size, target_race, target_size, r);
+    --g_range_log;
+  }
+  return r;
 }
 
 // Draw the ring at the shared post-world / pre-UI in-scene seam. Already inside directx's rcp_guard
@@ -208,7 +241,10 @@ void draw_ring(IDirect3DDevice9 *device) {
     --g_z_log;
   }
 
-  float outer = clampf(g_outer, 0.0f, kRadiusMax);
+  // Outer radius: the manual slider value, or - in melee-range mode - the target's melee range so the
+  // ring's outer edge marks exactly how close you must be to land a swing (can exceed kRadiusMax for
+  // giants; that's the real range, so it's intentionally not clamped to the slider bound here).
+  float outer = g_melee_range ? melee_range_radius(static_cast<char *>(*kSelf), t) : clampf(g_outer, 0.0f, kRadiusMax);
   float inner = clampf(g_inner, 0.0f, outer);  // Inner never exceeds outer (would invert the band).
   if (outer <= 0.0f) return;                    // Nothing to draw.
   const BYTE alpha = static_cast<BYTE>(clampf(g_opacity, 0.0f, 1.0f) * 255.0f + 0.5f);
@@ -366,9 +402,14 @@ void print_status() {
     std::snprintf(facebuf, sizeof(facebuf), "spinning");
   else
     std::snprintf(facebuf, sizeof(facebuf), "faces heading (offset %.0f deg)", g_face_offset_deg);
+  char outerbuf[32];
+  if (g_melee_range)
+    std::snprintf(outerbuf, sizeof(outerbuf), "melee range");
+  else
+    std::snprintf(outerbuf, sizeof(outerbuf), "%.1f", g_outer);
   Rcp::Game::print_chat(
-      "rof2ClientPlus target ring: %s | outer %.1f, inner %.1f, opacity %.0f%%, color %s | graphic %s (%s)%s",
-      g_enabled ? "ON" : "OFF", g_outer, g_inner, g_opacity * 100.0f, colbuf,
+      "rof2ClientPlus target ring: %s | outer %s, inner %.1f, opacity %.0f%%, color %s | graphic %s (%s)%s",
+      g_enabled ? "ON" : "OFF", outerbuf, g_inner, g_opacity * 100.0f, colbuf,
       g_graphic.empty() ? "None" : g_graphic.c_str(), facebuf, g_hide_self ? ", hidden on self" : "");
 }
 
@@ -388,7 +429,10 @@ namespace target_ring_settings {
 bool get_enabled() { return g_enabled; }
 void set_enabled(bool on) {
   g_enabled = on;
-  if (on) g_z_log = 5;
+  if (on) {
+    g_z_log = 5;
+    if (g_melee_range) g_range_log = 5;
+  }
   save_settings();
 }
 int get_color() { return g_color & 0xffffff; }
@@ -433,6 +477,12 @@ void set_spin(bool on) {
   g_spin = on;
   save_settings();
 }
+bool get_melee_range() { return g_melee_range; }
+void set_melee_range(bool on) {
+  g_melee_range = on;
+  if (on && g_enabled) g_range_log = 5;  // Log the computed range for a few frames so offsets can be verified.
+  save_settings();
+}
 // "None" first, then every *.tga stem in uifiles/rcp/targetrings (name only, no dir/extension).
 std::vector<std::string> get_available_graphics() {
   std::vector<std::string> out = {"None"};
@@ -459,6 +509,7 @@ TargetRing::TargetRing(RcpService *rcp) : rcp_(rcp) {
       "/rcpring", {"/targetring"},
       "Target ring: '/rcpring' toggles; 'on|off', 'outer <n>', 'inner <n>', 'opacity <0-1>', "
       "'color RRGGBB', 'con on|off' (color by target con level), 'self on|off' (hide under yourself), "
+      "'melee on|off' (scale the outer edge to the target's melee range, overriding outer), "
       "'graphic <name>|none' (texture from uifiles/rcp/targetrings; bare 'graphic' lists them), "
       "'spin on|off' (rotate the graphic, or face the target's heading when off), "
       "'faceoffset <deg>' (fine-align the face-heading direction).",
@@ -485,6 +536,9 @@ TargetRing::TargetRing(RcpService *rcp) : rcp_(rcp) {
             g_hide_self = (args[2] == "on" || args[2] == "1");
           } else if (a == "spin" && args.size() >= 3) {
             g_spin = (args[2] == "on" || args[2] == "1");
+          } else if ((a == "melee" || a == "meleerange") && args.size() >= 3) {
+            g_melee_range = (args[2] == "on" || args[2] == "1");
+            if (g_melee_range && g_enabled) g_range_log = 5;  // Log the computed range so offsets can be verified.
           } else if (a == "faceoffset" && args.size() >= 3 && parse_float(args[2], f)) {
             g_face_offset_deg = std::fmod(f, 360.0f);  // Fine-align the face-heading direction (per texture).
           } else if ((a == "graphic" || a == "texture") && args.size() >= 3) {
@@ -505,7 +559,7 @@ TargetRing::TargetRing(RcpService *rcp) : rcp_(rcp) {
           } else {
             Rcp::Game::print_chat(
                 "rof2ClientPlus: '/rcpring on|off | outer <n> | inner <n> | opacity <0-1> | color RRGGBB | con on|off | "
-                "self on|off | graphic <name>|none | spin on|off | faceoffset <deg>'");
+                "self on|off | melee on|off | graphic <name>|none | spin on|off | faceoffset <deg>'");
             return true;
           }
         } else {

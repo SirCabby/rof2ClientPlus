@@ -302,6 +302,7 @@ void RcpOptionsUI::create_window() {
   lbl_ring_graphic_hdr_ = get_child(wnd_, "Rcp_RingGraphicLabel");
   combo_ring_graphic_ = get_child(wnd_, "Rcp_RingGraphic");
   cb_ring_spin_ = get_child(wnd_, "Rcp_RingSpin");
+  cb_ring_melee_ = get_child(wnd_, "Rcp_RingMelee");
   logger::logf("[ui] controls bound: tabs=%p,%p,%p,%p mouse(en=%p sx=%p) chase(en=%p dist=%p) np0=%p role0=%p",
                btn_tab_[0], btn_tab_[1], btn_tab_[2], btn_tab_[3], cb_enabled_, sl_sensx_, cb_chase_enabled_,
                sl_chase_dist_, cb_np_[0], btn_role_[0]);
@@ -349,7 +350,7 @@ void RcpOptionsUI::set_active_tab(int tab) {
   show_window(lbl_np_dist_, tab == 2);
   for (int i = 0; i < kRoleCount; ++i) show_window(btn_role_[i], tab == 3);
   show_window(cb_nofog_, tab == 4);
-  void *ring[] = {cb_ring_enabled_,   cb_ring_hideself_,    cb_ring_concolor_,  btn_ring_color_,
+  void *ring[] = {cb_ring_enabled_,   cb_ring_hideself_,    cb_ring_concolor_,  cb_ring_melee_, btn_ring_color_,
                   lbl_ring_outer_hdr_, sl_ring_outer_,       lbl_ring_outer_,
                   lbl_ring_inner_hdr_, sl_ring_inner_,       lbl_ring_inner_,
                   lbl_ring_opacity_hdr_, sl_ring_opacity_,   lbl_ring_opacity_,
@@ -426,6 +427,7 @@ void RcpOptionsUI::sync_controls() {
   checkbox_set(cb_ring_hideself_, target_ring_settings::get_hide_self());
   checkbox_set(cb_ring_concolor_, target_ring_settings::get_use_con_color());
   checkbox_set(cb_ring_spin_, target_ring_settings::get_spin());
+  checkbox_set(cb_ring_melee_, target_ring_settings::get_melee_range());
   slider_set(sl_ring_outer_, ring_radius_to_slider(target_ring_settings::get_outer()));
   slider_set(sl_ring_inner_, ring_radius_to_slider(target_ring_settings::get_inner()));
   slider_set(sl_ring_opacity_, ring_opacity_to_slider(target_ring_settings::get_opacity()));
@@ -464,6 +466,7 @@ void RcpOptionsUI::seed_last_values() {
   last_ring_opacity_ = slider_get(sl_ring_opacity_);
   last_ring_graphic_choice_ = combo_get_cur_choice(combo_ring_graphic_);
   last_ring_spin_ = checkbox_get(cb_ring_spin_);
+  last_ring_melee_ = checkbox_get(cb_ring_melee_);
 }
 
 void RcpOptionsUI::update_labels() {
@@ -531,7 +534,7 @@ void RcpOptionsUI::on_frame() {
     sl_ring_outer_ = lbl_ring_outer_hdr_ = lbl_ring_outer_ = nullptr;
     sl_ring_inner_ = lbl_ring_inner_hdr_ = lbl_ring_inner_ = nullptr;
     sl_ring_opacity_ = lbl_ring_opacity_hdr_ = lbl_ring_opacity_ = nullptr;
-    lbl_ring_graphic_hdr_ = combo_ring_graphic_ = cb_ring_spin_ = nullptr;
+    lbl_ring_graphic_hdr_ = combo_ring_graphic_ = cb_ring_spin_ = cb_ring_melee_ = nullptr;
     graphic_choices_.clear();
     last_ring_graphic_choice_ = -1;
     for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
@@ -659,6 +662,11 @@ void RcpOptionsUI::on_frame() {
   if (rsp != last_ring_spin_) {
     target_ring_settings::set_spin(rsp);
     last_ring_spin_ = rsp;
+  }
+  bool rmr = checkbox_get(cb_ring_melee_);
+  if (rmr != last_ring_melee_) {
+    target_ring_settings::set_melee_range(rmr);
+    last_ring_melee_ = rmr;
   }
   int ro = slider_get(sl_ring_outer_);
   if (ro != last_ring_outer_) {
