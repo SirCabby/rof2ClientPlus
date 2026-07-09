@@ -88,6 +88,9 @@ install: $(TARGET)
 	mkdir -p "$(GAME_DIR)/uifiles/rcp/fonts"
 	cp -f uifiles/rcp/fonts/*.spritefont "$(GAME_DIR)/uifiles/rcp/fonts/"
 	@echo ">> Installed fonts to $(GAME_DIR)/uifiles/rcp/fonts/"
+	mkdir -p "$(GAME_DIR)/uifiles/rcp/targetrings"
+	cp -f uifiles/rcp/targetrings/*.tga "$(GAME_DIR)/uifiles/rcp/targetrings/"
+	@echo ">> Installed target-ring graphics to $(GAME_DIR)/uifiles/rcp/targetrings/"
 	@if [ -f $(HOSTFIX) ]; then \
 	  cp -f $(HOSTFIX) "$(GAME_DIR)/eq-window-fix"; \
 	  echo ">> Installed eq-window-fix (windowed-mode watcher)"; \

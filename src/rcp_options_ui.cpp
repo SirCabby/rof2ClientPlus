@@ -6,6 +6,9 @@
 #include <cstdint>
 #include <cstdio>
 
+#include <string>
+#include <vector>
+
 #include "chase_cam.h"
 #include "commands.h"
 #include "font_overlay.h"
@@ -38,6 +41,17 @@ static constexpr int kPickerCallerOffset = 0x22C;  // CColorPickerWnd::pwndCalle
 static constexpr int kPickerRedOffset = 0x270;     // CColorPickerWnd::RedSliderValue
 static constexpr int kPickerGreenOffset = 0x27C;   // CColorPickerWnd::GreenSliderValue
 static constexpr int kPickerBlueOffset = 0x288;    // CColorPickerWnd::BlueSliderValue
+
+// CComboWnd (eqlib UI.h + offsets/eqgame.h; this eqlib build matches ours - CreateXWnd/GetChildItem/
+// slider/color-picker addresses all line up). Used to drive the ring-graphic dropdown by polling.
+static constexpr int kComboDeleteAll = 0x86A960;     // CComboWnd::DeleteAll()  __thiscall(this)
+static constexpr int kComboInsertChoice = 0x86AE50;  // int InsertChoice(const CXStr&, uint32 data=0)
+static constexpr int kComboGetCurChoice = 0x86A780;  // int GetCurChoice() const  __thiscall(this)
+static constexpr int kComboSetChoice = 0x86A740;     // void SetChoice(int)  __thiscall(this, int)
+// CComboWnd::pListWnd. Every method above does `mov reg,[this+0x1d8]` and derefs it with NO null
+// check (disasm-verified), so calling any of them with a null list crashes. These run on the main
+// thread (not rcp_guard-wrapped), so we gate on pListWnd being present.
+static constexpr int kComboListWndOffset = 0x1d8;
 
 // ---- thin wrappers over the client's __thiscall methods ----
 
@@ -101,6 +115,29 @@ static void show_window(void *wnd, bool show) {
 static void set_text_color(void *wnd, int rgb) {
   if (!wnd) return;
   *reinterpret_cast<uint32_t *>(reinterpret_cast<char *>(wnd) + kCRNormalOffset) = 0xFF000000u | (rgb & 0xFFFFFF);
+}
+
+// ---- CComboWnd wrappers (drive the ring-graphic dropdown) ----
+// True only when the combo exists AND its popup list is created (see kComboListWndOffset). All the
+// wrappers below no-op / return -1 unless this holds, so a half-built combo can never crash us.
+static bool combo_ready(void *combo) {
+  return combo && *reinterpret_cast<void **>(reinterpret_cast<char *>(combo) + kComboListWndOffset);
+}
+static void combo_delete_all(void *combo) {
+  if (combo_ready(combo)) reinterpret_cast<void(__thiscall *)(void *)>(kComboDeleteAll)(combo);
+}
+static void combo_insert_choice(void *combo, const char *text) {
+  if (!combo_ready(combo)) return;
+  uint32_t cxstr;
+  cxstr_init(&cxstr, text);
+  reinterpret_cast<int(__thiscall *)(void *, const void *, uint32_t)>(kComboInsertChoice)(combo, &cxstr, 0);
+  reinterpret_cast<void(__thiscall *)(void *)>(kCXStrDtor)(&cxstr);  // InsertChoice copies; release our temp.
+}
+static int combo_get_cur_choice(void *combo) {
+  return combo_ready(combo) ? reinterpret_cast<int(__thiscall *)(const void *)>(kComboGetCurChoice)(combo) : -1;
+}
+static void combo_set_choice(void *combo, int index) {
+  if (combo_ready(combo)) reinterpret_cast<void(__thiscall *)(void *, int)>(kComboSetChoice)(combo, index);
 }
 
 // ---- slider <-> setting mappings ----
@@ -262,6 +299,8 @@ void RcpOptionsUI::create_window() {
   sl_ring_opacity_ = get_child(wnd_, "Rcp_RingOpacity");
   lbl_ring_opacity_hdr_ = get_child(wnd_, "Rcp_RingOpacityLabel");
   lbl_ring_opacity_ = get_child(wnd_, "Rcp_RingOpacityValue");
+  lbl_ring_graphic_hdr_ = get_child(wnd_, "Rcp_RingGraphicLabel");
+  combo_ring_graphic_ = get_child(wnd_, "Rcp_RingGraphic");
   logger::logf("[ui] controls bound: tabs=%p,%p,%p,%p mouse(en=%p sx=%p) chase(en=%p dist=%p) np0=%p role0=%p",
                btn_tab_[0], btn_tab_[1], btn_tab_[2], btn_tab_[3], cb_enabled_, sl_sensx_, cb_chase_enabled_,
                sl_chase_dist_, cb_np_[0], btn_role_[0]);
@@ -278,6 +317,7 @@ void RcpOptionsUI::create_window() {
 
   refresh_role_tints();
   set_text_color(btn_ring_color_, target_ring_settings::get_color());  // Ring color swatch (its own color store).
+  populate_graphic_combo();     // Fill the ring-graphic dropdown from disk + select the current one.
   set_active_tab(active_tab_);  // Latch the strip + show only the active group.
   show_window(wnd_, false);     // Created hidden; /rcpoptions reveals it.
 }
@@ -311,7 +351,8 @@ void RcpOptionsUI::set_active_tab(int tab) {
   void *ring[] = {cb_ring_enabled_,   cb_ring_hideself_,    cb_ring_concolor_,  btn_ring_color_,
                   lbl_ring_outer_hdr_, sl_ring_outer_,       lbl_ring_outer_,
                   lbl_ring_inner_hdr_, sl_ring_inner_,       lbl_ring_inner_,
-                  lbl_ring_opacity_hdr_, sl_ring_opacity_,   lbl_ring_opacity_};
+                  lbl_ring_opacity_hdr_, sl_ring_opacity_,   lbl_ring_opacity_,
+                  lbl_ring_graphic_hdr_, combo_ring_graphic_};
   for (void *w : ring) show_window(w, tab == 5);
 }
 
@@ -335,6 +376,29 @@ void RcpOptionsUI::open_color_picker(int role) {
       picker, wnd_, 0xFF000000u | static_cast<uint32_t>(last_picker_rgb_));
   logger::logf("[ui] color picker opened for %s",
                role == kRingColorRole ? "target ring" : nameplate_colors::name(role));
+}
+
+// Rebuild the ring-graphic dropdown from the .tga files on disk and select the current graphic.
+// Called on window creation and every open (files may have changed). graphic_choices_ caches the
+// index -> name mapping the on_frame poll uses to translate a selected index back to a name.
+void RcpOptionsUI::populate_graphic_combo() {
+  if (!combo_ring_graphic_) return;
+  graphic_choices_ = target_ring_settings::get_available_graphics();  // "None" first, then *.tga stems.
+  combo_delete_all(combo_ring_graphic_);
+  for (const std::string &name : graphic_choices_) combo_insert_choice(combo_ring_graphic_, name.c_str());
+  // Select the entry matching the persisted graphic (empty selection == "None", which is index 0).
+  std::string cur = target_ring_settings::get_graphic();
+  if (cur.empty()) cur = "None";
+  int sel = 0;
+  for (size_t i = 0; i < graphic_choices_.size(); ++i)
+    if (graphic_choices_[i] == cur) {
+      sel = static_cast<int>(i);
+      break;
+    }
+  combo_set_choice(combo_ring_graphic_, sel);
+  // Baseline from what the combo actually reports (== sel when ready, -1 if its list is absent), so
+  // the poll never mistakes this seed for a user change.
+  last_ring_graphic_choice_ = combo_get_cur_choice(combo_ring_graphic_);
 }
 
 // Push current settings into the controls (called when opening).
@@ -363,6 +427,7 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_ring_outer_, ring_radius_to_slider(target_ring_settings::get_outer()));
   slider_set(sl_ring_inner_, ring_radius_to_slider(target_ring_settings::get_inner()));
   slider_set(sl_ring_opacity_, ring_opacity_to_slider(target_ring_settings::get_opacity()));
+  populate_graphic_combo();  // Refresh the dropdown choices + selection from disk/settings.
   refresh_role_tints();
   set_text_color(btn_ring_color_, target_ring_settings::get_color());
 }
@@ -395,6 +460,7 @@ void RcpOptionsUI::seed_last_values() {
   last_ring_outer_ = slider_get(sl_ring_outer_);
   last_ring_inner_ = slider_get(sl_ring_inner_);
   last_ring_opacity_ = slider_get(sl_ring_opacity_);
+  last_ring_graphic_choice_ = combo_get_cur_choice(combo_ring_graphic_);
 }
 
 void RcpOptionsUI::update_labels() {
@@ -427,6 +493,7 @@ void RcpOptionsUI::update_labels() {
   set_label_text(lbl_ring_inner_, buf);
   std::snprintf(buf, sizeof(buf), "%.0f%%", target_ring_settings::get_opacity() * 100.0f);
   set_label_text(lbl_ring_opacity_, buf);
+  // (The ring-graphic combobox shows its own selection; nothing to refresh here.)
 }
 
 void RcpOptionsUI::toggle_window() {
@@ -461,6 +528,9 @@ void RcpOptionsUI::on_frame() {
     sl_ring_outer_ = lbl_ring_outer_hdr_ = lbl_ring_outer_ = nullptr;
     sl_ring_inner_ = lbl_ring_inner_hdr_ = lbl_ring_inner_ = nullptr;
     sl_ring_opacity_ = lbl_ring_opacity_hdr_ = lbl_ring_opacity_ = nullptr;
+    lbl_ring_graphic_hdr_ = combo_ring_graphic_ = nullptr;
+    graphic_choices_.clear();
+    last_ring_graphic_choice_ = -1;
     for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
     for (int i = 0; i < kNpCount; ++i) cb_np_[i] = nullptr;
     for (int i = 0; i < kRoleCount; ++i) btn_role_[i] = nullptr;
@@ -606,6 +676,17 @@ void RcpOptionsUI::on_frame() {
     checkbox_set(btn_ring_color_, false);
     last_ring_color_ = false;
     if (rc) open_color_picker(kRingColorRole);
+  }
+
+  // Ring graphic: native combobox. Poll its selected index; on a real change, translate the index
+  // back to a name via graphic_choices_ (index 0 == "None" == the solid ring) and apply it.
+  int gc = combo_get_cur_choice(combo_ring_graphic_);
+  if (gc != last_ring_graphic_choice_) {
+    last_ring_graphic_choice_ = gc;
+    if (gc >= 0 && gc < static_cast<int>(graphic_choices_.size())) {
+      const std::string &name = graphic_choices_[gc];
+      target_ring_settings::set_graphic(name == "None" ? std::string() : name);
+    }
   }
 
   // Color-role buttons: a click (checked-state change) opens the stock color

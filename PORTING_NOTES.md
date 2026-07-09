@@ -629,12 +629,14 @@ user-settable color (stock color picker), outer radius, inner radius (the donut 
 Zeal reference: `/home/joshua/workspace/GitHub/Zeal/Zeal/target_ring.cpp` (TAKP, D3D8).
 
 ### What it is (a slim subset of Zeal's target_ring)
-Zeal's ring supports textures, spin, a 3-D cone/cylinder, auto-attack blink, and heading-match. All
-of that is **intentionally dropped** — this is a plain solid ring. Kept: enable, RGB color OR
-**con-level color** (toggle), outer radius, inner radius, opacity, and hide-under-self.
-`/rcpring [on|off | outer N | inner N | opacity 0-1 | color RRGGBB | con on|off | self on|off]`; bare
-`/rcpring` toggles. Persisted to `[TargetRing]` (`Color` stored as `RRGGBB` hex, like
-`[NameplateColors]`; `ConColor` the con-vs-fixed toggle). Off by default.
+Zeal's ring supports textures, spin, a 3-D cone/cylinder, auto-attack blink, and heading-match. Spin
+/ cone / blink / heading-match are **intentionally dropped**, but the **optional graphic (texture)**
+was added back (see "Ring graphic" below). Kept: enable, RGB color OR **con-level color** (toggle),
+outer radius, inner radius, opacity, hide-under-self, and an optional graphic.
+`/rcpring [on|off | outer N | inner N | opacity 0-1 | color RRGGBB | con on|off | self on|off |
+graphic <name>|none]`; bare `/rcpring` toggles. Persisted to `[TargetRing]` (`Color` stored as
+`RRGGBB` hex, like `[NameplateColors]`; `ConColor` the con-vs-fixed toggle; `Graphic` the texture
+name or `None`). Off by default.
 
 **Con coloring** (Zeal's `target_color` toggle): when on, the ring is colored by the target's con
 level instead of the fixed color, via a new `nameplate::con_color_for(entity)` export that ALWAYS
@@ -674,13 +676,50 @@ registers its draw there in its ctor.
   `+0.20` to avoid z-fighting the ground; **VIEW/PROJECTION stay live** from the world pass.
 
 ### D3D9 draw (same mid-scene hygiene as the 3-D billboards, minus the atlas)
-Fixed-function `D3DFVF_XYZ | D3DFVF_DIFFUSE`, no texture, drawn with **`DrawPrimitiveUP`** (no
-vertex-buffer lifecycle / device-lost handling). Unbind vertex+pixel shaders (a bound PS overrides
-fixed-function), then via the shared `D3DRenderStateStash`/`D3DTextureStateStash` (in `bitmap_font.h`):
-`CULLMODE=NONE`, alpha-blend `SRCALPHA/INVSRCALPHA`, `ZENABLE=TRUE` (terrain occlusion),
-`ZWRITEENABLE=FALSE` (translucent, no depth write), `LIGHTING/ALPHATEST/FOG/SPECULAR` off, stage-0
-`COLOROP/ALPHAOP = SELECTARG1(DIFFUSE)` (emit the vertex color with no texture), stage 1 disabled.
-Restore all of it (incl. WORLD + shaders) after the draw. `alpha = opacity*255` in the ARGB diffuse.
+Fixed-function `D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1` (the UVs are only consumed by the graphic
+path; the solid path ignores them), drawn with **`DrawPrimitiveUP`** (no vertex-buffer lifecycle /
+device-lost handling). Unbind vertex+pixel shaders (a bound PS overrides fixed-function), then via the
+shared `D3DRenderStateStash`/`D3DTextureStateStash` (in `bitmap_font.h`): `CULLMODE=NONE`, alpha-blend
+`SRCALPHA/INVSRCALPHA`, `ZENABLE=TRUE` (terrain occlusion), `ZWRITEENABLE=FALSE` (translucent, no
+depth write), `LIGHTING/ALPHATEST/FOG/SPECULAR` off, stage 1 disabled. Solid mode: stage-0
+`COLOROP/ALPHAOP = SELECTARG1(DIFFUSE)` + no texture. Restore all of it (incl. WORLD + shaders) after
+the draw. `alpha = opacity*255` in the ARGB diffuse.
+
+### Ring graphic (the one Zeal extra added back)
+`/rcpring graphic <name>` (or the "Cycle graphic" button on the Ring tab) selects a **`.tga` from
+`uifiles/rcp/targetrings`** (bare `/rcpring graphic` lists what's on disk; `none` clears it). Loaded
+with **`D3DXCreateTextureFromFileA`** (defaults to `D3DPOOL_MANAGED`, so it survives device resets —
+no reset hook needed) **deferred to the render thread**: the setter only assigns `g_graphic` + sets a
+dirty flag, and `draw_ring` does the create/release the next frame against the live device (inside
+`rcp_guard`). Failure logs once and falls back to the solid ring.
+
+Mapping is **identical to Zeal** so its own ring textures render unchanged: Zeal ships 261×2048 RGBA
+"strip" textures (u = inner..outer across the band width, v = around the circumference), and the donut
+UVs are `u = 1` on the outer rim / `0` on the inner rim, `v = 1 - i/segments`. Stage-0 is
+`MODULATE(TEXTURE, DIFFUSE)` for **both color and alpha** (like Zeal), so the ring color/con-color
+tints the texture (white ⇒ the texture's native colors) and opacity scales its alpha; sampler set to
+`LINEAR`, `ADDRESSU=CLAMP` (radial), `ADDRESSV=WRAP` (seamless around). When a graphic is active we
+draw **only** the textured donut (no solid pass behind it — cleaner than Zeal's solid+texture stack).
+A curated set of Zeal's ring `.tga`s ships in `uifiles/rcp/targetrings` (`make install` copies them);
+users can drop in their own.
+
+### Ring-tab dropdown — a real native `Combobox` (`Rcp_RingGraphic`)
+The Ring-tab picker is a native **`CComboWnd`** (same widget Zeal used for this exact feature). Earlier
+notes warned a runtime-instantiated `TabBox` doesn't route input — but that's specific to the
+page-managing TabBox; the plain Button/Slider/Label children of our runtime-instantiated `RcpOptions`
+already route input fine, and a combobox is self-contained (it owns its popup `CListWnd` at
+`+0x1d8`). The combo is driven **entirely by polling**, exactly like the sliders/checkboxes — no
+`WndNotification` subclass needed, since our screen uses the stock `CSidlScreenWnd` vtable:
+`populate_graphic_combo()` (on create + every open) does `CComboWnd::DeleteAll (0x86A960)` then
+`InsertChoice (0x86AE50)` for `get_available_graphics()` ("None" + each `.tga` stem), caches that
+index→name list in `graphic_choices_`, and `SetChoice (0x86A740)` to the persisted graphic;
+`on_frame` polls `GetCurChoice (0x86A780)` and, on a changed index, maps it back through
+`graphic_choices_` and calls `set_graphic`. SIDL is the stock combobox schema (`WDT_Inner` /
+`BDT_Combo` / `Style_Border` / `ListHeight` / `Choices`, matching `BUGW_BugTypes`); `InsertChoice`
+takes a `const CXStr&` so we build one with `cxstr_init` and release it with `kCXStrDtor` (same as
+`set_label_text`). Offsets verified against the locally-cloned eqlib whose
+`CreateXWnd/GetChildItem/slider/color-picker` addresses all match this build. The window grew
+`356 → 400` tall so the drop list (bottom ~388) sits inside the window.
 
 ### Options window — new "Ring" tab (tab index 5)
 Tab strip grew 5→6 (window widened 356→**424** to keep the 64 px tab width; tab-5 right edge 411).
@@ -696,4 +735,5 @@ kRingColorRole (100)` that `open_color_picker` + the picker-poll branch on. `kTa
 Caveat (inherited from Zeal): the ring is a **flat disc** at the floor Z under the target, so on
 steep slopes / stairs it clips into or floats over the terrain — Zeal tried per-vertex
 world-collision height and abandoned it as worse. Built + installed; floor-Z placement + con-color
-toggle added 2026-07-09, awaiting in-game confirm.
+toggle added 2026-07-09; **optional ring graphic (texture) added 2026-07-09** — awaiting in-game
+confirm.

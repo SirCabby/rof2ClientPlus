@@ -1,4 +1,4 @@
-// rof2ClientPlus - solid-color target ring (Zeal target_ring port, RoF2).
+// rof2ClientPlus - target ring (Zeal target_ring port, RoF2): solid color or an optional graphic.
 //
 // Draws a flat, solid-color "donut" ring on the ground centered under the current target: a filled
 // band between an outer radius and a smaller inner radius (the donut hole). Self-contained with raw
@@ -10,11 +10,17 @@
 // UI windows - exactly like the native target indicator. Fixed-function XYZ|DIFFUSE triangle strip,
 // no texture, drawn with DrawPrimitiveUP (no vertex-buffer lifecycle / device-lost handling needed).
 //
-// The Zeal extras (textures, spin, 3-D cone, auto-attack blink, match-heading) are intentionally
-// dropped: this is a plain solid ring whose color, outer radius, inner radius, and opacity are user
-// settable. '/rcpring [on|off|outer N|inner N|opacity 0-1|color RRGGBB|self on|off]'. Persisted to
-// rof2ClientPlus.ini [TargetRing]. Off by default so nothing changes until the user opts in.
+// The remaining Zeal extras (spin, 3-D cone, auto-attack blink, match-heading) are intentionally
+// dropped, but an optional ring GRAPHIC is supported like Zeal: drop a .tga into
+// uifiles/rcp/targetrings and select it, and it maps onto the donut band (u = inner..outer,
+// v = around the circle) modulated by the ring color/opacity - Zeal's own ring textures work
+// unchanged. '/rcpring [on|off|outer N|inner N|opacity 0-1|color RRGGBB|con on|off|self on|off|
+// graphic <name>|none]'. Persisted to rof2ClientPlus.ini [TargetRing]. Off by default so nothing
+// changes until the user opts in.
 #pragma once
+
+#include <string>
+#include <vector>
 
 class RcpService;
 
@@ -44,4 +50,7 @@ void set_opacity(float a);
 bool get_hide_self();  // Skip drawing when the target is yourself.
 void set_hide_self(bool on);
 float radius_max();  // Upper bound the sliders/commands allow for both radii.
+std::string get_graphic();                  // Current ring graphic name, or "" for the solid ring.
+void set_graphic(const std::string &name);  // "" or "none"/"None" selects the solid ring (no texture).
+std::vector<std::string> get_available_graphics();  // "None", then each *.tga stem in uifiles/rcp/targetrings.
 }  // namespace target_ring_settings

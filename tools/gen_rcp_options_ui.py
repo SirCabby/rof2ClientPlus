@@ -54,7 +54,8 @@ YELLOW = (255, 255, 0)
 
 # ---- window + layout ----
 WINDOW_CX = 424  # Wide enough for the 6-tab strip at the proven 64 px tab width (tab 5 right edge 411).
-WINDOW_CY = 356  # Tall enough for the Nameplate tab (billboard + bar toggles + 7 toggles + 2 sliders).
+WINDOW_CY = 400  # Nameplate tab needs ~356; the extra room lets the Ring-tab graphic combobox drop
+                 # its list (bottom ~388) fully inside the window.
 TAB_Y = 6            # tab-strip row
 TAB_W, TAB_H = 64, 20
 CONTENT_Y = 34       # first content row under the tab strip
@@ -125,6 +126,19 @@ def slider(name, x, y, cx, cy):
     out = [f'  <Slider item="{name}">', f"    <ScreenID>{name}</ScreenID>", "    <RelativePosition>true</RelativePosition>"]
     out += loc_size(x, y, cx, cy)
     out += ["    <SliderArt>SDT_DefSlider</SliderArt>", "  </Slider>"]
+    return out
+
+
+def combobox(name, x, y, cx, cy, list_height=110):
+    # A native RoF2 Combobox (WDT_Inner / BDT_Combo, matching stock combos like BUGW_BugTypes). The
+    # C++ repopulates its <Choices> at runtime (CComboWnd::DeleteAll + InsertChoice) and polls
+    # GetCurChoice, so the single seed choice below is just a placeholder before the first populate.
+    out = [f'  <Combobox item="{name}">', f"    <ScreenID>{name}</ScreenID>",
+           "    <RelativePosition>true</RelativePosition>", "    <DrawTemplate>WDT_Inner</DrawTemplate>"]
+    out += loc_size(x, y, cx, cy)
+    out += color("TextColor", WHITE)
+    out += [f"    <ListHeight>{list_height}</ListHeight>", "    <Button>BDT_Combo</Button>",
+            "    <Choices>None</Choices>", "    <Style_Border>true</Style_Border>", "  </Combobox>"]
     return out
 
 
@@ -245,6 +259,11 @@ def build_controls():
     c.append(("Rcp_RingOpacityLabel", label, ("Rcp_RingOpacityLabel", COL_X, y, 200, 14, "Opacity")))
     c.append(("Rcp_RingOpacity", slider, ("Rcp_RingOpacity", COL_X, y + 16, SLIDER_W, 16)))
     c.append(("Rcp_RingOpacityValue", label, ("Rcp_RingOpacityValue", VAL_X, y + 16, 58, 16, "85%", YELLOW)))
+    y += 42
+    # Ring graphic (texture) picker: a native Combobox. The C++ repopulates its choices from the .tga
+    # files in uifiles/rcp/targetrings (CComboWnd::DeleteAll + InsertChoice) and polls GetCurChoice.
+    c.append(("Rcp_RingGraphicLabel", label, ("Rcp_RingGraphicLabel", COL_X, y + 3, 84, 16, "Ring graphic:")))
+    c.append(("Rcp_RingGraphic", combobox, ("Rcp_RingGraphic", COL_X + 86, y, 220, 22)))
     return c
 
 

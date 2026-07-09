@@ -20,6 +20,9 @@
 // own close box).
 #pragma once
 
+#include <string>
+#include <vector>
+
 class RcpService;
 
 class RcpOptionsUI {
@@ -39,6 +42,7 @@ class RcpOptionsUI {
   void set_active_tab(int tab);  // Latch the tab strip + show/hide the tab groups.
   void refresh_role_tints();     // Paint each color-role button with its current color.
   void open_color_picker(int role);  // Open the stock picker seeded with a role's color.
+  void populate_graphic_combo();     // Fill the ring-graphic combobox from disk + select the current one.
 
   static constexpr int kTabCount = 6;   // Mouse / Camera / Nameplate / Colors / Display / Ring.
   static constexpr int kNpCount = 7;    // Nameplate toggle checkboxes (kNpChildNames).
@@ -94,6 +98,8 @@ class RcpOptionsUI {
   void *sl_ring_opacity_ = nullptr;
   void *lbl_ring_opacity_hdr_ = nullptr;
   void *lbl_ring_opacity_ = nullptr;
+  void *lbl_ring_graphic_hdr_ = nullptr;    // "Ring graphic:" static header.
+  void *combo_ring_graphic_ = nullptr;      // Native Combobox: choices == available graphics.
   bool create_attempted_ = false;
 
   // Tab state.
@@ -128,4 +134,8 @@ class RcpOptionsUI {
   int last_ring_outer_ = -1;
   int last_ring_inner_ = -1;
   int last_ring_opacity_ = -1;
+  // Ring-graphic combobox: the choice list (index -> name, "None" first) currently loaded into the
+  // combo, and the last selected index we applied (so the poll only reacts to real user changes).
+  std::vector<std::string> graphic_choices_;
+  int last_ring_graphic_choice_ = -1;
 };

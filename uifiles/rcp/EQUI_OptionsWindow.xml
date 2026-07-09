@@ -6241,6 +6241,49 @@
     <NoWrap>true</NoWrap>
   </Label>
 
+  <Label item="Rcp_RingGraphicLabel">
+    <ScreenID>Rcp_RingGraphicLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>259</Y>
+    </Location>
+    <Size>
+      <CX>84</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>Ring graphic:</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Combobox item="Rcp_RingGraphic">
+    <ScreenID>Rcp_RingGraphic</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <Location>
+      <X>98</X>
+      <Y>256</Y>
+    </Location>
+    <Size>
+      <CX>220</CX>
+      <CY>22</CY>
+    </Size>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ListHeight>110</ListHeight>
+    <Button>BDT_Combo</Button>
+    <Choices>None</Choices>
+    <Style_Border>true</Style_Border>
+  </Combobox>
+
   <Screen item="RcpOptions">
     <ScreenID>RcpOptions</ScreenID>
     <RelativePosition>false</RelativePosition>
@@ -6250,7 +6293,7 @@
     </Location>
     <Size>
       <CX>424</CX>
-      <CY>356</CY>
+      <CY>400</CY>
     </Size>
     <Text>rof2ClientPlus Options</Text>
     <Style_VScroll>false</Style_VScroll>
@@ -6334,6 +6377,8 @@
     <Pieces>Rcp_RingOpacityLabel</Pieces>
     <Pieces>Rcp_RingOpacity</Pieces>
     <Pieces>Rcp_RingOpacityValue</Pieces>
+    <Pieces>Rcp_RingGraphicLabel</Pieces>
+    <Pieces>Rcp_RingGraphic</Pieces>
   </Screen>
   <!-- RCP-OPTIONS-END -->
 
