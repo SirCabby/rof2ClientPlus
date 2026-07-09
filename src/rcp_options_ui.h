@@ -84,6 +84,12 @@ class RcpOptionsUI {
   void *btn_role_[kRoleCount] = {};
   // Display tab.
   void *cb_nofog_ = nullptr;
+  void *sl_far_ = nullptr;  // Terrain view distance (far clip), world units (view_distance_settings).
+  void *lbl_far_hdr_ = nullptr;
+  void *lbl_far_ = nullptr;
+  void *sl_actor_ = nullptr;  // Actor (NPC/player) view distance, world units.
+  void *lbl_actor_hdr_ = nullptr;
+  void *lbl_actor_ = nullptr;
   // Ring tab (solid-color target ring; target_ring_settings).
   void *cb_ring_enabled_ = nullptr;
   void *cb_ring_hideself_ = nullptr;
@@ -129,6 +135,8 @@ class RcpOptionsUI {
   int last_np_dist_ = -1;
   bool last_role_[kRoleCount] = {};
   bool last_nofog_ = false;
+  int last_far_ = -1;
+  int last_actor_ = -1;
   bool last_ring_enabled_ = false;
   bool last_ring_hideself_ = false;
   bool last_ring_concolor_ = false;

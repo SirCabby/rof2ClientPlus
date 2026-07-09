@@ -19,6 +19,7 @@
 #include "no_fog.h"
 #include "rcp.h"
 #include "target_ring.h"
+#include "view_distance.h"
 
 // ---- stock RoF2 addresses (eqlib offsets + disasm of the client's own usage) ----
 static constexpr int kCreateXWnd = 0x870400;              // CSidlManagerBase::CreateXWndFromTemplate(parent,name)
@@ -199,6 +200,16 @@ static int ring_opacity_to_slider(float a) {
 }
 static float ring_slider_to_opacity(int v) { return v / static_cast<float>(kRingOpacitySliderMax); }
 
+// View-distance sliders (Display tab), shared by terrain far clip + actor clip: 0..200 steps ->
+// 0..20000 world units (100 units/step). Raw 0 == the layer off (client default).
+static constexpr int kViewDistSliderMax = 200;
+static constexpr int kViewDistStep = 100;
+static int viewdist_to_slider(int units) {
+  int v = (units + kViewDistStep / 2) / kViewDistStep;
+  return v < 0 ? 0 : (v > kViewDistSliderMax ? kViewDistSliderMax : v);
+}
+static int slider_to_viewdist(int v) { return v * kViewDistStep; }
+
 // Sentinel "role" for the ring color button so it reuses the stock color-picker machinery (which is
 // keyed on an int role) without colliding with the 0..kRoleCount-1 nameplate roles.
 static constexpr int kRingColorRole = 100;
@@ -286,6 +297,12 @@ void RcpOptionsUI::create_window() {
     btn_role_[i] = get_child(wnd_, rolename);
   }
   cb_nofog_ = get_child(wnd_, "Rcp_NoFog");
+  sl_far_ = get_child(wnd_, "Rcp_FarClip");
+  lbl_far_hdr_ = get_child(wnd_, "Rcp_FarClipLabel");
+  lbl_far_ = get_child(wnd_, "Rcp_FarClipValue");
+  sl_actor_ = get_child(wnd_, "Rcp_ActorClip");
+  lbl_actor_hdr_ = get_child(wnd_, "Rcp_ActorClipLabel");
+  lbl_actor_ = get_child(wnd_, "Rcp_ActorClipValue");
   cb_ring_enabled_ = get_child(wnd_, "Rcp_RingEnabled");
   cb_ring_hideself_ = get_child(wnd_, "Rcp_RingHideSelf");
   cb_ring_concolor_ = get_child(wnd_, "Rcp_RingConColor");
@@ -316,6 +333,8 @@ void RcpOptionsUI::create_window() {
   slider_set_range(sl_ring_outer_, kRingRadiusSliderMax);   // 0..60 -> 0..radius_max ring outer radius.
   slider_set_range(sl_ring_inner_, kRingRadiusSliderMax);   // 0..60 -> 0..radius_max ring inner radius.
   slider_set_range(sl_ring_opacity_, kRingOpacitySliderMax);  // 0..100 -> 0..1 opacity.
+  slider_set_range(sl_far_, kViewDistSliderMax);    // 0..200 -> 0..20000 world units terrain far clip.
+  slider_set_range(sl_actor_, kViewDistSliderMax);  // 0..200 -> 0..20000 world units actor draw distance.
 
   refresh_role_tints();
   set_text_color(btn_ring_color_, target_ring_settings::get_color());  // Ring color swatch (its own color store).
@@ -349,7 +368,9 @@ void RcpOptionsUI::set_active_tab(int tab) {
   show_window(sl_np_dist_, tab == 2);
   show_window(lbl_np_dist_, tab == 2);
   for (int i = 0; i < kRoleCount; ++i) show_window(btn_role_[i], tab == 3);
-  show_window(cb_nofog_, tab == 4);
+  void *display[] = {cb_nofog_,      lbl_far_hdr_,   sl_far_,        lbl_far_,
+                     lbl_actor_hdr_, sl_actor_,      lbl_actor_};
+  for (void *w : display) show_window(w, tab == 4);
   void *ring[] = {cb_ring_enabled_,   cb_ring_hideself_,    cb_ring_concolor_,  cb_ring_melee_, btn_ring_color_,
                   lbl_ring_outer_hdr_, sl_ring_outer_,       lbl_ring_outer_,
                   lbl_ring_inner_hdr_, sl_ring_inner_,       lbl_ring_inner_,
@@ -423,6 +444,8 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_blink_, blink_to_slider(nameplate_settings::get_blink_ms()));
   slider_set(sl_np_dist_, np_dist_to_slider(font_overlay::get_max_dist()));
   checkbox_set(cb_nofog_, no_fog_settings::get_enabled());
+  slider_set(sl_far_, viewdist_to_slider(view_distance_settings::get_clip()));
+  slider_set(sl_actor_, viewdist_to_slider(view_distance_settings::get_actor_clip()));
   checkbox_set(cb_ring_enabled_, target_ring_settings::get_enabled());
   checkbox_set(cb_ring_hideself_, target_ring_settings::get_hide_self());
   checkbox_set(cb_ring_concolor_, target_ring_settings::get_use_con_color());
@@ -457,6 +480,8 @@ void RcpOptionsUI::seed_last_values() {
   for (int i = 0; i < kTabCount; ++i) last_tab_[i] = checkbox_get(btn_tab_[i]);
   for (int i = 0; i < kRoleCount; ++i) last_role_[i] = checkbox_get(btn_role_[i]);
   last_nofog_ = checkbox_get(cb_nofog_);
+  last_far_ = slider_get(sl_far_);
+  last_actor_ = slider_get(sl_actor_);
   last_ring_enabled_ = checkbox_get(cb_ring_enabled_);
   last_ring_hideself_ = checkbox_get(cb_ring_hideself_);
   last_ring_concolor_ = checkbox_get(cb_ring_concolor_);
@@ -492,6 +517,19 @@ void RcpOptionsUI::update_labels() {
   else
     std::snprintf(buf, sizeof(buf), "%.0f", font_overlay::get_max_dist());
   set_label_text(lbl_np_dist_, buf);
+  // View distance (Display tab): "off" at 0, else the world-unit far/actor clip.
+  int far_units = view_distance_settings::get_clip();
+  if (far_units > 0)
+    std::snprintf(buf, sizeof(buf), "%d", far_units);
+  else
+    std::snprintf(buf, sizeof(buf), "off");
+  set_label_text(lbl_far_, buf);
+  int actor_units = view_distance_settings::get_actor_clip();
+  if (actor_units > 0)
+    std::snprintf(buf, sizeof(buf), "%d", actor_units);
+  else
+    std::snprintf(buf, sizeof(buf), "off");
+  set_label_text(lbl_actor_, buf);
   // Target-ring radii + opacity.
   std::snprintf(buf, sizeof(buf), "%.1f", target_ring_settings::get_outer());
   set_label_text(lbl_ring_outer_, buf);
@@ -530,6 +568,7 @@ void RcpOptionsUI::on_frame() {
     cb_np_billboard_ = cb_np_hp_ = cb_np_mana_ = cb_np_stam_ = nullptr;
     sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
     cb_nofog_ = nullptr;
+    sl_far_ = lbl_far_hdr_ = lbl_far_ = sl_actor_ = lbl_actor_hdr_ = lbl_actor_ = nullptr;
     cb_ring_enabled_ = cb_ring_hideself_ = cb_ring_concolor_ = btn_ring_color_ = nullptr;
     sl_ring_outer_ = lbl_ring_outer_hdr_ = lbl_ring_outer_ = nullptr;
     sl_ring_inner_ = lbl_ring_inner_hdr_ = lbl_ring_inner_ = nullptr;
@@ -640,6 +679,19 @@ void RcpOptionsUI::on_frame() {
   if (nf != last_nofog_) {
     no_fog_settings::set_enabled(nf);
     last_nofog_ = nf;
+  }
+  // View distance: terrain far clip + actor draw distance sliders (world units; 0 = off).
+  int fc = slider_get(sl_far_);
+  if (fc != last_far_) {
+    view_distance_settings::set_clip(slider_to_viewdist(fc));
+    update_labels();
+    last_far_ = fc;
+  }
+  int ac = slider_get(sl_actor_);
+  if (ac != last_actor_) {
+    view_distance_settings::set_actor_clip(slider_to_viewdist(ac));
+    update_labels();
+    last_actor_ = ac;
   }
 
   // Ring tab: enable + hide-self checkboxes, radius/opacity sliders (same "only on real change" rule).

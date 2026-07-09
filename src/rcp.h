@@ -52,6 +52,7 @@ class RcpService {
   std::unique_ptr<class FontOverlay> font_overlay;    // Custom-font nameplate overhaul (N4): D3D9 render seam + font engine.
   std::unique_ptr<class NoFog> no_fog;                // The /rcpfog distance-fog remover (D3DRS_FOGENABLE filter).
   std::unique_ptr<class TargetRing> target_ring;      // The /rcpring solid-color target ring (Zeal target_ring port).
+  std::unique_ptr<class ViewDistance> view_distance;  // The /rcpviewdist terrain view-distance extender (raises the clip-plane int).
   std::unique_ptr<class CameraMods> camera_mods;  // Zeal chase camera (TAKP addresses; not yet ported).
   std::unique_ptr<class UIManager> ui;            // Options window + uifiles loading.
 

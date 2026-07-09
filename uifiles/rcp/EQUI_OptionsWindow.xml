@@ -5967,6 +5967,114 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Label item="Rcp_FarClipLabel">
+    <ScreenID>Rcp_FarClipLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>64</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Terrain distance (0 = off)</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Slider item="Rcp_FarClip">
+    <ScreenID>Rcp_FarClip</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>80</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>16</CY>
+    </Size>
+    <SliderArt>SDT_DefSlider</SliderArt>
+  </Slider>
+
+  <Label item="Rcp_FarClipValue">
+    <ScreenID>Rcp_FarClipValue</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>208</X>
+      <Y>80</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>off</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Label item="Rcp_ActorClipLabel">
+    <ScreenID>Rcp_ActorClipLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>106</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Actor distance (0 = off)</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Slider item="Rcp_ActorClip">
+    <ScreenID>Rcp_ActorClip</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>122</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>16</CY>
+    </Size>
+    <SliderArt>SDT_DefSlider</SliderArt>
+  </Slider>
+
+  <Label item="Rcp_ActorClipValue">
+    <ScreenID>Rcp_ActorClipValue</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>208</X>
+      <Y>122</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>off</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
   <Button item="Rcp_RingEnabled">
     <ScreenID>Rcp_RingEnabled</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -6420,6 +6528,12 @@
     <Pieces>Rcp_Role16</Pieces>
     <Pieces>Rcp_Role17</Pieces>
     <Pieces>Rcp_NoFog</Pieces>
+    <Pieces>Rcp_FarClipLabel</Pieces>
+    <Pieces>Rcp_FarClip</Pieces>
+    <Pieces>Rcp_FarClipValue</Pieces>
+    <Pieces>Rcp_ActorClipLabel</Pieces>
+    <Pieces>Rcp_ActorClip</Pieces>
+    <Pieces>Rcp_ActorClipValue</Pieces>
     <Pieces>Rcp_RingEnabled</Pieces>
     <Pieces>Rcp_RingHideSelf</Pieces>
     <Pieces>Rcp_RingConColor</Pieces>

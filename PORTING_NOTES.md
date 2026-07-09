@@ -763,3 +763,56 @@ steep slopes / stairs it clips into or floats over the terrain — Zeal tried pe
 world-collision height and abandoned it as worse. Built + installed; floor-Z placement + con-color
 toggle added 2026-07-09; **optional ring graphic (texture) added 2026-07-09** — awaiting in-game
 confirm.
+
+## View distance / far clip (`src/view_distance.cpp`, `/rcpviewdist`) — DONE (confirmed in-game 2026-07-09)
+
+Goal: extend the world/terrain view distance far past the stock "Clip Plane" slider cap, up to
+seeing the whole zone. Fog (the soft view wall) was already removed by `no_fog.cpp`; this raises the
+hard geometry far clip.
+
+### Key finding — the stock "ClipPlane" integer is NOT a live knob (it mostly drives fog)
+The options "Clip Plane" slider maps to an int at `ds:0x00DE0C00` (ini `[Options] ClipPlane`, min 20,
+`FogScale @ 0x00DE0D34 = ClipPlane*0.2` clamped [0.1,4.0]). **Poking that int does nothing visible** —
+it feeds fog (the routine at `0x48afa7` writes fog RGB bytes to `[cam+0x140..142]`) and an
+event-driven camera path, but the projection is never rebuilt from it per frame. The real far clip
+lives on the **render camera**: `*(void**)0x00DD2660` is the camera/view object, **`camera+0x8`**
+(float) is the far clip distance, handed to the graphics-engine camera sub-object `*(camera+0x118)`
+via its **vtbl `+0x0c`** when the projection is rebuilt by `0x0048F290` (which also sets
+near=`camera+0x2900`→vtbl `+0x04` and FOV via `fptan`/`fpatan`; the giveaway is the nearby string
+`"Camera Aspect Ratio is now %f. (NORM = 1.25. Use 10000 to reset)"`). The setter
+**`0x004940A0(camera, float dist)`** does `camera+0x8 = dist; call 0x48F290(camera)` — exactly what the
+slider calls. `camera+0x8` is written by only 4 event sites (slider `0x709c95`, settings-apply
+`0x4d87d9`/`0x4d88b6`, zone-load `0x53ac1d`), **never per frame**, which is why a source poke never
+rebuilds. There is no upper clamp in this path; distant terrain IS submitted (no BSP/LOD wall) and no
+engine far-plane cap was hit at 12000 units.
+
+### Mechanism — call the client's own camera-clip setter, re-assert on drift
+`view_distance.cpp` registers a `directx::add_render_callback` (EndScene). When enabled it does a
+drift check — if `fabs(*(float*)(camera+0x8) - target) > 0.5` it calls `0x004940A0(camera, target)` to
+set the far clip and rebuild the projection. Normally that's a single float compare with no client
+call; the drift path self-heals after a zone reset (which restores the stock distance via `0x53ac1d`).
+Guards: `camera = *(void**)0xDD2660` non-null AND `*(camera+0x118)` non-null (0x48F290 dereferences
+`+0x118` without a null check), so it's a no-op off-scene (char select / loading). It captures the
+stock `camera+0x8` once so `/rcpviewdist off` restores it.
+
+`/rcpviewdist <n>` forces the far clip to **n world units** (higher = farther; direct distance, not
+the slider's lerp), `/rcpviewdist off` restores the client default, bare `/rcpviewdist` prints status
+including the **live far clip** (read the stock baseline, then set above it). Persisted to
+`[ViewDistance] FarClip`/`ActorClip` in `rof2ClientPlus.ini`; default OFF. **Confirmed in-game
+2026-07-09: `/rcpviewdist 12000` renders the whole zone.**
+
+### Actors — `/rcpactordist` (confirmed in-game 2026-07-09)
+Actors (NPCs/players) use a **separate** field on the same camera object: **`camera+0x2d78`** (int),
+whose engine distance is `int*10 + 50` (stock `0x32`=50 → 550 world units, why mobs pop in close). It
+is fed to the graphics camera via vtbl `+0x14` during the same `0x48F290` rebuild (load ~`0x491e69`
+"ActorClipPlane" → `[edi+0x2d78]`, save ~`0x615662`). `view_distance.cpp` drives terrain + actors
+through one `apply()`+rebuild; `/rcpactordist <n>` takes world units and converts `int=(n-50)/10`.
+**Shadows are `camera+0x2d7c` (vtbl `+0x1c`) — deliberately never touched.**
+
+### Display-tab UI (two sliders, done)
+Added to the `/rcpoptions` Display tab (NOT the stock options sliders): **Rcp_FarClip** (terrain) and
+**Rcp_ActorClip** (actors), each 0..200 steps → 0..20000 world units (100/step; raw 0 = OFF), with a
+"off"/value label. Standard bind/sync/poll/show-hide pattern (mirrors `Rcp_NpDist`); the poll calls
+`view_distance_settings::set_clip` / `set_actor_clip`. Regenerate order unchanged:
+`gen_option_overrides.py` then `gen_rcp_options_ui.py` (81 controls now). Full RE trail in the
+`view-distance-re` memory.

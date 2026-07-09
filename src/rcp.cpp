@@ -20,6 +20,7 @@
 #include "no_fog.h"
 #include "rcp_options_ui.h"
 #include "target_ring.h"
+#include "view_distance.h"
 #include "ui_manager.h"
 #include "ui_skin.h"
 #include "window_watch.h"
@@ -63,6 +64,8 @@ RcpService::RcpService() {
   no_fog = std::make_unique<NoFog>(this);  // /rcpfog: filters D3DRS_FOGENABLE on the shared d3d9 device.
   logger::log("  -> TargetRing");
   target_ring = std::make_unique<TargetRing>(this);  // /rcpring: draws the solid ring at font_overlay's in-scene seam.
+  logger::log("  -> ViewDistance");
+  view_distance = std::make_unique<ViewDistance>(this);  // /rcpviewdist: forces the terrain clip-plane int past the slider cap.
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

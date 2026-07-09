@@ -229,8 +229,17 @@ def build_controls():
                                            f"Edit the '{role}' nameplate color")))
 
     # ---- Tab 4: Display ----
-    c.append(("Rcp_NoFog", button, ("Rcp_NoFog", COL_X, CONTENT_Y, 250, 20, "Remove distance fog",
+    y = CONTENT_Y
+    c.append(("Rcp_NoFog", button, ("Rcp_NoFog", COL_X, y, 250, 20, "Remove distance fog",
                                     "Remove the client's distance fog haze in every zone, day and night (/rcpfog)")))
+    y += 30
+    c.append(("Rcp_FarClipLabel", label, ("Rcp_FarClipLabel", COL_X, y, 190, 14, "Terrain distance (0 = off)")))
+    c.append(("Rcp_FarClip", slider, ("Rcp_FarClip", COL_X, y + 16, SLIDER_W, 16)))
+    c.append(("Rcp_FarClipValue", label, ("Rcp_FarClipValue", VAL_X, y + 16, 58, 16, "off", YELLOW)))
+    y += 42
+    c.append(("Rcp_ActorClipLabel", label, ("Rcp_ActorClipLabel", COL_X, y, 190, 14, "Actor distance (0 = off)")))
+    c.append(("Rcp_ActorClip", slider, ("Rcp_ActorClip", COL_X, y + 16, SLIDER_W, 16)))
+    c.append(("Rcp_ActorClipValue", label, ("Rcp_ActorClipValue", VAL_X, y + 16, 58, 16, "off", YELLOW)))
 
     # ---- Tab 5: Target ring (solid-color donut under the target; /rcpring) ----
     y = CONTENT_Y
