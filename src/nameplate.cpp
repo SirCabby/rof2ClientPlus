@@ -626,6 +626,17 @@ static bool g_suppress_native = false;  // Blank ALL native name text (billboard
 
 void nameplate::set_suppress_native(bool suppress) { g_suppress_native = suppress; }
 
+// Pure con color for an entity vs the local player, ALWAYS computed (independent of the con-colors
+// setting). Uses the same level-band table + user-editable con palette as the nameplates, so the
+// target ring's con coloring tracks the Colors tab. Falls back to "even" white if levels are unknown.
+int nameplate::con_color_for(void *entity) {
+  if (!entity) return g_colors[kRoleConEven];
+  void *self = *kSelf;
+  const int my_level = self ? *reinterpret_cast<uint8_t *>(static_cast<char *>(self) + kEntLevel) : 0;
+  const int ent_level = *reinterpret_cast<uint8_t *>(static_cast<char *>(entity) + kEntLevel);
+  return con_color(my_level, ent_level);
+}
+
 static const char *transform_entity(void *actor, const char *text) {
   if (!actor || !text) return nullptr;
 

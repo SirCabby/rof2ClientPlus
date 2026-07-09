@@ -53,7 +53,7 @@ WHITE = (255, 255, 255)
 YELLOW = (255, 255, 0)
 
 # ---- window + layout ----
-WINDOW_CX = 356  # Wide enough for the 5-tab strip at the proven 64 px tab width.
+WINDOW_CX = 424  # Wide enough for the 6-tab strip at the proven 64 px tab width (tab 5 right edge 411).
 WINDOW_CY = 356  # Tall enough for the Nameplate tab (billboard + bar toggles + 7 toggles + 2 sliders).
 TAB_Y = 6            # tab-strip row
 TAB_W, TAB_H = 64, 20
@@ -137,7 +137,8 @@ def build_controls():
             ("Rcp_TabCamera", "Camera", "Chase-camera settings"),
             ("Rcp_TabNameplate", "Nameplate", "Nameplate toggles"),
             ("Rcp_TabColors", "Colors", "Nameplate colors"),
-            ("Rcp_TabDisplay", "Display", "Display and world settings")]
+            ("Rcp_TabDisplay", "Display", "Display and world settings"),
+            ("Rcp_TabRing", "Ring", "Target ring settings")]
     for i, (name, text, tip) in enumerate(tabs):
         c.append((name, button, (name, COL_X + i * (TAB_W + 3), TAB_Y, TAB_W, TAB_H, text, tip)))
 
@@ -216,6 +217,34 @@ def build_controls():
     # ---- Tab 4: Display ----
     c.append(("Rcp_NoFog", button, ("Rcp_NoFog", COL_X, CONTENT_Y, 250, 20, "Remove distance fog",
                                     "Remove the client's distance fog haze in every zone, day and night (/rcpfog)")))
+
+    # ---- Tab 5: Target ring (solid-color donut under the target; /rcpring) ----
+    y = CONTENT_Y
+    c.append(("Rcp_RingEnabled", button, ("Rcp_RingEnabled", COL_X, y, 250, 20, "Enable target ring",
+                                          "Draw a solid-color ring on the ground under your target (/rcpring)")))
+    y += 22
+    c.append(("Rcp_RingHideSelf", button, ("Rcp_RingHideSelf", COL_X, y, 250, 20, "Hide when targeting yourself",
+                                           "Do not draw the ring when your target is yourself")))
+    y += 22
+    c.append(("Rcp_RingConColor", button, ("Rcp_RingConColor", COL_X, y, 250, 20, "Con colors (by target level)",
+                                           "Color the ring by the target's con level instead of the fixed color below")))
+    y += 26
+    # Color swatch: the C++ tints this button's text to the live ring color and opens the stock
+    # color picker on click (same mechanism as the nameplate color roles). Used when con colors are off.
+    c.append(("Rcp_RingColor", button, ("Rcp_RingColor", COL_X, y, 160, 18, "Ring color",
+                                        "Click to pick the fixed target-ring color (used when con colors are off)")))
+    y += 26
+    c.append(("Rcp_RingOuterLabel", label, ("Rcp_RingOuterLabel", COL_X, y, 200, 14, "Outer radius")))
+    c.append(("Rcp_RingOuter", slider, ("Rcp_RingOuter", COL_X, y + 16, SLIDER_W, 16)))
+    c.append(("Rcp_RingOuterValue", label, ("Rcp_RingOuterValue", VAL_X, y + 16, 58, 16, "8.0", YELLOW)))
+    y += 42
+    c.append(("Rcp_RingInnerLabel", label, ("Rcp_RingInnerLabel", COL_X, y, 200, 14, "Inner radius (donut hole)")))
+    c.append(("Rcp_RingInner", slider, ("Rcp_RingInner", COL_X, y + 16, SLIDER_W, 16)))
+    c.append(("Rcp_RingInnerValue", label, ("Rcp_RingInnerValue", VAL_X, y + 16, 58, 16, "6.0", YELLOW)))
+    y += 42
+    c.append(("Rcp_RingOpacityLabel", label, ("Rcp_RingOpacityLabel", COL_X, y, 200, 14, "Opacity")))
+    c.append(("Rcp_RingOpacity", slider, ("Rcp_RingOpacity", COL_X, y + 16, SLIDER_W, 16)))
+    c.append(("Rcp_RingOpacityValue", label, ("Rcp_RingOpacityValue", VAL_X, y + 16, 58, 16, "85%", YELLOW)))
     return c
 
 

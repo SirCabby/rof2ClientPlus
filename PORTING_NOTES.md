@@ -621,3 +621,79 @@ Also exposed in `/rcpoptions` as a **new "Display" tab** (checkbox "Remove dista
 UI binds/polls it like the other toggles, and the tab strip grew 4→5 (window widened 280→356 to keep
 the proven 64 px tab width — see `tools/gen_rcp_options_ui.py`). Regenerate order unchanged:
 `gen_option_overrides.py` then `gen_rcp_options_ui.py`.
+
+## Target ring (`src/target_ring.cpp`, `/rcpring`) — DONE (awaiting in-game confirm)
+
+Goal: a **solid-color "donut" ring** drawn flat on the ground under the current target, with
+user-settable color (stock color picker), outer radius, inner radius (the donut hole), and opacity.
+Zeal reference: `/home/joshua/workspace/GitHub/Zeal/Zeal/target_ring.cpp` (TAKP, D3D8).
+
+### What it is (a slim subset of Zeal's target_ring)
+Zeal's ring supports textures, spin, a 3-D cone/cylinder, auto-attack blink, and heading-match. All
+of that is **intentionally dropped** — this is a plain solid ring. Kept: enable, RGB color OR
+**con-level color** (toggle), outer radius, inner radius, opacity, and hide-under-self.
+`/rcpring [on|off | outer N | inner N | opacity 0-1 | color RRGGBB | con on|off | self on|off]`; bare
+`/rcpring` toggles. Persisted to `[TargetRing]` (`Color` stored as `RRGGBB` hex, like
+`[NameplateColors]`; `ConColor` the con-vs-fixed toggle). Off by default.
+
+**Con coloring** (Zeal's `target_color` toggle): when on, the ring is colored by the target's con
+level instead of the fixed color, via a new `nameplate::con_color_for(entity)` export that ALWAYS
+computes the con color (independent of the nameplate con-colors setting) from the same level-band
+table + user-editable con palette (Colors tab). Setting a fixed color (command `color`, or the swatch
+picker) flips con off so the choice is visible.
+
+### Vertical placement — floor Z, NOT the entity position ref
+The entity `Z@0x6c` is a POSITION REFERENCE that floats above the model's feet (same quirk the N4
+billboards hit: "feet+AvatarHeight was way off for NPCs"), so drawing there made the ring hover. The
+native ring sits on the floor, so the vertical uses **`FloorHeight@0x28`** (eqlib `PlayerBase`; that
+struct matches our build at `0x28/0x64/0x68/0x6c/0x80/0x125/0x138`) — the client's own absolute floor
+Z under the entity — guarded (nonzero, and `posZ - floorZ` within `[-10, 60]`) with a fallback to
+`0x6c`. Horizontal center stays `0x64/0x68`. A one-shot `[ring] Z:` log (first ~5 frames after
+enable) records `pos/floor/drop/chosen` for diagnosis.
+
+### Render seam — REUSES the nameplate billboards' pre-UI in-scene seam (not a new hook)
+A ground ring wants exactly the seam the N4 billboards already solved: **after the world raster**
+(so it z-tests against terrain/walls and is occluded by geometry in front) and **before the UI
+raster** (so windows paint over it). That seam is the `C2DPrimitiveManager::Render` detour in
+`font_overlay.cpp`. Rather than add a second detour on the same address (conflict) or draw at
+EndScene (post-UI → draws over windows), `font_overlay` now exposes
+**`font_overlay::add_scene_draw(cb)`**: extra world-space overlays are invoked right after
+`on_render_nameplates`, inside the same marked-frame block, each `rcp_guard`-wrapped. It installs
+whenever `FontOverlay` exists — independent of whether billboard nameplates are enabled. `TargetRing`
+registers its draw there in its ctor.
+
+### Geometry + coordinate mapping (trivial for a circle)
+- Target = `*(void**)0xDD2648`; self = `0xDD2630`. Feet/ground position = entity floats
+  `0x64/0x68/0x6c` in **memory order**, `0x6c` the vertical — **the same three floats the billboards
+  translate `D3DTS_WORLD` by** (confirmed working), so the ring center lands exactly where the native
+  plate anchors. A circle is rotationally symmetric, so the EQ X/Y ordering is irrelevant: generate
+  it in the render horizontal plane (vary the first two render coords, hold `0x6c`) and it lies flat.
+- Donut = one closed **triangle strip**: at each of `kNumSegments`(96)+1 angles emit an outer-rim then
+  an inner-rim vertex; the strip stitches successive pairs into the band's quads. Built around the
+  origin, translated to the target's feet via a hand-built `D3DMATRIX` (`_41/_42/_43`), lifted
+  `+0.20` to avoid z-fighting the ground; **VIEW/PROJECTION stay live** from the world pass.
+
+### D3D9 draw (same mid-scene hygiene as the 3-D billboards, minus the atlas)
+Fixed-function `D3DFVF_XYZ | D3DFVF_DIFFUSE`, no texture, drawn with **`DrawPrimitiveUP`** (no
+vertex-buffer lifecycle / device-lost handling). Unbind vertex+pixel shaders (a bound PS overrides
+fixed-function), then via the shared `D3DRenderStateStash`/`D3DTextureStateStash` (in `bitmap_font.h`):
+`CULLMODE=NONE`, alpha-blend `SRCALPHA/INVSRCALPHA`, `ZENABLE=TRUE` (terrain occlusion),
+`ZWRITEENABLE=FALSE` (translucent, no depth write), `LIGHTING/ALPHATEST/FOG/SPECULAR` off, stage-0
+`COLOROP/ALPHAOP = SELECTARG1(DIFFUSE)` (emit the vertex color with no texture), stage 1 disabled.
+Restore all of it (incl. WORLD + shaders) after the draw. `alpha = opacity*255` in the ARGB diffuse.
+
+### Options window — new "Ring" tab (tab index 5)
+Tab strip grew 5→6 (window widened 356→**424** to keep the 64 px tab width; tab-5 right edge 411).
+Controls (ScreenIDs `Rcp_Ring*`): enable checkbox, **hide-under-self** checkbox, a **color swatch**
+button (its text tinted the live ring color; click opens the stock `CColorPickerWnd`), and outer /
+inner / opacity sliders with value labels. The ring color is the ring's **own** setting (not a
+nameplate role): the picker reuses the existing machinery via a sentinel `picker_role_ ==
+kRingColorRole (100)` that `open_color_picker` + the picker-poll branch on. `kTabCount` 5→6 in
+`rcp_options_ui.h`; the rest is the standard bind/sync/poll/show-hide pattern. Radius sliders map
+0..60 → 0..`radius_max()`(30) world units; opacity 0..100 → 0..1. Regenerate order unchanged:
+`gen_option_overrides.py` then `gen_rcp_options_ui.py`.
+
+Caveat (inherited from Zeal): the ring is a **flat disc** at the floor Z under the target, so on
+steep slopes / stairs it clips into or floats over the terrain — Zeal tried per-vertex
+world-collision height and abandoned it as worse. Built + installed; floor-Z placement + con-color
+toggle added 2026-07-09, awaiting in-game confirm.

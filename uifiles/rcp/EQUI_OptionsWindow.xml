@@ -4663,6 +4663,34 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_TabRing">
+    <ScreenID>Rcp_TabRing</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>347</X>
+      <Y>6</Y>
+    </Location>
+    <Size>
+      <CX>64</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Target ring settings</TooltipReference>
+    <Text>Ring</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Button item="Rcp_Enabled">
     <ScreenID>Rcp_Enabled</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -5939,6 +5967,280 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_RingEnabled">
+    <ScreenID>Rcp_RingEnabled</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Draw a solid-color ring on the ground under your target (/rcpring)</TooltipReference>
+    <Text>Enable target ring</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_RingHideSelf">
+    <ScreenID>Rcp_RingHideSelf</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>56</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Do not draw the ring when your target is yourself</TooltipReference>
+    <Text>Hide when targeting yourself</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_RingConColor">
+    <ScreenID>Rcp_RingConColor</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>78</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Color the ring by the target's con level instead of the fixed color below</TooltipReference>
+    <Text>Con colors (by target level)</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_RingColor">
+    <ScreenID>Rcp_RingColor</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>104</Y>
+    </Location>
+    <Size>
+      <CX>160</CX>
+      <CY>18</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Click to pick the fixed target-ring color (used when con colors are off)</TooltipReference>
+    <Text>Ring color</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Label item="Rcp_RingOuterLabel">
+    <ScreenID>Rcp_RingOuterLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>130</Y>
+    </Location>
+    <Size>
+      <CX>200</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Outer radius</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Slider item="Rcp_RingOuter">
+    <ScreenID>Rcp_RingOuter</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>146</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>16</CY>
+    </Size>
+    <SliderArt>SDT_DefSlider</SliderArt>
+  </Slider>
+
+  <Label item="Rcp_RingOuterValue">
+    <ScreenID>Rcp_RingOuterValue</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>208</X>
+      <Y>146</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>8.0</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Label item="Rcp_RingInnerLabel">
+    <ScreenID>Rcp_RingInnerLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>172</Y>
+    </Location>
+    <Size>
+      <CX>200</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Inner radius (donut hole)</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Slider item="Rcp_RingInner">
+    <ScreenID>Rcp_RingInner</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>188</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>16</CY>
+    </Size>
+    <SliderArt>SDT_DefSlider</SliderArt>
+  </Slider>
+
+  <Label item="Rcp_RingInnerValue">
+    <ScreenID>Rcp_RingInnerValue</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>208</X>
+      <Y>188</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>6.0</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Label item="Rcp_RingOpacityLabel">
+    <ScreenID>Rcp_RingOpacityLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>214</Y>
+    </Location>
+    <Size>
+      <CX>200</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Opacity</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Slider item="Rcp_RingOpacity">
+    <ScreenID>Rcp_RingOpacity</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>230</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>16</CY>
+    </Size>
+    <SliderArt>SDT_DefSlider</SliderArt>
+  </Slider>
+
+  <Label item="Rcp_RingOpacityValue">
+    <ScreenID>Rcp_RingOpacityValue</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>208</X>
+      <Y>230</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>85%</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
   <Screen item="RcpOptions">
     <ScreenID>RcpOptions</ScreenID>
     <RelativePosition>false</RelativePosition>
@@ -5947,7 +6249,7 @@
       <Y>10</Y>
     </Location>
     <Size>
-      <CX>356</CX>
+      <CX>424</CX>
       <CY>356</CY>
     </Size>
     <Text>rof2ClientPlus Options</Text>
@@ -5966,6 +6268,7 @@
     <Pieces>Rcp_TabNameplate</Pieces>
     <Pieces>Rcp_TabColors</Pieces>
     <Pieces>Rcp_TabDisplay</Pieces>
+    <Pieces>Rcp_TabRing</Pieces>
     <Pieces>Rcp_Enabled</Pieces>
     <Pieces>Rcp_SensXLabel</Pieces>
     <Pieces>Rcp_SensX</Pieces>
@@ -6018,6 +6321,19 @@
     <Pieces>Rcp_Role16</Pieces>
     <Pieces>Rcp_Role17</Pieces>
     <Pieces>Rcp_NoFog</Pieces>
+    <Pieces>Rcp_RingEnabled</Pieces>
+    <Pieces>Rcp_RingHideSelf</Pieces>
+    <Pieces>Rcp_RingConColor</Pieces>
+    <Pieces>Rcp_RingColor</Pieces>
+    <Pieces>Rcp_RingOuterLabel</Pieces>
+    <Pieces>Rcp_RingOuter</Pieces>
+    <Pieces>Rcp_RingOuterValue</Pieces>
+    <Pieces>Rcp_RingInnerLabel</Pieces>
+    <Pieces>Rcp_RingInner</Pieces>
+    <Pieces>Rcp_RingInnerValue</Pieces>
+    <Pieces>Rcp_RingOpacityLabel</Pieces>
+    <Pieces>Rcp_RingOpacity</Pieces>
+    <Pieces>Rcp_RingOpacityValue</Pieces>
   </Screen>
   <!-- RCP-OPTIONS-END -->
 

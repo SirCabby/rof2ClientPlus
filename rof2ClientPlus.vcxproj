@@ -104,6 +104,7 @@
     <ClCompile Include="src\mouse_mods.cpp" />
     <ClCompile Include="src\nameplate.cpp" />
     <ClCompile Include="src\no_fog.cpp" />
+    <ClCompile Include="src\target_ring.cpp" />
     <ClCompile Include="src\rcp_options_ui.cpp" />
     <ClCompile Include="src\rcp.cpp" />
     <ClCompile Include="src\string_util.cpp" />
@@ -138,6 +139,7 @@
     <ClInclude Include="src\mouse_mods.h" />
     <ClInclude Include="src\nameplate.h" />
     <ClInclude Include="src\no_fog.h" />
+    <ClInclude Include="src\target_ring.h" />
     <ClInclude Include="src\rcp_options_ui.h" />
     <ClInclude Include="src\operator_overloads.h" />
     <ClInclude Include="src\rcp.h" />

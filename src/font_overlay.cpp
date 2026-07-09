@@ -5,8 +5,10 @@
 
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "bitmap_font.h"
 #include "commands.h"
@@ -360,6 +362,11 @@ static bool g_render_cb_registered = false;
 // populated -> wall occlusion correct), before the UI rasterizes (windows paint over the plates).
 bool g_np_draw_pending = false;
 
+// Extra world-space overlays registered via font_overlay::add_scene_draw (e.g. the target ring).
+// Drawn each marked frame at this same seam, right after the billboard nameplates. Mutated only at
+// load (single-threaded); read on the render thread, so no lock needed - like directx's callback list.
+std::vector<std::function<void(IDirect3DDevice9 *)>> *g_scene_draws = nullptr;
+
 void __cdecl scene_render_cb() {
   if (g_prev_render_cb) g_prev_render_cb();  // Preserve any previously-registered callback.
   g_np_draw_pending = true;  // Marks "a real 3D scene is being rendered this frame" (not RenderBlind).
@@ -378,7 +385,12 @@ int __fastcall Render2D_hk(void *self, int edx, int a1, int a2) {
     IDirect3DDevice9 *dev =
         pRender ? *reinterpret_cast<IDirect3DDevice9 **>(static_cast<char *>(pRender) + kRenderDeviceOffset)
                 : nullptr;
-    if (dev) rcp_guard::run("font.nameplates", [&] { on_render_nameplates(dev); });
+    if (dev) {
+      rcp_guard::run("font.nameplates", [&] { on_render_nameplates(dev); });
+      // Extra world-space overlays (target ring) share this post-world/pre-UI seam.
+      if (g_scene_draws)
+        for (auto &cb : *g_scene_draws) rcp_guard::run("font.scene_draw", [&] { cb(dev); });
+    }
   }
   return g_orig_render2d(self, edx, a1, a2);
 }
@@ -433,6 +445,11 @@ float font_overlay::max_dist_cap() { return kNpMaxDistCap; }
 void font_overlay::set_max_dist(float dist) {
   g_np_max_dist = dist;
   save_settings();
+}
+
+void font_overlay::add_scene_draw(std::function<void(IDirect3DDevice9 *)> cb) {
+  if (!g_scene_draws) g_scene_draws = new std::vector<std::function<void(IDirect3DDevice9 *)>>();
+  g_scene_draws->push_back(std::move(cb));
 }
 
 FontOverlay::FontOverlay(RcpService *rcp) {

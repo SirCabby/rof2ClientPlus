@@ -40,7 +40,7 @@ class RcpOptionsUI {
   void refresh_role_tints();     // Paint each color-role button with its current color.
   void open_color_picker(int role);  // Open the stock picker seeded with a role's color.
 
-  static constexpr int kTabCount = 5;   // Mouse / Camera / Nameplate / Colors / Display.
+  static constexpr int kTabCount = 6;   // Mouse / Camera / Nameplate / Colors / Display / Ring.
   static constexpr int kNpCount = 7;    // Nameplate toggle checkboxes (kNpChildNames).
   static constexpr int kRoleCount = 18; // Color roles; == nameplate_colors::count().
 
@@ -80,6 +80,20 @@ class RcpOptionsUI {
   void *btn_role_[kRoleCount] = {};
   // Display tab.
   void *cb_nofog_ = nullptr;
+  // Ring tab (solid-color target ring; target_ring_settings).
+  void *cb_ring_enabled_ = nullptr;
+  void *cb_ring_hideself_ = nullptr;
+  void *cb_ring_concolor_ = nullptr;  // Color by target con level instead of the fixed color.
+  void *btn_ring_color_ = nullptr;  // Color swatch: tinted live, opens the picker on click.
+  void *sl_ring_outer_ = nullptr;
+  void *lbl_ring_outer_hdr_ = nullptr;
+  void *lbl_ring_outer_ = nullptr;
+  void *sl_ring_inner_ = nullptr;
+  void *lbl_ring_inner_hdr_ = nullptr;
+  void *lbl_ring_inner_ = nullptr;
+  void *sl_ring_opacity_ = nullptr;
+  void *lbl_ring_opacity_hdr_ = nullptr;
+  void *lbl_ring_opacity_ = nullptr;
   bool create_attempted_ = false;
 
   // Tab state.
@@ -107,4 +121,11 @@ class RcpOptionsUI {
   int last_np_dist_ = -1;
   bool last_role_[kRoleCount] = {};
   bool last_nofog_ = false;
+  bool last_ring_enabled_ = false;
+  bool last_ring_hideself_ = false;
+  bool last_ring_concolor_ = false;
+  bool last_ring_color_ = false;
+  int last_ring_outer_ = -1;
+  int last_ring_inner_ = -1;
+  int last_ring_opacity_ = -1;
 };

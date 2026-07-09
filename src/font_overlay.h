@@ -6,6 +6,10 @@
 // PC/NPC by walking the client's spawn list.
 #pragma once
 
+#include <functional>
+
+struct IDirect3DDevice9;
+
 class FontOverlay {
  public:
   FontOverlay(class RcpService *rcp);
@@ -26,4 +30,12 @@ void set_bars(bool hp, bool mana, bool stam);
 float get_max_dist();
 float max_dist_cap();
 void set_max_dist(float dist);
+
+// Register an extra draw at the shared post-world / pre-UI in-scene seam - the same
+// C2DPrimitiveManager::Render detour the billboard nameplates use. Callbacks run on the render
+// thread with the live device, already rcp_guard-wrapped, AFTER the world raster (so geometry
+// z-tests against terrain/walls) and BEFORE the UI raster (so windows occlude it). This is the
+// correct seam for world-space overlays like the target ring; it installs whenever FontOverlay
+// exists, independent of whether billboard nameplates are enabled.
+void add_scene_draw(std::function<void(IDirect3DDevice9 *)> cb);
 }  // namespace font_overlay

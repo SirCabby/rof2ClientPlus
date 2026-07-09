@@ -58,6 +58,9 @@ void set(int role, int rgb);  // Set + persist a role's color (applies live).
 namespace nameplate {
 std::string billboard_text(void *entity);  // Name line; empty if the entity has no drawable name.
 int billboard_color(void *entity);         // 0xRRGGBB, con/state colored; client-like default otherwise.
+// Pure con-level color for an entity vs the local player, ALWAYS computed (independent of the
+// con-colors setting). Uses the user-editable con palette (Colors tab). For the target ring.
+int con_color_for(void *entity);           // 0xRRGGBB.
 // When true, the native name text is blanked for every entity (via the set-string hook, which keeps
 // the con-tint firing) so the custom billboard nameplates don't double up with the client's own.
 void set_suppress_native(bool suppress);

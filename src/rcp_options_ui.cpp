@@ -15,6 +15,7 @@
 #include "nameplate.h"
 #include "no_fog.h"
 #include "rcp.h"
+#include "target_ring.h"
 
 // ---- stock RoF2 addresses (eqlib offsets + disasm of the client's own usage) ----
 static constexpr int kCreateXWnd = 0x870400;              // CSidlManagerBase::CreateXWndFromTemplate(parent,name)
@@ -146,6 +147,25 @@ static int blink_to_slider(int ms) {
 }
 static int slider_to_blink(int v) { return 200 + v * 50; }
 
+// Target-ring radius sliders: 0..60 steps -> 0..radius_max world units (step = max/60).
+static constexpr int kRingRadiusSliderMax = 60;
+static int ring_radius_to_slider(float r) {
+  int v = static_cast<int>(r / (target_ring_settings::radius_max() / kRingRadiusSliderMax) + 0.5f);
+  return v < 0 ? 0 : (v > kRingRadiusSliderMax ? kRingRadiusSliderMax : v);
+}
+static float ring_slider_to_radius(int v) { return v * (target_ring_settings::radius_max() / kRingRadiusSliderMax); }
+// Target-ring opacity slider: 0..100 -> 0..1.
+static constexpr int kRingOpacitySliderMax = 100;
+static int ring_opacity_to_slider(float a) {
+  int v = static_cast<int>(a * kRingOpacitySliderMax + 0.5f);
+  return v < 0 ? 0 : (v > kRingOpacitySliderMax ? kRingOpacitySliderMax : v);
+}
+static float ring_slider_to_opacity(int v) { return v / static_cast<float>(kRingOpacitySliderMax); }
+
+// Sentinel "role" for the ring color button so it reuses the stock color-picker machinery (which is
+// keyed on an int role) without colliding with the 0..kRoleCount-1 nameplate roles.
+static constexpr int kRingColorRole = 100;
+
 // Nameplate checkbox child names, in the positional order of nameplate_settings::set
 // (also the order np_read_settings fills). Must stay in sync with cb_np_[]/last_np_[].
 static const char *const kNpChildNames[] = {"Rcp_NpConColors",   "Rcp_NpStateColors",  "Rcp_NpTargetColor",
@@ -162,8 +182,8 @@ static void np_read_settings(bool out[7]) {
 }
 
 // Tab strip child names (index == tab id used throughout).
-static const char *const kTabChildNames[] = {"Rcp_TabMouse", "Rcp_TabCamera", "Rcp_TabNameplate", "Rcp_TabColors",
-                                             "Rcp_TabDisplay"};
+static const char *const kTabChildNames[] = {"Rcp_TabMouse",   "Rcp_TabCamera",  "Rcp_TabNameplate",
+                                             "Rcp_TabColors", "Rcp_TabDisplay", "Rcp_TabRing"};
 
 // ---- Window-template delivery (no code in the load path at all) ----
 //
@@ -229,6 +249,19 @@ void RcpOptionsUI::create_window() {
     btn_role_[i] = get_child(wnd_, rolename);
   }
   cb_nofog_ = get_child(wnd_, "Rcp_NoFog");
+  cb_ring_enabled_ = get_child(wnd_, "Rcp_RingEnabled");
+  cb_ring_hideself_ = get_child(wnd_, "Rcp_RingHideSelf");
+  cb_ring_concolor_ = get_child(wnd_, "Rcp_RingConColor");
+  btn_ring_color_ = get_child(wnd_, "Rcp_RingColor");
+  sl_ring_outer_ = get_child(wnd_, "Rcp_RingOuter");
+  lbl_ring_outer_hdr_ = get_child(wnd_, "Rcp_RingOuterLabel");
+  lbl_ring_outer_ = get_child(wnd_, "Rcp_RingOuterValue");
+  sl_ring_inner_ = get_child(wnd_, "Rcp_RingInner");
+  lbl_ring_inner_hdr_ = get_child(wnd_, "Rcp_RingInnerLabel");
+  lbl_ring_inner_ = get_child(wnd_, "Rcp_RingInnerValue");
+  sl_ring_opacity_ = get_child(wnd_, "Rcp_RingOpacity");
+  lbl_ring_opacity_hdr_ = get_child(wnd_, "Rcp_RingOpacityLabel");
+  lbl_ring_opacity_ = get_child(wnd_, "Rcp_RingOpacityValue");
   logger::logf("[ui] controls bound: tabs=%p,%p,%p,%p mouse(en=%p sx=%p) chase(en=%p dist=%p) np0=%p role0=%p",
                btn_tab_[0], btn_tab_[1], btn_tab_[2], btn_tab_[3], cb_enabled_, sl_sensx_, cb_chase_enabled_,
                sl_chase_dist_, cb_np_[0], btn_role_[0]);
@@ -239,8 +272,12 @@ void RcpOptionsUI::create_window() {
   slider_set_range(sl_chase_dist_, kChaseDistSliderMax);  // 0..300 world units (0 = native max).
   slider_set_range(sl_blink_, kBlinkSliderMax);           // 0..56 -> 200..3000 ms blink cycle.
   slider_set_range(sl_np_dist_, kNpDistSliderMax);        // 0..100 -> 0..cap nameplate draw distance.
+  slider_set_range(sl_ring_outer_, kRingRadiusSliderMax);   // 0..60 -> 0..radius_max ring outer radius.
+  slider_set_range(sl_ring_inner_, kRingRadiusSliderMax);   // 0..60 -> 0..radius_max ring inner radius.
+  slider_set_range(sl_ring_opacity_, kRingOpacitySliderMax);  // 0..100 -> 0..1 opacity.
 
   refresh_role_tints();
+  set_text_color(btn_ring_color_, target_ring_settings::get_color());  // Ring color swatch (its own color store).
   set_active_tab(active_tab_);  // Latch the strip + show only the active group.
   show_window(wnd_, false);     // Created hidden; /rcpoptions reveals it.
 }
@@ -271,6 +308,11 @@ void RcpOptionsUI::set_active_tab(int tab) {
   show_window(lbl_np_dist_, tab == 2);
   for (int i = 0; i < kRoleCount; ++i) show_window(btn_role_[i], tab == 3);
   show_window(cb_nofog_, tab == 4);
+  void *ring[] = {cb_ring_enabled_,   cb_ring_hideself_,    cb_ring_concolor_,  btn_ring_color_,
+                  lbl_ring_outer_hdr_, sl_ring_outer_,       lbl_ring_outer_,
+                  lbl_ring_inner_hdr_, sl_ring_inner_,       lbl_ring_inner_,
+                  lbl_ring_opacity_hdr_, sl_ring_opacity_,   lbl_ring_opacity_};
+  for (void *w : ring) show_window(w, tab == 5);
 }
 
 // Paint each color-role button's text with its current palette color.
@@ -288,10 +330,11 @@ void RcpOptionsUI::open_color_picker(int role) {
     return;
   }
   picker_role_ = role;
-  last_picker_rgb_ = nameplate_colors::get(role);
+  last_picker_rgb_ = (role == kRingColorRole) ? target_ring_settings::get_color() : nameplate_colors::get(role);
   reinterpret_cast<int(__thiscall *)(void *, void *, uint32_t)>(kColorPickerOpen)(
       picker, wnd_, 0xFF000000u | static_cast<uint32_t>(last_picker_rgb_));
-  logger::logf("[ui] color picker opened for role %d (%s)", role, nameplate_colors::name(role));
+  logger::logf("[ui] color picker opened for %s",
+               role == kRingColorRole ? "target ring" : nameplate_colors::name(role));
 }
 
 // Push current settings into the controls (called when opening).
@@ -314,7 +357,14 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_blink_, blink_to_slider(nameplate_settings::get_blink_ms()));
   slider_set(sl_np_dist_, np_dist_to_slider(font_overlay::get_max_dist()));
   checkbox_set(cb_nofog_, no_fog_settings::get_enabled());
+  checkbox_set(cb_ring_enabled_, target_ring_settings::get_enabled());
+  checkbox_set(cb_ring_hideself_, target_ring_settings::get_hide_self());
+  checkbox_set(cb_ring_concolor_, target_ring_settings::get_use_con_color());
+  slider_set(sl_ring_outer_, ring_radius_to_slider(target_ring_settings::get_outer()));
+  slider_set(sl_ring_inner_, ring_radius_to_slider(target_ring_settings::get_inner()));
+  slider_set(sl_ring_opacity_, ring_opacity_to_slider(target_ring_settings::get_opacity()));
   refresh_role_tints();
+  set_text_color(btn_ring_color_, target_ring_settings::get_color());
 }
 
 // Snapshot the current raw control values so the frame poll treats the sync above
@@ -338,6 +388,13 @@ void RcpOptionsUI::seed_last_values() {
   for (int i = 0; i < kTabCount; ++i) last_tab_[i] = checkbox_get(btn_tab_[i]);
   for (int i = 0; i < kRoleCount; ++i) last_role_[i] = checkbox_get(btn_role_[i]);
   last_nofog_ = checkbox_get(cb_nofog_);
+  last_ring_enabled_ = checkbox_get(cb_ring_enabled_);
+  last_ring_hideself_ = checkbox_get(cb_ring_hideself_);
+  last_ring_concolor_ = checkbox_get(cb_ring_concolor_);
+  last_ring_color_ = checkbox_get(btn_ring_color_);
+  last_ring_outer_ = slider_get(sl_ring_outer_);
+  last_ring_inner_ = slider_get(sl_ring_inner_);
+  last_ring_opacity_ = slider_get(sl_ring_opacity_);
 }
 
 void RcpOptionsUI::update_labels() {
@@ -363,6 +420,13 @@ void RcpOptionsUI::update_labels() {
   else
     std::snprintf(buf, sizeof(buf), "%.0f", font_overlay::get_max_dist());
   set_label_text(lbl_np_dist_, buf);
+  // Target-ring radii + opacity.
+  std::snprintf(buf, sizeof(buf), "%.1f", target_ring_settings::get_outer());
+  set_label_text(lbl_ring_outer_, buf);
+  std::snprintf(buf, sizeof(buf), "%.1f", target_ring_settings::get_inner());
+  set_label_text(lbl_ring_inner_, buf);
+  std::snprintf(buf, sizeof(buf), "%.0f%%", target_ring_settings::get_opacity() * 100.0f);
+  set_label_text(lbl_ring_opacity_, buf);
 }
 
 void RcpOptionsUI::toggle_window() {
@@ -393,6 +457,10 @@ void RcpOptionsUI::on_frame() {
     cb_np_billboard_ = cb_np_hp_ = cb_np_mana_ = cb_np_stam_ = nullptr;
     sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
     cb_nofog_ = nullptr;
+    cb_ring_enabled_ = cb_ring_hideself_ = cb_ring_concolor_ = btn_ring_color_ = nullptr;
+    sl_ring_outer_ = lbl_ring_outer_hdr_ = lbl_ring_outer_ = nullptr;
+    sl_ring_inner_ = lbl_ring_inner_hdr_ = lbl_ring_inner_ = nullptr;
+    sl_ring_opacity_ = lbl_ring_opacity_hdr_ = lbl_ring_opacity_ = nullptr;
     for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
     for (int i = 0; i < kNpCount; ++i) cb_np_[i] = nullptr;
     for (int i = 0; i < kRoleCount; ++i) btn_role_[i] = nullptr;
@@ -498,6 +566,48 @@ void RcpOptionsUI::on_frame() {
     last_nofog_ = nf;
   }
 
+  // Ring tab: enable + hide-self checkboxes, radius/opacity sliders (same "only on real change" rule).
+  bool ren = checkbox_get(cb_ring_enabled_);
+  if (ren != last_ring_enabled_) {
+    target_ring_settings::set_enabled(ren);
+    last_ring_enabled_ = ren;
+  }
+  bool rhs = checkbox_get(cb_ring_hideself_);
+  if (rhs != last_ring_hideself_) {
+    target_ring_settings::set_hide_self(rhs);
+    last_ring_hideself_ = rhs;
+  }
+  bool rcc = checkbox_get(cb_ring_concolor_);
+  if (rcc != last_ring_concolor_) {
+    target_ring_settings::set_use_con_color(rcc);
+    last_ring_concolor_ = rcc;
+  }
+  int ro = slider_get(sl_ring_outer_);
+  if (ro != last_ring_outer_) {
+    target_ring_settings::set_outer(ring_slider_to_radius(ro));
+    update_labels();
+    last_ring_outer_ = ro;
+  }
+  int rin = slider_get(sl_ring_inner_);
+  if (rin != last_ring_inner_) {
+    target_ring_settings::set_inner(ring_slider_to_radius(rin));
+    update_labels();
+    last_ring_inner_ = rin;
+  }
+  int rop = slider_get(sl_ring_opacity_);
+  if (rop != last_ring_opacity_) {
+    target_ring_settings::set_opacity(ring_slider_to_opacity(rop));
+    update_labels();
+    last_ring_opacity_ = rop;
+  }
+  // Ring color swatch: momentary click opens the stock picker (sentinel role), like the role buttons.
+  bool rc = checkbox_get(btn_ring_color_);
+  if (rc != last_ring_color_) {
+    checkbox_set(btn_ring_color_, false);
+    last_ring_color_ = false;
+    if (rc) open_color_picker(kRingColorRole);
+  }
+
   // Color-role buttons: a click (checked-state change) opens the stock color
   // picker for that role; the button itself stays unlatched (momentary).
   for (int i = 0; i < kRoleCount; ++i) {
@@ -512,7 +622,7 @@ void RcpOptionsUI::on_frame() {
   // Stock color picker session: while it is visible and was opened by us, apply
   // its RGB slider values to the selected role live (nameplates recolor as the
   // user drags). When it closes (Accept or Cancel), the last shown color stays.
-  if (picker_role_ >= 0) {
+  if (picker_role_ != -1) {
     void *picker = *kColorPicker;
     char *p = static_cast<char *>(picker);
     if (!picker || !is_visible(picker) || *reinterpret_cast<void **>(p + kPickerCallerOffset) != wnd_) {
@@ -524,8 +634,19 @@ void RcpOptionsUI::on_frame() {
       int b = clamp255(*reinterpret_cast<int *>(p + kPickerBlueOffset));
       int rgb = (r << 16) | (g << 8) | b;
       if (rgb != last_picker_rgb_) {
-        nameplate_colors::set(picker_role_, rgb);
-        set_text_color(btn_role_[picker_role_], rgb);
+        if (picker_role_ == kRingColorRole) {
+          target_ring_settings::set_color(rgb);
+          set_text_color(btn_ring_color_, rgb);
+          // Picking a fixed color implies fixed-color mode, so the choice is actually visible.
+          if (target_ring_settings::get_use_con_color()) {
+            target_ring_settings::set_use_con_color(false);
+            checkbox_set(cb_ring_concolor_, false);
+            last_ring_concolor_ = false;
+          }
+        } else {
+          nameplate_colors::set(picker_role_, rgb);
+          set_text_color(btn_role_[picker_role_], rgb);
+        }
         last_picker_rgb_ = rgb;
       }
     }

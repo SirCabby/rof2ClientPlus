@@ -62,6 +62,9 @@
     <ClCompile Include="src\no_fog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\target_ring.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\rcp_options_ui.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -158,6 +161,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\no_fog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\target_ring.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\rcp_options_ui.h">
