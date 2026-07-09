@@ -42,6 +42,11 @@ float g_test3d_offset_lines = 1.0f;  // Screen-up lift above the head, in text l
 // order (0x64,0x68,0x6c), with 0x6c the vertical (EQ Z, up).
 void **const kControlled = reinterpret_cast<void **>(0xDD2644);
 void **const kSelf = reinterpret_cast<void **>(0xDD2630);  // local player (for mana/stamina).
+// CDisplay::cameraType - the LIVE render camera (0 = first person). Same address mouse_mods and
+// chase_cam read; distinct from camera_mods' selected-view slot at 0x63BE68 (which does not track
+// a native zoom into first person). Use the live value so the self plate is suppressed exactly
+// when the camera is actually first person.
+int *const kCameraType = reinterpret_cast<int *>(0xD1FD9C);
 constexpr int kEntPos0 = 0x64;         // first float the renderer reads (EQ Y).
 constexpr int kEntPos1 = 0x68;         // second (EQ X).
 constexpr int kEntPos2 = 0x6c;         // third, vertical (EQ Z).
@@ -268,9 +273,15 @@ void on_render_nameplates(IDirect3DDevice9 *device) {
   int self_hp = -1, self_mana = -1, self_stam = -1;
   self_stats(self_hp, self_mana, self_stam);  // Once per frame (the local player's real pools).
 
+  // In first-person view the client neither draws nor updates your own name sprite (you're inside
+  // your own head), so a self billboard would freeze at the last head position and appear to trail
+  // behind as you move. Suppress the self plate whenever the camera is actually first person.
+  const bool first_person = (*kCameraType == 0);
+
   for (void *e = *reinterpret_cast<void **>(static_cast<char *>(mgr) + kListFirst); e;
        e = *reinterpret_cast<void **>(static_cast<char *>(e) + kEntNext)) {
     char *ent = static_cast<char *>(e);
+    if (e == self && first_person) continue;                             // No self nameplate in first person.
     const uint8_t type = *reinterpret_cast<uint8_t *>(ent + kEntType);
     if (type == kTypeCorpse) continue;                                   // Skip corpses.
     void *actor = *reinterpret_cast<void **>(ent + kEntActor);
