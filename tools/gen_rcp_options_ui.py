@@ -264,6 +264,8 @@ def build_controls():
     # files in uifiles/rcp/targetrings (CComboWnd::DeleteAll + InsertChoice) and polls GetCurChoice.
     c.append(("Rcp_RingGraphicLabel", label, ("Rcp_RingGraphicLabel", COL_X, y + 3, 84, 16, "Ring graphic:")))
     c.append(("Rcp_RingGraphic", combobox, ("Rcp_RingGraphic", COL_X + 86, y, 220, 22)))
+    c.append(("Rcp_RingSpin", button, ("Rcp_RingSpin", COL_X, y + 28, 250, 20, "Rotate ring graphic",
+                                       "Slowly rotate the ring graphic; when off, the graphic faces the target's heading")))
     return c
 
 

@@ -629,14 +629,14 @@ user-settable color (stock color picker), outer radius, inner radius (the donut 
 Zeal reference: `/home/joshua/workspace/GitHub/Zeal/Zeal/target_ring.cpp` (TAKP, D3D8).
 
 ### What it is (a slim subset of Zeal's target_ring)
-Zeal's ring supports textures, spin, a 3-D cone/cylinder, auto-attack blink, and heading-match. Spin
-/ cone / blink / heading-match are **intentionally dropped**, but the **optional graphic (texture)**
-was added back (see "Ring graphic" below). Kept: enable, RGB color OR **con-level color** (toggle),
-outer radius, inner radius, opacity, hide-under-self, and an optional graphic.
-`/rcpring [on|off | outer N | inner N | opacity 0-1 | color RRGGBB | con on|off | self on|off |
-graphic <name>|none]`; bare `/rcpring` toggles. Persisted to `[TargetRing]` (`Color` stored as
-`RRGGBB` hex, like `[NameplateColors]`; `ConColor` the con-vs-fixed toggle; `Graphic` the texture
-name or `None`). Off by default.
+Zeal's ring supports textures, spin, a 3-D cone/cylinder, auto-attack blink, and heading-match. The
+cone and auto-attack blink are **intentionally dropped**, but the **optional graphic (texture)** plus
+**spin / face-heading** were added back (see "Ring graphic" and "Spin" below). Kept: enable, RGB color
+OR **con-level color** (toggle), outer radius, inner radius, opacity, hide-under-self, an optional
+graphic, and spin-vs-face-heading. `/rcpring [on|off | outer N | inner N | opacity 0-1 | color RRGGBB
+| con on|off | self on|off | graphic <name>|none | spin on|off]`; bare `/rcpring` toggles. Persisted
+to `[TargetRing]` (`Color` stored as `RRGGBB` hex, like `[NameplateColors]`; `ConColor` the
+con-vs-fixed toggle; `Graphic` the texture name or `None`; `Spin` the spin toggle). Off by default.
 
 **Con coloring** (Zeal's `target_color` toggle): when on, the ring is colored by the target's con
 level instead of the fixed color, via a new `nameplate::con_color_for(entity)` export that ALWAYS
@@ -702,6 +702,27 @@ tints the texture (white ⇒ the texture's native colors) and opacity scales its
 draw **only** the textured donut (no solid pass behind it — cleaner than Zeal's solid+texture stack).
 A curated set of Zeal's ring `.tga`s ships in `uifiles/rcp/targetrings` (`make install` copies them);
 users can drop in their own.
+
+### Spin / face-heading (`/rcpring spin on|off`, `Rcp_RingSpin` checkbox)
+The ring rotates about its vertical axis (local Z, the ring's normal) via the WORLD matrix's upper-left
+2×2 — no vertex regen, and invisible on a solid ring (symmetric), so it only shows on a graphic. Two
+modes on one toggle (default **on**): **spin** = a slow continuous rotation (`rot = -g_spin_angle`, one
+revolution every `kSpinPeriodSec` = 8 s; the accumulator + `GetTickCount64` delta live on the render
+thread, with the delta capped at 100 ms so an alt-tab/zone stall doesn't lurch it, and reset to 0
+whenever spin is off so re-enabling doesn't jump); **face-heading** (spin off) =
+`rot = Heading@0x80 * (PI/256) + g_face_offset_deg*(PI/180)`, i.e. the graphic is oriented to the way
+the target faces. `Heading` is a `float 0..512` (eqlib PlayerClient, same struct as the pos fields;
+`Heading@0x80` is the logical heading and it *does* update during movement — an earlier detour through
+the render actor's `GetHeading()` proved identical and was reverted). The `+PI/256` sign was confirmed
+in-game (the initial `-PI/256` was backwards). `/rcpring faceoffset <deg>` (`[TargetRing] FaceOffset`,
+default 0) fine-aligns a texture's "front" — 0 works for DarkMode.
+
+**Self-target caveat (inherent, not a bug):** when the target is *you*, turning rotates your camera
+with the ring, so its rotation cancels on screen and it looks static — it's correctly pointing where
+you face (always "into the screen"). NPC / other-player targets turn independently of your camera, so
+the ring visibly tracks them — that's the useful case. (This chewed several debug rounds: a temporary
+bright-yellow front pointer + a self-vs-NPC diagnostic log finally isolated it to a reversed sign, both
+since removed.)
 
 ### Ring-tab dropdown — a real native `Combobox` (`Rcp_RingGraphic`)
 The Ring-tab picker is a native **`CComboWnd`** (same widget Zeal used for this exact feature). Earlier

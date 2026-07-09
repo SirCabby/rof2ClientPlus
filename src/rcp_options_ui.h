@@ -100,6 +100,7 @@ class RcpOptionsUI {
   void *lbl_ring_opacity_ = nullptr;
   void *lbl_ring_graphic_hdr_ = nullptr;    // "Ring graphic:" static header.
   void *combo_ring_graphic_ = nullptr;      // Native Combobox: choices == available graphics.
+  void *cb_ring_spin_ = nullptr;            // "Rotate ring graphic" (spin vs face-heading).
   bool create_attempted_ = false;
 
   // Tab state.
@@ -134,6 +135,7 @@ class RcpOptionsUI {
   int last_ring_outer_ = -1;
   int last_ring_inner_ = -1;
   int last_ring_opacity_ = -1;
+  bool last_ring_spin_ = false;
   // Ring-graphic combobox: the choice list (index -> name, "None" first) currently loaded into the
   // combo, and the last selected index we applied (so the poll only reacts to real user changes).
   std::vector<std::string> graphic_choices_;

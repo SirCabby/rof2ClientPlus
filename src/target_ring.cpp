@@ -42,6 +42,7 @@ constexpr int kEntPos0 = 0x64;
 constexpr int kEntPos1 = 0x68;
 constexpr int kEntPos2 = 0x6c;         // vertical position reference (above the feet)
 constexpr int kEntFloorHeight = 0x28;  // float: absolute Z of the floor beneath the entity
+constexpr int kEntHeading = 0x80;      // float, EQ heading 0..512 (== 0..2pi); used for face-heading.
 constexpr int kEntActor = 0x101c;      // CActor*; NULL => not in-world / no graphics yet.
 
 // ---- live settings (persisted to rof2ClientPlus.ini [TargetRing]). Off by default. ----
@@ -53,6 +54,8 @@ float g_inner = 6.0f;    // inner radius (donut hole), world units
 float g_opacity = 0.85f;  // 0..1
 bool g_hide_self = true;
 std::string g_graphic;    // Optional ring graphic (Zeal-style texture). "" = solid donut, no texture.
+bool g_spin = true;       // true = the graphic slowly rotates; false = it faces the target's heading.
+float g_face_offset_deg = 0.0f;  // Face-heading fine-alignment: added to the angle (degrees, 0..360).
 
 int g_z_log = 0;  // Log the computed ring Z (pos vs floor) for a few frames after enabling.
 
@@ -85,6 +88,18 @@ IDirect3DTexture9 *g_texture = nullptr;  // Loaded ring graphic, or null for the
 std::string g_texture_name;              // Which g_graphic g_texture currently reflects.
 bool g_graphic_dirty = true;             // g_graphic changed; the render thread (re)loads.
 
+// Spin animation (only visible on a textured ring - a solid ring is rotationally symmetric). One
+// slow revolution every kSpinPeriodSec; the accumulator lives on the render thread.
+constexpr float kTwoPi = 6.28318530717958647692f;
+constexpr float kSpinPeriodSec = 8.0f;
+constexpr float kSpinRadPerMs = kTwoPi / (kSpinPeriodSec * 1000.0f);
+float g_spin_angle = 0.0f;                 // accumulated spin (radians).
+unsigned long long g_spin_last_tick = 0;   // GetTickCount64 of the last update; 0 == reset.
+// EQ heading (0..512) -> radians (magnitude PI/256 == 2pi per 512). The rotation direction is baked in
+// (confirmed in-game); g_face_offset_deg fine-aligns a texture's "front" to the target's facing.
+constexpr float kHeadingMag = 3.14159265358979324f / 256.0f;
+constexpr float kDegToRad = kTwoPi / 360.0f;
+
 bool graphic_is_none(const std::string &s) {
   return s.empty() || s == "none" || s == "None" || s == "NONE";
 }
@@ -115,6 +130,8 @@ void load_settings() {
   if (ini.exists(kIniSection, "HideSelf")) g_hide_self = ini.getValue<bool>(kIniSection, "HideSelf");
   if (ini.exists(kIniSection, "Graphic")) g_graphic = ini.getValue<std::string>(kIniSection, "Graphic");
   if (graphic_is_none(g_graphic)) g_graphic.clear();
+  if (ini.exists(kIniSection, "Spin")) g_spin = ini.getValue<bool>(kIniSection, "Spin");
+  if (ini.exists(kIniSection, "FaceOffset")) g_face_offset_deg = ini.getValue<float>(kIniSection, "FaceOffset");
   g_graphic_dirty = true;  // Load the persisted graphic on the first drawn frame.
   g_color &= 0xffffff;
   g_outer = clampf(g_outer, 0.0f, kRadiusMax);
@@ -134,6 +151,8 @@ void save_settings() {
   ini.setValue<float>(kIniSection, "Opacity", g_opacity);
   ini.setValue<bool>(kIniSection, "HideSelf", g_hide_self);
   ini.setValue<std::string>(kIniSection, "Graphic", g_graphic.empty() ? "None" : g_graphic);
+  ini.setValue<bool>(kIniSection, "Spin", g_spin);
+  ini.setValue<float>(kIniSection, "FaceOffset", g_face_offset_deg);
 }
 
 // Draw the ring at the shared post-world / pre-UI in-scene seam. Already inside directx's rcp_guard
@@ -268,13 +287,39 @@ void draw_ring(IDirect3DDevice9 *device) {
   }
   device->SetFVF(kRingFvf);
 
-  // WORLD = translate to the target's feet (lifted slightly to avoid z-fighting the ground). Built by
-  // hand to avoid a d3dx dependency; VIEW/PROJECTION are the world pass's, still live at this seam.
+  // Rotation about the ring's vertical axis (local Z, the ring's normal): a slow continuous spin, or
+  // (spin off) oriented to the target's heading so the graphic "faces" the way the target faces. Only
+  // visible on a textured ring - a solid donut is symmetric - but harmless to apply either way.
+  float rot;
+  if (g_spin) {
+    const unsigned long long now = GetTickCount64();
+    unsigned long long dt = (g_spin_last_tick == 0) ? 0ull : (now - g_spin_last_tick);
+    if (dt > 100) dt = 100;  // Cap after a stall (alt-tab / zoning) so the spin doesn't lurch.
+    g_spin_last_tick = now;
+    g_spin_angle += kSpinRadPerMs * static_cast<float>(dt);
+    if (g_spin_angle >= kTwoPi) g_spin_angle = std::fmod(g_spin_angle, kTwoPi);
+    rot = -g_spin_angle;  // Negated so the spin turns the other way (per preference).
+  } else {
+    g_spin_last_tick = 0;  // Reset so re-enabling spin doesn't jump by the idle interval.
+    // Face the target's heading (Heading@0x80, EQ units 0..512). g_face_offset_deg fine-aligns per texture.
+    const float heading = *reinterpret_cast<float *>(t + kEntHeading);
+    rot = heading * kHeadingMag + g_face_offset_deg * kDegToRad;
+  }
+  const float rot_c = std::cos(rot), rot_s = std::sin(rot);
+
+  // WORLD = rotate about local Z, then translate to the target's feet (lifted slightly to avoid
+  // z-fighting the ground). Built by hand to avoid a d3dx dependency; VIEW/PROJECTION are the world
+  // pass's, still live at this seam.
   D3DMATRIX world_prev;
   device->GetTransform(D3DTS_WORLD, &world_prev);
   D3DMATRIX world;
   std::memset(&world, 0, sizeof(world));
-  world._11 = world._22 = world._33 = world._44 = 1.0f;
+  world._11 = rot_c;
+  world._12 = rot_s;
+  world._21 = -rot_s;
+  world._22 = rot_c;
+  world._33 = 1.0f;
+  world._44 = 1.0f;
   world._41 = cx;
   world._42 = cy;
   world._43 = cz + kGroundLift;
@@ -301,10 +346,15 @@ void print_status() {
     std::snprintf(colbuf, sizeof(colbuf), "con-level");
   else
     std::snprintf(colbuf, sizeof(colbuf), "%06X", g_color & 0xffffff);
+  char facebuf[56];
+  if (g_spin)
+    std::snprintf(facebuf, sizeof(facebuf), "spinning");
+  else
+    std::snprintf(facebuf, sizeof(facebuf), "faces heading (offset %.0f deg)", g_face_offset_deg);
   Rcp::Game::print_chat(
-      "rof2ClientPlus target ring: %s | outer %.1f, inner %.1f, opacity %.0f%%, color %s | graphic %s%s",
+      "rof2ClientPlus target ring: %s | outer %.1f, inner %.1f, opacity %.0f%%, color %s | graphic %s (%s)%s",
       g_enabled ? "ON" : "OFF", g_outer, g_inner, g_opacity * 100.0f, colbuf,
-      g_graphic.empty() ? "None" : g_graphic.c_str(), g_hide_self ? ", hidden on self" : "");
+      g_graphic.empty() ? "None" : g_graphic.c_str(), facebuf, g_hide_self ? ", hidden on self" : "");
 }
 
 bool parse_float(const std::string &s, float &out) {
@@ -363,6 +413,11 @@ void set_graphic(const std::string &name) {
   g_graphic_dirty = true;  // Render thread (re)loads the texture next frame.
   save_settings();
 }
+bool get_spin() { return g_spin; }
+void set_spin(bool on) {
+  g_spin = on;
+  save_settings();
+}
 // "None" first, then every *.tga stem in uifiles/rcp/targetrings (name only, no dir/extension).
 std::vector<std::string> get_available_graphics() {
   std::vector<std::string> out = {"None"};
@@ -389,7 +444,9 @@ TargetRing::TargetRing(RcpService *rcp) : rcp_(rcp) {
       "/rcpring", {"/targetring"},
       "Target ring: '/rcpring' toggles; 'on|off', 'outer <n>', 'inner <n>', 'opacity <0-1>', "
       "'color RRGGBB', 'con on|off' (color by target con level), 'self on|off' (hide under yourself), "
-      "'graphic <name>|none' (texture from uifiles/rcp/targetrings; bare 'graphic' lists them).",
+      "'graphic <name>|none' (texture from uifiles/rcp/targetrings; bare 'graphic' lists them), "
+      "'spin on|off' (rotate the graphic, or face the target's heading when off), "
+      "'faceoffset <deg>' (fine-align the face-heading direction).",
       [](std::vector<std::string> &args) {
         if (args.size() >= 2) {
           const std::string &a = args[1];
@@ -411,6 +468,10 @@ TargetRing::TargetRing(RcpService *rcp) : rcp_(rcp) {
             g_use_con_color = (args[2] == "on" || args[2] == "1");
           } else if (a == "self" && args.size() >= 3) {
             g_hide_self = (args[2] == "on" || args[2] == "1");
+          } else if (a == "spin" && args.size() >= 3) {
+            g_spin = (args[2] == "on" || args[2] == "1");
+          } else if (a == "faceoffset" && args.size() >= 3 && parse_float(args[2], f)) {
+            g_face_offset_deg = std::fmod(f, 360.0f);  // Fine-align the face-heading direction (per texture).
           } else if ((a == "graphic" || a == "texture") && args.size() >= 3) {
             // Join the remaining args so filenames with spaces work (e.g. 'graphic Project Quarm').
             std::string name = args[2];
@@ -429,7 +490,7 @@ TargetRing::TargetRing(RcpService *rcp) : rcp_(rcp) {
           } else {
             Rcp::Game::print_chat(
                 "rof2ClientPlus: '/rcpring on|off | outer <n> | inner <n> | opacity <0-1> | color RRGGBB | con on|off | "
-                "self on|off | graphic <name>|none'");
+                "self on|off | graphic <name>|none | spin on|off | faceoffset <deg>'");
             return true;
           }
         } else {

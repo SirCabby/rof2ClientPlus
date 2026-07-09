@@ -6284,6 +6284,34 @@
     <Style_Border>true</Style_Border>
   </Combobox>
 
+  <Button item="Rcp_RingSpin">
+    <ScreenID>Rcp_RingSpin</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>284</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Slowly rotate the ring graphic; when off, the graphic faces the target's heading</TooltipReference>
+    <Text>Rotate ring graphic</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Screen item="RcpOptions">
     <ScreenID>RcpOptions</ScreenID>
     <RelativePosition>false</RelativePosition>
@@ -6379,6 +6407,7 @@
     <Pieces>Rcp_RingOpacityValue</Pieces>
     <Pieces>Rcp_RingGraphicLabel</Pieces>
     <Pieces>Rcp_RingGraphic</Pieces>
+    <Pieces>Rcp_RingSpin</Pieces>
   </Screen>
   <!-- RCP-OPTIONS-END -->
 

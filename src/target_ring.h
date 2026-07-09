@@ -53,4 +53,6 @@ float radius_max();  // Upper bound the sliders/commands allow for both radii.
 std::string get_graphic();                  // Current ring graphic name, or "" for the solid ring.
 void set_graphic(const std::string &name);  // "" or "none"/"None" selects the solid ring (no texture).
 std::vector<std::string> get_available_graphics();  // "None", then each *.tga stem in uifiles/rcp/targetrings.
+bool get_spin();       // true = the ring graphic slowly rotates; false = it faces the target's heading.
+void set_spin(bool on);
 }  // namespace target_ring_settings
