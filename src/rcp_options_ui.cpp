@@ -8,6 +8,7 @@
 
 #include "chase_cam.h"
 #include "commands.h"
+#include "font_overlay.h"
 #include "game_functions.h"
 #include "logger.h"
 #include "mouse_mods.h"
@@ -128,6 +129,14 @@ static int chase_dist_to_slider(float d) {
 }
 static float chase_slider_to_dist(int v) { return v <= 0 ? 0.0f : static_cast<float>(v); }
 
+// Nameplate max-distance slider: 0..100 steps -> 0..max_dist_cap world units (step = cap/100).
+static constexpr int kNpDistSliderMax = 100;
+static int np_dist_to_slider(float d) {
+  int v = static_cast<int>(d / (font_overlay::max_dist_cap() / kNpDistSliderMax) + 0.5f);
+  return v < 0 ? 0 : (v > kNpDistSliderMax ? kNpDistSliderMax : v);
+}
+static float np_slider_to_dist(int v) { return v * (font_overlay::max_dist_cap() / kNpDistSliderMax); }
+
 // Blink-speed slider: 0..56 -> 200..3000 ms full blink cycle (50 ms per step).
 static constexpr int kBlinkSliderMax = 56;
 static int blink_to_slider(int ms) {
@@ -201,10 +210,17 @@ void RcpOptionsUI::create_window() {
   sl_chase_dist_ = get_child(wnd_, "Rcp_ChaseDist");
   lbl_chase_dist_hdr_ = get_child(wnd_, "Rcp_ChaseDistLabel");
   lbl_chase_dist_ = get_child(wnd_, "Rcp_ChaseDistValue");
+  cb_np_billboard_ = get_child(wnd_, "Rcp_NpBillboard");
+  cb_np_hp_ = get_child(wnd_, "Rcp_NpHpBar");
+  cb_np_mana_ = get_child(wnd_, "Rcp_NpManaBar");
+  cb_np_stam_ = get_child(wnd_, "Rcp_NpStamBar");
   for (int i = 0; i < kNpCount; ++i) cb_np_[i] = get_child(wnd_, kNpChildNames[i]);
   sl_blink_ = get_child(wnd_, "Rcp_BlinkSpeed");
   lbl_blink_hdr_ = get_child(wnd_, "Rcp_BlinkSpeedLabel");
   lbl_blink_ = get_child(wnd_, "Rcp_BlinkSpeedValue");
+  sl_np_dist_ = get_child(wnd_, "Rcp_NpDist");
+  lbl_np_dist_hdr_ = get_child(wnd_, "Rcp_NpDistLabel");
+  lbl_np_dist_ = get_child(wnd_, "Rcp_NpDistValue");
   char rolename[16];
   for (int i = 0; i < kRoleCount; ++i) {
     std::snprintf(rolename, sizeof(rolename), "Rcp_Role%d", i);
@@ -219,6 +235,7 @@ void RcpOptionsUI::create_window() {
   slider_set_range(sl_smooth_, kSmoothSliderMax);         // 0..100 -> 0..0.9 smoothing.
   slider_set_range(sl_chase_dist_, kChaseDistSliderMax);  // 0..300 world units (0 = native max).
   slider_set_range(sl_blink_, kBlinkSliderMax);           // 0..56 -> 200..3000 ms blink cycle.
+  slider_set_range(sl_np_dist_, kNpDistSliderMax);        // 0..100 -> 0..cap nameplate draw distance.
 
   refresh_role_tints();
   set_active_tab(active_tab_);  // Latch the strip + show only the active group.
@@ -238,10 +255,17 @@ void RcpOptionsUI::set_active_tab(int tab) {
   void *camera[] = {cb_chase_enabled_, cb_chase_collision_, lbl_chase_dist_hdr_, sl_chase_dist_, lbl_chase_dist_};
   for (void *w : mouse) show_window(w, tab == 0);
   for (void *w : camera) show_window(w, tab == 1);
+  show_window(cb_np_billboard_, tab == 2);
+  show_window(cb_np_hp_, tab == 2);
+  show_window(cb_np_mana_, tab == 2);
+  show_window(cb_np_stam_, tab == 2);
   for (int i = 0; i < kNpCount; ++i) show_window(cb_np_[i], tab == 2);
   show_window(lbl_blink_hdr_, tab == 2);
   show_window(sl_blink_, tab == 2);
   show_window(lbl_blink_, tab == 2);
+  show_window(lbl_np_dist_hdr_, tab == 2);
+  show_window(sl_np_dist_, tab == 2);
+  show_window(lbl_np_dist_, tab == 2);
   for (int i = 0; i < kRoleCount; ++i) show_window(btn_role_[i], tab == 3);
 }
 
@@ -276,10 +300,15 @@ void RcpOptionsUI::sync_controls() {
   checkbox_set(cb_chase_enabled_, chase_settings::get_enabled());
   checkbox_set(cb_chase_collision_, chase_settings::get_collision());
   slider_set(sl_chase_dist_, chase_dist_to_slider(chase_settings::get_max_distance()));
+  checkbox_set(cb_np_billboard_, font_overlay::get_enabled());
+  checkbox_set(cb_np_hp_, font_overlay::get_show_hp());
+  checkbox_set(cb_np_mana_, font_overlay::get_show_mana());
+  checkbox_set(cb_np_stam_, font_overlay::get_show_stam());
   bool np[kNpCount];
   np_read_settings(np);
   for (int i = 0; i < kNpCount; ++i) checkbox_set(cb_np_[i], np[i]);
   slider_set(sl_blink_, blink_to_slider(nameplate_settings::get_blink_ms()));
+  slider_set(sl_np_dist_, np_dist_to_slider(font_overlay::get_max_dist()));
   refresh_role_tints();
 }
 
@@ -294,8 +323,13 @@ void RcpOptionsUI::seed_last_values() {
   last_chase_enabled_ = checkbox_get(cb_chase_enabled_);
   last_chase_collision_ = checkbox_get(cb_chase_collision_);
   last_chase_dist_ = slider_get(sl_chase_dist_);
+  last_np_billboard_ = checkbox_get(cb_np_billboard_);
+  last_np_hp_ = checkbox_get(cb_np_hp_);
+  last_np_mana_ = checkbox_get(cb_np_mana_);
+  last_np_stam_ = checkbox_get(cb_np_stam_);
   for (int i = 0; i < kNpCount; ++i) last_np_[i] = checkbox_get(cb_np_[i]);
   last_blink_ = slider_get(sl_blink_);
+  last_np_dist_ = slider_get(sl_np_dist_);
   for (int i = 0; i < kTabCount; ++i) last_tab_[i] = checkbox_get(btn_tab_[i]);
   for (int i = 0; i < kRoleCount; ++i) last_role_[i] = checkbox_get(btn_role_[i]);
 }
@@ -317,6 +351,12 @@ void RcpOptionsUI::update_labels() {
   // Blink period in seconds.
   std::snprintf(buf, sizeof(buf), "%.2fs", nameplate_settings::get_blink_ms() / 1000.0f);
   set_label_text(lbl_blink_, buf);
+  // Nameplate draw distance ("max" at the slider top, else the world-unit value).
+  if (font_overlay::get_max_dist() >= font_overlay::max_dist_cap())
+    std::snprintf(buf, sizeof(buf), "max");
+  else
+    std::snprintf(buf, sizeof(buf), "%.0f", font_overlay::get_max_dist());
+  set_label_text(lbl_np_dist_, buf);
 }
 
 void RcpOptionsUI::toggle_window() {
@@ -344,6 +384,8 @@ void RcpOptionsUI::on_frame() {
     lbl_sensx_hdr_ = lbl_sensy_hdr_ = lbl_smooth_hdr_ = lbl_sensx_ = lbl_sensy_ = lbl_smooth_ = nullptr;
     cb_chase_enabled_ = cb_chase_collision_ = sl_chase_dist_ = lbl_chase_dist_hdr_ = lbl_chase_dist_ = nullptr;
     sl_blink_ = lbl_blink_hdr_ = lbl_blink_ = nullptr;
+    cb_np_billboard_ = cb_np_hp_ = cb_np_mana_ = cb_np_stam_ = nullptr;
+    sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
     for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
     for (int i = 0; i < kNpCount; ++i) cb_np_[i] = nullptr;
     for (int i = 0; i < kRoleCount; ++i) btn_role_[i] = nullptr;
@@ -398,6 +440,28 @@ void RcpOptionsUI::on_frame() {
   last_chase_enabled_ = cen;
   last_chase_collision_ = ccol;
   last_chase_dist_ = cd;
+
+  // Custom billboard nameplates: standalone toggle -> font_overlay (applies suppression + persists).
+  bool bb = checkbox_get(cb_np_billboard_);
+  if (bb != last_np_billboard_) {
+    font_overlay::set_enabled(bb);
+    last_np_billboard_ = bb;
+  }
+  // Per-bar toggles -> font_overlay::set_bars.
+  bool bhp = checkbox_get(cb_np_hp_), bmana = checkbox_get(cb_np_mana_), bstam = checkbox_get(cb_np_stam_);
+  if (bhp != last_np_hp_ || bmana != last_np_mana_ || bstam != last_np_stam_) {
+    font_overlay::set_bars(bhp, bmana, bstam);
+    last_np_hp_ = bhp;
+    last_np_mana_ = bmana;
+    last_np_stam_ = bstam;
+  }
+  // Nameplate draw distance slider.
+  int nd = slider_get(sl_np_dist_);
+  if (nd != last_np_dist_) {
+    font_overlay::set_max_dist(np_slider_to_dist(nd));
+    update_labels();
+    last_np_dist_ = nd;
+  }
 
   // Nameplates: any checkbox change re-applies all eight (nameplate_settings::set
   // takes them positionally and refreshes the affected text/tint itself).

@@ -1,9 +1,12 @@
 #include "directx.h"
+#include "crash_handler.h"
 #include "hooks.h"
 #include "logger.h"
 
 #include <windows.h>
 #include <d3d9.h>
+
+#include <vector>
 
 // IDirect3DDevice9 vtable index for EndScene (IUnknown = 0..2, then the
 // IDirect3DDevice9 methods; EndScene lands at 42, Clear at 43).
@@ -13,13 +16,32 @@ typedef HRESULT(WINAPI* EndScene_t)(IDirect3DDevice9*);
 static EndScene_t   g_original_endscene = nullptr;
 static volatile LONG g_frame = 0;
 
-// Our replacement EndScene: log a periodic proof-of-life marker, then chain to
-// the real EndScene. Runs on the game's render thread. (The old red-bar test
-// draw was removed now that real features drive the client.)
+// The live device from the most recent EndScene, and the render callbacks that draw
+// into each frame. The callback list is only mutated at load (single-threaded) via
+// add_render_callback and read on the render thread, so no lock is needed.
+static IDirect3DDevice9* g_device = nullptr;
+static std::vector<std::function<void(IDirect3DDevice9*)>>* g_callbacks = nullptr;
+
+IDirect3DDevice9* directx::get_device() { return g_device; }
+
+void directx::add_render_callback(std::function<void(IDirect3DDevice9*)> callback) {
+    if (!g_callbacks) g_callbacks = new std::vector<std::function<void(IDirect3DDevice9*)>>();
+    g_callbacks->push_back(std::move(callback));
+}
+
+// Our replacement EndScene: capture the live device, run any registered render
+// callbacks (each guarded so a bad pointer degrades to a dropped frame instead of a
+// crash), then chain to the real EndScene. Runs on the game's render thread.
 static HRESULT WINAPI hkEndScene(IDirect3DDevice9* dev) {
+    g_device = dev;
     LONG frame = InterlockedIncrement(&g_frame);
     if (frame == 1 || (frame % 300) == 0)
         logger::logf("EndScene hook fired, frame %ld", frame);
+
+    if (g_callbacks) {
+        for (auto& cb : *g_callbacks)
+            rcp_guard::run("directx.render_cb", [&] { cb(dev); });
+    }
 
     return g_original_endscene(dev);
 }

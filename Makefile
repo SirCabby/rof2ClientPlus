@@ -14,10 +14,14 @@ TARGET   := $(BUILD)/$(NAME).asi
 SRCS := $(wildcard src/*.cpp)
 OBJS := $(patsubst src/%.cpp,$(BUILD)/%.o,$(SRCS))
 
+# -MMD -MP: emit .d header-dependency files so editing a header recompiles every .cpp
+# that includes it (without this, e.g. changing a constant in a shared header silently
+# leaves stale .o files - a real bug we hit).
 CXXFLAGS := -m32 -std=c++20 -O2 -Wall -Wextra \
             -DWIN32_LEAN_AND_MEAN -D_USE_MATH_DEFINES \
             -fpermissive \
-            -ffunction-sections -fdata-sections
+            -ffunction-sections -fdata-sections \
+            -MMD -MP
 
 # -shared: build a DLL.  -static*: fold the C/C++ runtime in so the .asi has no
 # external mingw runtime deps.  --exclude-all-symbols: export nothing (Miles
@@ -28,8 +32,10 @@ LDFLAGS  := -m32 -shared \
 
 # Load-time deps. d3d9 is loaded dynamically at runtime. ws2_32/psapi mirror the
 # libs Zeal links via #pragma comment(lib,...) (mingw resolves them via -l).
-# dbghelp is for the crash handler's StackWalk64 (crash_handler.cpp).
-LDLIBS   := -luser32 -lgdi32 -lws2_32 -lpsapi -ldbghelp
+# dbghelp is for the crash handler's StackWalk64 (crash_handler.cpp). d3dx9_30 is
+# the D3DX helper (D3DXCreateTexture / D3DXMatrix*) used by the bitmap-font engine;
+# it matches the game's own d3dx9_30.dll (see PORTING_NOTES.md "N4").
+LDLIBS   := -luser32 -lgdi32 -lws2_32 -lpsapi -ldbghelp -ld3dx9_30
 
 .PHONY: all clean install
 all: $(TARGET)
@@ -40,6 +46,9 @@ $(TARGET): $(OBJS) | $(BUILD)
 
 $(BUILD)/%.o: src/%.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Pull in the generated per-object header dependencies (see -MMD above).
+-include $(OBJS:.o=.d)
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -76,6 +85,9 @@ install: $(TARGET)
 	mkdir -p "$(GAME_DIR)/uifiles/rcp"
 	cp -f uifiles/rcp/*.xml "$(GAME_DIR)/uifiles/rcp/"
 	@echo ">> Installed uifiles to $(GAME_DIR)/uifiles/rcp/"
+	mkdir -p "$(GAME_DIR)/uifiles/rcp/fonts"
+	cp -f uifiles/rcp/fonts/*.spritefont "$(GAME_DIR)/uifiles/rcp/fonts/"
+	@echo ">> Installed fonts to $(GAME_DIR)/uifiles/rcp/fonts/"
 	@if [ -f $(HOSTFIX) ]; then \
 	  cp -f $(HOSTFIX) "$(GAME_DIR)/eq-window-fix"; \
 	  echo ">> Installed eq-window-fix (windowed-mode watcher)"; \

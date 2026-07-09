@@ -42,7 +42,7 @@ class RcpOptionsUI {
 
   static constexpr int kTabCount = 4;   // Mouse / Camera / Nameplate / Colors.
   static constexpr int kNpCount = 7;    // Nameplate toggle checkboxes (kNpChildNames).
-  static constexpr int kRoleCount = 16; // Color roles; == nameplate_colors::count().
+  static constexpr int kRoleCount = 18; // Color roles; == nameplate_colors::count().
 
   void *wnd_ = nullptr;
   void *btn_tab_[kTabCount] = {};
@@ -65,10 +65,17 @@ class RcpOptionsUI {
   void *lbl_chase_dist_hdr_ = nullptr;
   void *lbl_chase_dist_ = nullptr;
   // Nameplate tab (checkboxes, indexed by kNpChildNames order; plus blink-speed slider).
+  void *cb_np_billboard_ = nullptr;  // Custom-font billboard nameplates (drives font_overlay).
+  void *cb_np_hp_ = nullptr;         // Per-bar toggles (font_overlay).
+  void *cb_np_mana_ = nullptr;
+  void *cb_np_stam_ = nullptr;
   void *cb_np_[kNpCount] = {};
   void *sl_blink_ = nullptr;
   void *lbl_blink_hdr_ = nullptr;
   void *lbl_blink_ = nullptr;
+  void *sl_np_dist_ = nullptr;  // Max nameplate draw distance (font_overlay).
+  void *lbl_np_dist_hdr_ = nullptr;
+  void *lbl_np_dist_ = nullptr;
   // Colors tab (role buttons, indexed by NpColorRole order).
   void *btn_role_[kRoleCount] = {};
   bool create_attempted_ = false;
@@ -91,7 +98,10 @@ class RcpOptionsUI {
   bool last_chase_enabled_ = false;
   bool last_chase_collision_ = false;
   int last_chase_dist_ = -1;
+  bool last_np_billboard_ = false;
+  bool last_np_hp_ = false, last_np_mana_ = false, last_np_stam_ = false;
   bool last_np_[kNpCount] = {};
   int last_blink_ = -1;
+  int last_np_dist_ = -1;
   bool last_role_[kRoleCount] = {};
 };

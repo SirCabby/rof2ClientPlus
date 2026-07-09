@@ -9,6 +9,7 @@
 #include "chase_cam.h"
 #include "commands.h"
 #include "entity_manager.h"
+#include "font_overlay.h"
 #include "game_functions.h"
 #include "hook_wrapper.h"
 #include "io_ini.h"
@@ -54,6 +55,8 @@ RcpService::RcpService() {
   keybinds_mod = std::make_unique<KeyBinds>(this);  // Extra key binds; detours install now, act only on hijacked cmds.
   logger::log("  -> RcpOptionsUI");
   options_ui = std::make_unique<RcpOptionsUI>(this);  // LoadSidl hook also installs in-game (deferred).
+  logger::log("  -> FontOverlay");
+  font_overlay = std::make_unique<FontOverlay>(this);  // Registers a directx render callback + /rcpfont.
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

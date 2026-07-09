@@ -20,6 +20,10 @@ Reading raw floats/vtables straight from the PE in python:
 
 ## Build / install / test loop
 - `make && make install` → drops `rof2ClientPlus.asi` (+ `uifiles/rcp/`) into `/home/joshua/Games/RoF2/`.
+- The Makefile now uses `-MMD -MP` + `-include *.d` header-dependency tracking. Before that it did
+  NOT track headers, so editing a shared header (e.g. bumping a constant like `kRoleCount` in
+  `rcp_options_ui.h`) without also touching its `.cpp` left a STALE `.o` — which shipped a mismatched
+  build (symptom: new color-role buttons unmanaged/uncontained). If ever in doubt, `make clean`.
 - Runtime log: `/home/joshua/Games/RoF2/rof2ClientPlus.log`. Wine log: `eq-last-run.log`.
 - The user launches via `/home/joshua/Games/RoF2/launch-eq.sh` (direct `wine eqgame.exe patchme`).
 
@@ -106,13 +110,9 @@ different (see below), so it stays unconstructed.
 - Phase-3 refs: `SetViewActor 0x48F030` (bad-cam msg patch: `0x48F091` `74 27`→`EB 27`),
   `GetClickedActor 0x48B6B0`, exact eye-height virtual `0x0058CF00` (thiscall).
 
-### Still to map (later increments)
-- `collide_with_world` raycast (camera collision, 2c).
 - `get_region_from_pos` (water/region tint for the camera).
 - Independent-yaw mouse input in chase mode (the smoothed delta — reuse Phase 1's
-  DInput hook path; mouse_mods only acts in cameraType 0 today).
-
-**Status — 2b WORKING (user-confirmed), plus mouse-sensitivity + options UI fixed:**
+**Status — WORKING (user-confirmed); confirmed addresses above retained as reference:**
 1. **2b chase positioning (`src/chase_cam.cpp`, WORKING)** — tail-detour `0x799140`;
    while enabled && `cameraType==6`, reuse the client's OWN computed camera-behind
    vector `(camPos−playerPos)` (correct direction, honors left-click orbit, keeps
@@ -155,18 +155,25 @@ primitive (all disasm-verified, coords are EQ-native **Y,X,Z**):
   `pSceneGraph=*(void**)0x15D46A8`, `GetRegionNumber` = scenegraph vtable byte 0x48.
 
 **Still to do (rest of 2c):** independent smooth camera yaw/pitch (mouse) — note LMB
-already orbits + RMB turns via the native path under 2b — plus head-height
-look-at-target (native `Orientation_X = Pitch@0x30 − 8.5`), zoom-interp smoothing,
-and add the chase settings to the (now-working) options window.
-
-**Phase 3 (later):** `/fov` (SetCameraLens hook in `eqgfx_dx8.dll`
-`t3dSetCameraLens`), self/player click-through (GetClickedActor `0x48B6B0`
-bounding-radius minimize), `/leftclickcon`, `/dampenlev`, `/pandelay`,
 toggle-cam binds; wire the options window to the camera settings.
 
 ---
 
-## Nameplate port (Zeal `nameplate.cpp` → RoF2) — N1 tint CONFIRMED, N2 text IMPLEMENTED
+## Nameplate port (Zeal `nameplate.cpp` → RoF2) — ALL DONE (N1 tint, N2 text, N4 font/bars, N6 options)
+
+### N4 FINAL render seam (confirmed working in-game, 2026-07-08)
+The custom nameplates draw **inside the scene, pre-UI**, giving pixel-perfect UI occlusion + world
+depth occlusion (same behavior as native name-sprites):
+- `CRenderInterface::SetRenderCallback` (pRender=`*(void**)0x15D46A4`, vtable **index 50**/+0xC8) is
+  registered as a **frame marker only** — disasm proved it fires at `0x10097733` inside
+  `CRender::RenderScene` (0x10097420, vtable +0xa8) **BEFORE the world raster** (world/actor draws +
+- The actual draw is a **detour on `C2DPrimitiveManager::Render`** (EQGraphicsDX9.dll RVA 0xAE370,
+  `__thiscall`, 2 dword args, ret 8; instance global 0x101B88B8; called twice per scene @0x10097817
+  and @0x100978bb). On the FIRST call of a marked frame (flag from the render callback) the plates
+  render: after all 3D (depth buffer = full world → wall occlusion), before the UI rasterizes
+  (windows paint over plates). Install lazily from the EndScene callback once pRender exists; address
+  computed as `GetModuleHandleA("EQGraphicsDX9.dll") + 0xAE370 - 0x10000000`.
+- Device = `*(IDirect3DDevice9**)(pRender+0xF08)`. `bitmap_font.cpp` also unbinds vertex/pixel
 Lives in `src/nameplate.cpp` (the `/rcpnameplate` feature), a self-contained module in the
 chase_cam.cpp style. Reference: `/home/joshua/workspace/GitHub/Zeal/Zeal/nameplate.cpp` (TAKP).
 
@@ -256,18 +263,243 @@ strip its marker on target change/deselect. (This is the RoF2 analog of Zeal's
 `SetNameSpriteTint_UpdateState` RealRender promotion, done from the tint hook instead of by
 patching the render call sites.)
 
-### Nameplate roadmap (remaining)
-- **N3 — extended shownames + AA titles + cache hygiene** (find RoF2 equivalents of Zeal's
-  TAKP byte patches `0x4B0B3D` / `0x4FF8FF`; entity-destructor cache flush; target fast-update).
-- **N4 — advanced custom fonts** (health/mana/stamina bars, drop shadows) — needs a render/
-  present callback (the vendored `CallbackManager` isn't constructed and is TAKP) + a D3D**9**
-  SpriteFont + world-to-screen (Zeal's `bitmap_font.*`/`default_spritefont.*` are D3D8).
-- **N5 — `/tag` system** (tag arrows D3D8→D3D9 + gsay/rsay/chat-channel broadcast hooks).
-- **N6 — options-window integration** (`EQUI_Tab_Nameplate.xml`, wire the color pickers).
+### Nameplate roadmap (remaining) — N4 custom-font / bars overhaul (ONLY remaining nameplate work)
+Draw our OWN nameplate text with a custom font and add **health / mana / stamina bars**
+(+ optional drop shadows). Big infra lift, but the research below de-risks it substantially.
+
+Already DONE (not remaining): group/raid coloring (N1b), name generation + extended shownames
+(N3), options-window integration + color pickers (N6) — see the memory notes for their RE.
+DROPPED from scope (per user): the `/tag` system (old N5) — no tag arrows.
+
+#### RESOLVED: RoF2 is a **D3D9** client (settles the whole approach)
+- Game dir ships BOTH `EQGfx_Dx8.dll` (imports `d3d8.dll`, LEGACY/dead) and
+  **`EQGraphicsDX9.dll` (imports `d3d9.dll` + `d3dx9_30.dll`)** — the DX9 one is the live
+  renderer. **`eqgame.exe` itself imports `d3dx9_30.dll`** (winedump-confirmed). The
+  "eqgfx_dx8.dll" name in the vendored `callbacks.cpp` is TAKP-era and misleading — ignore it.
+- Device is **`IDirect3DDevice9`** (eqlib `CRender`: `IDirect3D9* @0x0f04`, `IDirect3DDevice9*
+  pD3DDevice @0x0f08`, err string "Direct3DCreate9 failed").
+- **Why this is the easy path:** Zeal's font engine calls `D3DXCreateTexture`,
+  `D3DXVec3Project`, `D3DXMatrix*` — all present in `d3dx9_30` with IDENTICAL signatures. The
+  port is the mechanical D3D8→D3D9 delta below, NOT a rewrite of the font logic.
+
+#### Zeal font architecture (source: `bitmap_font.*`, `nameplate.cpp`, `floating_damage.cpp`)
+- Custom bitmap-atlas engine (`BitmapFontBase` + `BitmapFont` 2D / `SpriteFont` 3D), NOT
+  `ID3DXFont`. Atlas = a MakeSpriteFont `.spritefont` binary (magic `"DXTKfont"`), DXT2
+  texture via `D3DXCreateTexture`; embedded fallback `default_spritefont[]` (arial_8).
+  Glyphs `glyph_table[128]`; own dynamic VB (FVF) + static IB, batched `DrawIndexedPrimitive`.
+- **Nameplates = 3D billboard** (`SpriteFont`): hand the entity HEAD world-pos to the GPU;
+  WORLD = scale(0.025) · transpose(view 3x3) · translate(headPos); z-buffer occludes it. **No
+  explicit world-to-screen.** Head pos in TAKP = `entity->ActorInfo->DagHeadPoint->Position`
+  (RoF2 equiv TBD — see AvatarHeight@0x138 / actor bounding-radius vtable in Phase-2 notes).
+- **Floating damage = 2D** (`BitmapFont`): uses `DirectX::WorldToScreen` (`D3DXVec3Project` on
+  the device's GetTransform WORLD/VIEW/PROJECTION + GetViewport), note EQ axis-swap x<->y.
+- **Bars = special glyphs** `\x01`(bg) `\x02`(hp) `\x03`(mana) `\x04`(stam): appended to the
+  string as control chars sampling an injected solid-white 4x4 texel block; fill width =
+  pct·barWidth(120), height 6; HP color banded green/yellow/orange/red, mana blue, stam gold.
+  Percents pushed via `set_hp/mana/stamina_percent` before `queue_string`.
+- **Drop shadow / outline = re-queue** the same glyphs in near-black `XRGB(1,1,1)` at a small
+  offset (outline = 2nd opposite offset); bars skip the shadow pass.
+
+#### RoF2 render seam (source: our `directx.cpp` + eqlib graphics headers)
+- **`src/directx.cpp` ALREADY has a correct D3D9 EndScene vtable hook** (throwaway-device trick:
+  `Direct3DCreate9` → hidden HAL device → grab vtable **slot 42 = EndScene** → `swap_vtable_entry`
+  in `src/hooks.cpp`). It's DORMANT only because **`directx::install()` is never called** —
+  under DXVK all devices from the one `d3d9.dll` share a vtable, so this fires for the real device
+  too. Activation = one guarded call from the `ProcessGameEvents_hk` magic-static (`dllmain.cpp`).
+  This seam is **offset-independent** (doesn't need the uncertain game structs) → use it first.
+- **`CallbackManager` (`src/callbacks.cpp`) is dead TAKP code** — unconstructed, all-TAKP
+  addresses, its RenderUI hook even resolves the legacy `eqgfx_dx8.dll`. Do NOT wire it up.
+- Cleaner device handle (optimization, later): `CRender* r = *(CRender**)0x15D46A4;` then
+  `dev = *(IDirect3DDevice9**)((char*)r + 0xF08)`. **CAVEAT: eqlib tracks a NEWER build than our
+  2013 exe** — the collision code already found disasm beats eqlib for `0x15D46A8/0x15D46B0`, so
+  disasm-verify this pointer + `+0xF08` before trusting it. The EndScene trick avoids the risk.
+- World-to-screen options: `CCameraInterface::ProjectWorldCoordinatesToScreen` (camera vtable
+  ~slot 29 / +0x74, VERIFY slot on 2013 binary) OR manual `matrixViewProj` from `CRender+0x16c0`.
+  Also `CDisplay::WriteTextHD2(text,x,y,color)` exists as a native screen-space writer.
+
+#### D3D8→D3D9 code delta to apply when porting `bitmap_font.*` (from the Zeal audit)
+- `SetVertexShader(FVF)` → **`SetFVF(FVF)`**; `SetStreamSource(0,vb,stride)` → add offset arg
+  **`(0,vb,0,stride)`**; `SetIndices(ib,base)` → **`SetIndices(ib)`** (base dropped);
+  `DrawIndexedPrimitive(...)` → **insert `BaseVertexIndex` as 2nd arg** (trickiest — the batch's
+  start-vertex becomes BaseVertexIndex, MinIndex=0); `CreateVertexBuffer/IndexBuffer` → add
+  trailing **`NULL`** (pSharedHandle); `Lock` ppbData `BYTE**`→**`void**`**; texture-stage
+  **`D3DTSS_MINFILTER` → `SetSamplerState(0, D3DSAMP_MINFILTER, …)`** (COLOROP/ALPHAOP stay).
+  Swap the bundled `d3dx8/` SDK for **d3dx9** headers/lib (`d3dx9_30`). Everything else (FVF
+  flags, DXT2/INDEX16 formats, pools, lock flags, the −0.5 half-texel offset, billboard math,
+  `D3DXVec3Project`) is unchanged D3D8↔D3D9.
+
+#### N4 implementation plan (testable opt-in increments, off by default)
+- **N4a — render seam: IMPLEMENTED + DEPLOYED, awaiting in-game log check.** `directx::install()`
+  is now called once from the `ProcessGameEvents_hk` magic-static (`dllmain.cpp`). VERIFY in-game:
+  `grep -E "directx::install|EndScene hook fired" /home/joshua/Games/RoF2/rof2ClientPlus.log`
+  should show `install() -> OK` then periodic `EndScene hook fired, frame N`. No visible change.
+  TODO after confirm: wrap `hkEndScene` body in `rcp_guard`; add `Reset`/device-lost handling.
+  FOUNDATION — de-risks everything downstream, no game-offset dependency.
+- **N4b — font engine: IMPLEMENTED + DEPLOYED, awaiting in-game test.** Ported `bitmap_font.{h,cpp}`
+  + `default_spritefont.{cpp,h}` to D3D9 (self-contained; Zeal deps replaced with logger / a local
+  split_text / a module-relative fonts dir / the RoF2 screen-res globals `0x00798564/8`). D3DX comes
+  from MinGW's own `libd3dx9_30.a` + `<d3dx9.h>` (no vendoring needed; `-ld3dx9_30` in the Makefile) —
+  matches the game's `d3dx9_30.dll`. Applied the full D3D8->D3D9 delta (SetFVF, +offset on
+  SetStreamSource, SetIndices base dropped, `DrawIndexedPrimitive` BaseVertexIndex=0 inserted [our IB
+  indices are ABSOLUTE so base stays 0], `Create*Buffer` +NULL, `Lock` void**, new `D3DSamplerStateStash`
+  for `D3DSAMP_MINFILTER`). New `directx.cpp` render-callback list (invoked each EndScene, rcp_guard-
+  wrapped) + `get_device()`. New `font_overlay.{h,cpp}` module (constructed in `rcp.cpp`) draws a 2D
+  test string. VERIFY in-game: `/rcpfont test on` shows a yellow "rof2ClientPlus font test ..." string
+  top-left; `off` removes it. (Embedded font is arial_8 — small; a bigger `.spritefont` in
+  `<game>/uifiles/rcp/fonts/` can be loaded by name later.) TODO: device-lost `Reset` handling (VB/IB
+  are D3DPOOL_DEFAULT); currently no `IDirect3DDevice9::Reset` hook.
+- **N4c — nameplate integration: IN PROGRESS (3D billboards).** De-risk probe `/rcpfont test3d`
+  CONFIRMED in-game. **RESOLVED:** (1) render-space head position = the entity's three world floats
+  in MEMORY ORDER `(0x64,0x68,0x6c)` passed straight through, 0x6c vertical (+ `AvatarHeight@0x138`) —
+  no axis swap; (2) world VIEW/PROJECTION are STILL LIVE at EndScene (2D UI uses XYZRHW, doesn't
+  disturb them) so NO mid-frame matrix capture needed. Ship Zeal's `.spritefont` atlases
+  (`uifiles/rcp/fonts/`, installed by the Makefile); load **`arial_bold_24` @ scale 0.025** (crisp;
+  the embedded arial_8 upscaled looked blocky). **Placement:** anchor at head-top
+  (`feet + AvatarHeight@0x138`) + a **screen-up (billboard-local) lift** `set_screen_offset` — NOT a
+  world-Z offset (that collapses when viewed top-down). User-tuned default **1.8 line-heights**
+  (`/rcpfont offset <lines>` live-tunes). A pixel-perfect match to the native plate isn't possible
+  (native is 2D screen-projected) but it's moot once native is suppressed.
+- **N4c v1 (tint-hook enumeration) — SUPERSEDED.** First cut reused the `SetNameSpriteTint 0x58BF00`
+  hook to enumerate, but that hook fires per-frame only for **self + target** (they get continuous
+  re-tint/highlight); other PCs/NPCs are tinted only occasionally, so only self+target drew. Also
+  showed only `DisplayedName` (no title/last/guild), white (no con color), and empty self bars (spawn
+  HP/mana/end fields are the *target/NPC* percent path — 0 for the local player).
+- **N4c v2 DONE + DEPLOYED (spawn-list enumeration), awaiting in-game test.** `/rcpfont on|off`.
+  Enumeration now WALKS THE SPAWN LIST directly each EndScene (research Q1, triple-confirmed):
+  `mgr=*(void**)0xE641D0`, `first=*(void**)(mgr+0x08)`, `next=*(void**)(entity+0x08)`, NULL-term.
+  Per entity: skip `Type@0x125==2` (corpse), require `actor@0x101c != 0`, distance-cull vs self
+  (`g_np_max_dist`=300). Text + color REUSE nameplate.cpp via new `nameplate::billboard_text()`
+  (generate_player_name for PCs → title/first/last/guild/AFK per /shownames; DisplayedName for NPCs)
+  and `nameplate::billboard_color()` (state_color + con for NPCs + client-like default). HP bar: self
+  from the **character profile** (Q5 — `pLocalPC=*(void**)0xDD261C`, czc=pc+0x2DC8; `Cur_HP 0x449E00`,
+  `Max_HP 0x443FA0`, `Cur_Mana 0x4442E0`, `Max_Mana 0x581E60`, `Max_Endurance 0x582020`, cur-endurance
+  = `*(int*)(profile+0x3390)`, profile via `GetCurrentProfile 0x7DB210(czc+0x0C)`); others from spawn
+  `HPCurrent@0x2e4`/`HPMax@0x2dc` percent (drawn only when >0). Mana+stam bars self-only.
+  **Refinements (all awaiting in-game test):**
+  - **Anchor = model HEAD_NAME point (research-confirmed).** The native name sprite is attached (in
+    EQGraphicsDX9.dll) to the model's `"HEAD_NAME"` skeletal point, which SCALES PER MODEL — so
+    feet+`AvatarHeight@0x138` was "way off" for NPCs. The live world anchor is readable at
+    `ss=*(actor+0x204)` (CStringSprite), pos `ss+0x6c/0x70/0x74` (0x74 vertical). font_overlay now
+    reads that (fallback feet+AvatarHeight if `ss` is null pre-name). Native's own extra lift is
+    `ss+0x60` (0 for HEAD_NAME, 1.55 else) added along camera-up — our `set_screen_offset` is the
+    analog (default lowered to 0.5 lines now the anchor is the head, not the feet).
+  - **Sizing = fixed world scale (shrinks with distance, like native).** Native is a WORLD billboard
+    with a distance-compensated + CLAMPED scale (base 0.325 gfx units), NOT 2D screen text. A
+    distance-compensation attempt (scale ∝ dist-to-camera for constant screen size) made far plates
+    GIANT (bad camera read / euclidean-vs-depth), so REVERTED to a plain fixed world scale
+    `g_np_scale`(0.04, `/rcpfont scale <n>`) that shrinks naturally with distance. SpriteFont has
+    per-string scale support (`GlyphString.scale`) retained for later. TODO if wanted: native-style
+    min/max screen-size clamp. `set_align_bottom(true)` so the plate grows UPWARD from the head anchor
+    (adding HP/mana/stam bars no longer pushes the name down onto the head).
+  - **Group coloring fix:** `is_group_member` now requires >=1 OTHER pc (the client keeps a stale solo
+    group struct, which had colored your own plate as grouped).
+  - **Native suppression DONE.** `nameplate::set_suppress_native(bool)` — when billboard mode is on,
+    `transform_entity` returns "" for EVERY entity (blanks the native name via the set-string
+    vtable+0x18c hook, which per research KEEPS the con-tint firing). font_overlay drives it on
+    enable/disable. Native disappears within the client's own rebuild cycle (no forced rebuild yet).
+  - **Persistence DONE.** `[Font]` ini section: `Billboard` (on/off), `Offset`, `Scale`. Loaded in
+    the FontOverlay ctor (applies suppression to match), saved on every `/rcpfont` change and on the
+    options-window toggle. Default scale is **0.032** (was 0.04; user asked for ~20% smaller).
+  - **Options-window toggle DONE.** Standalone "Custom nameplates (3D font + bars)" checkbox on the
+    Nameplate tab (`Rcp_NpBillboard`, generated by `tools/gen_rcp_options_ui.py`, wired in
+    `rcp_options_ui.cpp` → `font_overlay::get_enabled`/`set_enabled`).
+  **Still to do (N4d polish):** device-lost `Reset` handling (VB/IB are D3DPOOL_DEFAULT); optionally
+  a native-style min/max size clamp, and persisting these to the options UI as sliders. Full
+  name-sprite RE (CActor vtable 0x10137074, HEAD_NAME literal 0x10137c94, CStringSprite layout) is in
+  the memory notes.
+- **N4d — options + polish:** font pick, bar/shadow toggles on the Nameplate tab; ini persistence.
 
 ---
 
-## Crash + windowed-start diagnostics (`src/crash_handler.*`, `src/window_watch.*`) — IMPLEMENTED, awaiting in-game test
+## Keybinds port (Zeal `binds.cpp` → RoF2) — DONE / WORKING
+Lives in `src/keybinds.cpp` (the `/rcpbinds` feature), self-contained raw-RoF2 module. The
+vendored `src/binds.cpp` is a TAKP reference only (its patch sites `0x52507A` etc. are TAKP)
+and stays unconstructed.
+
+### Key architecture finding — RoF2 ≠ TAKP bind-table model
+- TAKP had a 128-name table with free index gaps and per-site hardcoded array refs that Zeal
+  repointed to a 256-entry copy. **RoF2's `BindList` (`char*[479]` @ `0xACBEE8`, .data) is
+  DENSE (0..478 all named)** and every key array is a fixed 500 slots — there is no room to
+  append, and indices 479–499 are nameless internal dispatch ids (INSERT/CAMP/charselect…).
+- **So we HIJACK dead commands instead**: the `CMD_REAL_ESTATE_*` block (429–446, the housing
+  UI that doesn't exist on emu) → our binds get native ini persistence, native key capture,
+  and native Options→Keys rows for free. We use **429–443**; 444–446 spare.
+- The options Keys page only allows assignment for command ids **≤463** (`cmp eax,0x1CF` @
+  `0x70ACCB`, the ONLY such check) — 429–443 is safely inside; nothing needed patching.
+
+### Confirmed stock-RoF2 addresses (eqlib + disasm-verified)
+- **`BindList` `0xACBEE8`** (`char*[479]`); count 479 (`0x1DF` bound at `0x4D71EA`).
+  `GetMappableCommandName 0x4D7190`, `FindMappableCommand 0x4D71A0`.
+- **`ExecuteCmd` `0x4D7230`** — `__cdecl(cmd, keydown, data, combo)`; keyboard sites push 3
+  args, some UI sites 4 (forward all 4 in the detour). Gated on `g_eqCommandStates[500]` @
+  `0xDCEF08` (0 = suppressed) — our detour mirrors that gate.
+- **`KeypressHandler*` @ `0xE639B0`** (created by `0x55B2E0`, `new(0x1194)`): layout
+  `KeyCombo NormalKey[500]` @+0, `AltKey[500]` @+0x7D0, `char CommandState[500]` @+0xFA0.
+  `KeyCombo = {u8 Alt, u8 Ctrl, u8 Shift, u8 DIK}`; persisted int = `dik | alt<<28 |
+  ctrl<<29 | shift<<30`. Methods: `HandleKeyDown 0x5594E0` (routes to CXWndManager first —
+  typing protection comes free), `HandleKeyUp 0x559800`, `LoadAndSetKeymappings 0x55B100`,
+  `ResetKeysToEqDefaults 0x5598D0` (reads `[Defaults] UseWASDDefault`), `SaveKeymapping
+  0x55AC50` (ALL bind-change persistence funnels here — its only callers are the two Attach
+  fns `0x55AFA0`/`0x55AFE0` + `MapKeyToEqCommand 0x55AD50`), `DeleteAllKeymappings 0x55B020`,
+  `GetEqCommandSaveName 0x5596F0`. NOTE eqlib's two `Attach*` defines are swapped for this
+  build (0x55AFA0 = primary/`_1`, 0x55AFE0 = alternate/`_2`).
+- **Persistence**: `eqclient.ini` `[KeyMaps]`, key `KEYMAPPING_<BINDLISTNAME>_<1|2>`, decimal
+  combo int; global per install; written only on change.
+- **Options window**: `COptionsWnd*` @ `0xD1FC6C`, object size 0x1378, ctor `0x70AFF0`.
+  `InitKeyboardAssignments 0x7046C0` (giant, ~421 inlined adds: `CStringTable::GetString
+  0x7D0660` on instance `[0xDD25C4]` → `CXStr::operator=(char*) 0x805DE0` → category int)
+  fills the `{CXStr desc, int category}` stride-8 array @ **this+0x40C** (capacity exactly
+  479; eqlib's `Binds[0xA1]`@0x228 is stale). Real-estate ids 429–432 natively get category
+  0x40/UI labels, 434–445 get 0x40000/Item Placement, 433+446 get none — all overwritten by
+  our detour. `RefreshCurrentKeyboardAssignmentList 0x70A560` (`__thiscall`, no args)
+  repaints the list; the client itself calls it via `[0xD1FC6C]` (e.g. at `0x5FD10F`).
+  **Categories are BITMASKS** (filter choice i = bit i): Movement 0x1, Commands 0x2, Spell
+  0x4, Target 0x8, Camera 0x10, Chat 0x20, UI 0x40, Hotbar1..10 0x80..0x10000, VoiceChat
+  0x20000, ItemPlacement 0x40000, "All" = 0x7FFFF.
+- **Merchant stack buy/sell**: `CMerchantWnd*` @ `0xD1FCA4` (size 0x2B0); selected slot
+  `ItemGlobalIndex.Location` @+0x23C (**9 = merchant side → buy, 0 = possessions → sell**),
+  `pSelectedItem` @+0x248; active merchant entity @ `0xDD264C`. `HandleBuy 0x6F2620` /
+  `HandleSell 0x6F29C0` (`__thiscall(int qty)`, −1 = quantity flow) → `CQuantityWnd::Open
+  0x725B00` reads **`CXWndManager` (`[0x15D3D00]`) shift byte @+0x9D** and with shift set
+  commits the max quantity synchronously without showing the dialog → `WndNotification`
+  msg 0x24 → PurchasePageHandler `RequestGetItem 0x6F5BE0` / `RequestPutItem 0x6F6650`.
+  So the bind fakes shift around `HandleBuy/-Sell(−1)` — the client computes the full stack
+  (min of stock & stack size / current stack count) and runs its own money/space checks.
+- **Slash commands confirmed in the command table** (`__CommandList 0xACD5A8`, stride 0x1C):
+  `/autoinventory` (handler `0x4FE8C0`), `/autofire` (`0x4FB9B0`), `/pet` (`0x4E2150`),
+  `/loot` (`0x4E7880`), `/assist`. RoF2 `/pet` subcommand vocabulary (string table @ file
+  offset 0x5f3514): attack, qattack, back off/back, follow, guard, sit, hold, ghold,
+  spellhold, taunt, regroup, stop, focus, feign, leave, get lost, health/report health,
+  leader/who leader.
+
+### What was OMITTED because stock RoF2 already has it (user rule: skip native features)
+Strafe (`STRAFE_LEFT/RIGHT` 6/7), tab-target cycling (`CYCLENPCTARGETS` 33 +
+`TARGET_PREV/NEXT_NPC` 474/475), PC cycling (31), **corpse target/cycle (34/35)**, map
+toggle (`TOGGLE_MAPWIN` 338), reply target (`RTARGET` 317), toggle-last-two-targets (343),
+open/close/toggle all bags (379–381), camera selects (345–350), 10 native hotbar pages,
+stop-cast (370). Zeal's map/tellwindow/slowturn/rangeattack/page-10 binds don't apply (no
+such modules here / native equivalents); deferred: single-shot Range Attack, slow-turn.
+
+### Status — DONE / WORKING; all detours act only on hijacked ids
+- **14 new binds** (ids 429–443): Pet Attack/Back Off/Follow/Guard/Sit/Health/Hold (forward
+  `/pet …`), Auto Fire (`/autofire`), Auto Inventory (`/autoinventory`), Buy/Sell Stack
+  (merchant fake-shift), Assist (`/assist`), Toggle Nameplate Colors / Con Colors / Hide
+  Self (drive `nameplate_settings`), Loot Target (`/loot`). Set them in the STOCK Options →
+  Keys tab (categories Commands/Target/UI).
+- Detours: `ExecuteCmd` (dispatch + swallow), `InitKeyboardAssignments` (labels+categories),
+  `SaveKeymapping` + `DeleteAllKeymappings` (per-char redirection). Constructor repoints
+  `BindList[429..443]`, zeroes any stale real-estate combos the boot-time load left in those
+  slots, then re-drives `LoadAndSetKeymappings` so saved `KEYMAPPING_RCP_*` keys apply.
+- **Per-character keybinds** (`/rcpbinds perchar on|off`, `[Binds] PerCharacter` in
+  rof2ClientPlus.ini): a `[KeyMaps_<CharName>]` overlay section in eqclient.ini. On world
+  entry / char switch (frame poll): ResetKeysToEqDefaults → LoadAndSetKeymappings (global)
+  → overlay. Options-window key changes while ON are redirected to the char section; the
+  Keys-page "Reload defaults" wipes only the char section (global stays) and re-syncs to
+  global next frame. `/rcpbinds list|reload` for inspection.
+
+---
+
+## Crash + windowed-start diagnostics (`src/crash_handler.*`, `src/window_watch.*`) — DONE (windowed launch FIXED; crash handler armed)
 Added to chase the report: *"after the client crashes, a WindowedMode=TRUE relaunch flashes
 the window open then hides it (not on the taskbar), the process lingers, and it self-heals
 after a while; fullscreen always works."* Environment: **wine-staging 11.12 + DXVK (Vulkan)

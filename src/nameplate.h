@@ -15,6 +15,8 @@
 // them at load time changes nothing until the user opts in. See PORTING_NOTES.md (Nameplate).
 #pragma once
 
+#include <string>
+
 class RcpService;
 
 class NamePlate {
@@ -49,3 +51,14 @@ const char *name(int role);   // Human label for a role (shown in the role selec
 int get(int role);            // Current 0xRRGGBB color of a role.
 void set(int role, int rgb);  // Set + persist a role's color (applies live).
 }  // namespace nameplate_colors
+
+// Helpers the custom-font billboard nameplates (font_overlay, N4c) reuse so the billboards match
+// native content: the display text (name line per /shownames level - title/first/last/guild/AFK)
+// and the con/state color. These read the same entity fields the native nameplate uses.
+namespace nameplate {
+std::string billboard_text(void *entity);  // Name line; empty if the entity has no drawable name.
+int billboard_color(void *entity);         // 0xRRGGBB, con/state colored; client-like default otherwise.
+// When true, the native name text is blanked for every entity (via the set-string hook, which keeps
+// the con-tint firing) so the custom billboard nameplates don't double up with the client's own.
+void set_suppress_native(bool suppress);
+}  // namespace nameplate

@@ -4963,12 +4963,124 @@
     <NoWrap>true</NoWrap>
   </Label>
 
+  <Button item="Rcp_NpBillboard">
+    <ScreenID>Rcp_NpBillboard</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Draw custom-font 3D nameplates and hide the default names (/rcpfont)</TooltipReference>
+    <Text>Custom nameplates (3D font + bars)</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_NpHpBar">
+    <ScreenID>Rcp_NpHpBar</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>56</Y>
+    </Location>
+    <Size>
+      <CX>84</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Show the health bar</TooltipReference>
+    <Text>HP bar</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_NpManaBar">
+    <ScreenID>Rcp_NpManaBar</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>100</X>
+      <Y>56</Y>
+    </Location>
+    <Size>
+      <CX>84</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Show your mana bar (self only)</TooltipReference>
+    <Text>Mana bar</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_NpStamBar">
+    <ScreenID>Rcp_NpStamBar</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>188</X>
+      <Y>56</Y>
+    </Location>
+    <Size>
+      <CX>84</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Show your stamina bar (self only)</TooltipReference>
+    <Text>Stam bar</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Button item="Rcp_NpConColors">
     <ScreenID>Rcp_NpConColors</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>34</Y>
+      <Y>78</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -4996,7 +5108,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>56</Y>
+      <Y>100</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -5024,7 +5136,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>78</Y>
+      <Y>122</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -5052,7 +5164,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>100</Y>
+      <Y>144</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -5080,7 +5192,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>122</Y>
+      <Y>166</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -5108,7 +5220,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>144</Y>
+      <Y>188</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -5136,7 +5248,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>166</Y>
+      <Y>210</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -5164,7 +5276,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>192</Y>
+      <Y>236</Y>
     </Location>
     <Size>
       <CX>170</CX>
@@ -5184,7 +5296,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>208</Y>
+      <Y>252</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -5198,13 +5310,67 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>208</Y>
+      <Y>252</Y>
     </Location>
     <Size>
       <CX>58</CX>
       <CY>16</CY>
     </Size>
     <Text>1.20s</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Label item="Rcp_NpDistLabel">
+    <ScreenID>Rcp_NpDistLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>276</Y>
+    </Location>
+    <Size>
+      <CX>200</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Nameplate draw distance</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Slider item="Rcp_NpDist">
+    <ScreenID>Rcp_NpDist</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>292</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>16</CY>
+    </Size>
+    <SliderArt>SDT_DefSlider</SliderArt>
+  </Slider>
+
+  <Label item="Rcp_NpDistValue">
+    <ScreenID>Rcp_NpDistValue</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>208</X>
+      <Y>292</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>5000</Text>
     <TextColor>
       <R>255</R>
       <G>255</G>
@@ -5661,6 +5827,62 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_Role16">
+    <ScreenID>Rcp_Role16</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>144</X>
+      <Y>174</Y>
+    </Location>
+    <Size>
+      <CX>128</CX>
+      <CY>18</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Edit the 'GM' nameplate color</TooltipReference>
+    <Text>GM</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_Role17">
+    <ScreenID>Rcp_Role17</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>144</X>
+      <Y>194</Y>
+    </Location>
+    <Size>
+      <CX>128</CX>
+      <CY>18</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Edit the 'Player' nameplate color</TooltipReference>
+    <Text>Player</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Screen item="RcpOptions">
     <ScreenID>RcpOptions</ScreenID>
     <RelativePosition>false</RelativePosition>
@@ -5670,7 +5892,7 @@
     </Location>
     <Size>
       <CX>280</CX>
-      <CY>268</CY>
+      <CY>356</CY>
     </Size>
     <Text>rof2ClientPlus Options</Text>
     <Style_VScroll>false</Style_VScroll>
@@ -5703,6 +5925,10 @@
     <Pieces>Rcp_ChaseDistLabel</Pieces>
     <Pieces>Rcp_ChaseDist</Pieces>
     <Pieces>Rcp_ChaseDistValue</Pieces>
+    <Pieces>Rcp_NpBillboard</Pieces>
+    <Pieces>Rcp_NpHpBar</Pieces>
+    <Pieces>Rcp_NpManaBar</Pieces>
+    <Pieces>Rcp_NpStamBar</Pieces>
     <Pieces>Rcp_NpConColors</Pieces>
     <Pieces>Rcp_NpStateColors</Pieces>
     <Pieces>Rcp_NpTargetColor</Pieces>
@@ -5713,6 +5939,9 @@
     <Pieces>Rcp_BlinkSpeedLabel</Pieces>
     <Pieces>Rcp_BlinkSpeed</Pieces>
     <Pieces>Rcp_BlinkSpeedValue</Pieces>
+    <Pieces>Rcp_NpDistLabel</Pieces>
+    <Pieces>Rcp_NpDist</Pieces>
+    <Pieces>Rcp_NpDistValue</Pieces>
     <Pieces>Rcp_Role0</Pieces>
     <Pieces>Rcp_Role1</Pieces>
     <Pieces>Rcp_Role2</Pieces>
@@ -5729,6 +5958,8 @@
     <Pieces>Rcp_Role13</Pieces>
     <Pieces>Rcp_Role14</Pieces>
     <Pieces>Rcp_Role15</Pieces>
+    <Pieces>Rcp_Role16</Pieces>
+    <Pieces>Rcp_Role17</Pieces>
   </Screen>
   <!-- RCP-OPTIONS-END -->
 

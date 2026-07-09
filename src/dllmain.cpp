@@ -13,6 +13,7 @@
 #include <windows.h>
 
 #include "crash_handler.h"
+#include "directx.h"
 #include "hook_wrapper.h"
 #include "keybinds.h"
 #include "logger.h"
@@ -38,6 +39,12 @@ static int __cdecl ProcessGameEvents_hk() {
         logger::logf("ProcessGameEvents first call (tid=%lu); creating RcpService", GetCurrentThreadId());
         RcpService::create();
         logger::log("RcpService created");
+        // N4a: activate the (previously dormant) D3D9 EndScene hook now that we are
+        // in-game on the main thread and d3d9.dll (DXVK) is loaded. This is the
+        // render seam the custom-font / nameplate-bars overhaul builds on; it only
+        // logs a proof-of-life marker today. Offset-independent (throwaway-device
+        // vtable swap), so it is safe to arm before any game-struct work.
+        logger::logf("directx::install() -> %s", directx::install() ? "OK" : "FAILED");
         return true;
     }();
     (void)created;

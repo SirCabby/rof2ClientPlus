@@ -54,7 +54,7 @@ YELLOW = (255, 255, 0)
 
 # ---- window + layout ----
 WINDOW_CX = 280
-WINDOW_CY = 268
+WINDOW_CY = 356  # Tall enough for the Nameplate tab (billboard + bar toggles + 7 toggles + 2 sliders).
 TAB_Y = 6            # tab-strip row
 TAB_W, TAB_H = 64, 20
 CONTENT_Y = 34       # first content row under the tab strip
@@ -68,7 +68,7 @@ VAL_X = 208          # value-label x (right of sliders)
 ROLES = [
     "Con: even", "Con: yellow", "Con: red", "Con: green", "Con: light blue", "Con: blue",
     "Target", "PvP", "AFK", "Linkdead", "LFG", "Group", "Raid", "Roleplay",
-    "My guild", "Corpse",
+    "My guild", "Corpse", "GM", "Player",
 ]
 
 
@@ -172,8 +172,20 @@ def build_controls():
     c.append(("Rcp_ChaseDist", slider, ("Rcp_ChaseDist", COL_X, y + 16, SLIDER_W, 16)))
     c.append(("Rcp_ChaseDistValue", label, ("Rcp_ChaseDistValue", VAL_X, y + 16, 58, 16, "native", YELLOW)))
 
-    # ---- Tab 2: Nameplate toggles + blink speed ----
+    # ---- Tab 2: Nameplate (custom billboard + color toggles + sliders) ----
     # (Name generation is always active - not an option.)
+    # Custom-font billboard master toggle (drives font_overlay, hides the default names).
+    c.append(("Rcp_NpBillboard", button, ("Rcp_NpBillboard", COL_X, CONTENT_Y, 250, 20,
+                                          "Custom nameplates (3D font + bars)",
+                                          "Draw custom-font 3D nameplates and hide the default names (/rcpfont)")))
+    # Per-bar toggles on one row (HP for all; mana/stamina self only).
+    bar_y = CONTENT_Y + 22
+    c.append(("Rcp_NpHpBar", button, ("Rcp_NpHpBar", COL_X, bar_y, 84, 20, "HP bar", "Show the health bar")))
+    c.append(("Rcp_NpManaBar", button, ("Rcp_NpManaBar", COL_X + 88, bar_y, 84, 20, "Mana bar",
+                                        "Show your mana bar (self only)")))
+    c.append(("Rcp_NpStamBar", button, ("Rcp_NpStamBar", COL_X + 176, bar_y, 84, 20, "Stam bar",
+                                        "Show your stamina bar (self only)")))
+    # Color / target toggles.
     np = [("Rcp_NpConColors", "Con colors (NPCs)", "Tint NPC nameplates by con level"),
           ("Rcp_NpStateColors", "State colors (players)", "Tint players by guild/AFK/LFG/LD/roleplay/PVP; corpses too"),
           ("Rcp_NpTargetColor", "Target color", "Highlight the current target's nameplate"),
@@ -181,12 +193,17 @@ def build_controls():
           ("Rcp_NpTargetMarker", "Target name markers", "Wrap the target's name in brackets"),
           ("Rcp_NpTargetHealth", "Target health %", "Append the target's HP percent to its nameplate"),
           ("Rcp_NpHideSelf", "Hide own nameplate", "Blank your own nameplate (unless it is your target)")]
+    np_y = CONTENT_Y + 44
     for i, (name, text, tip) in enumerate(np):
-        c.append((name, button, (name, COL_X, CONTENT_Y + i * 22, 250, 20, text, tip)))
-    y = CONTENT_Y + len(np) * 22 + 4
+        c.append((name, button, (name, COL_X, np_y + i * 22, 250, 20, text, tip)))
+    y = np_y + len(np) * 22 + 4
     c.append(("Rcp_BlinkSpeedLabel", label, ("Rcp_BlinkSpeedLabel", COL_X, y, 170, 14, "Blink speed (cycle time)")))
     c.append(("Rcp_BlinkSpeed", slider, ("Rcp_BlinkSpeed", COL_X, y + 16, SLIDER_W, 16)))
     c.append(("Rcp_BlinkSpeedValue", label, ("Rcp_BlinkSpeedValue", VAL_X, y + 16, 58, 16, "1.20s", YELLOW)))
+    y += 40
+    c.append(("Rcp_NpDistLabel", label, ("Rcp_NpDistLabel", COL_X, y, 200, 14, "Nameplate draw distance")))
+    c.append(("Rcp_NpDist", slider, ("Rcp_NpDist", COL_X, y + 16, SLIDER_W, 16)))
+    c.append(("Rcp_NpDistValue", label, ("Rcp_NpDistValue", VAL_X, y + 16, 58, 16, "5000", YELLOW)))
 
     # ---- Tab 3: Nameplate colors (Zeal-style role buttons; runtime tints the
     #      text via CRNormal and opens the stock color picker on click) ----

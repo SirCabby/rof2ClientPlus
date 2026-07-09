@@ -56,6 +56,7 @@ static void **const kTarget = reinterpret_cast<void **>(0xDD2648);  // current t
 static constexpr int kEntActor = 0x101c;   // CActorInterface* (all-virtual); apply tint via its vtable
 static constexpr int kEntLastname = 0x38;  // char[0x20]
 static constexpr int kEntDisplayedName = 0xe4;  // char[]; pre-trimmed name ("Priest of Discord" / first name)
+static constexpr int kEntGM = 0x25c;        // char: nonzero = GM / game master (eqlib-confirmed vs our offsets)
 static constexpr int kEntType = 0x125;     // uint8: 0=Player, 1=NPC, 2=Corpse
 static constexpr int kEntLevel = 0x250;    // uint8
 static constexpr int kEntAnon = 0x2b8;     // int: 1=anonymous, 2=roleplay
@@ -109,6 +110,8 @@ enum NpColorRole {
   kRoleRoleplay,      // roleplaying player
   kRoleMyGuild,       // your guild
   kRoleCorpse,        // corpse
+  kRoleGM,            // GM / game master (green)
+  kRolePlayer,        // default non-special player color
   kNpColorCount
 };
 // (No "other guild" role: players with no special state keep the client's default color.)
@@ -130,6 +133,8 @@ static int g_colors[kNpColorCount] = {
     0xf000f0,  // Roleplay
     0x00f000,  // MyGuild
     0x909090,  // Corpse
+    0x00c800,  // GM (green 200)
+    0x4060ff,  // Player (default non-special player - a deeper blue than the con light-blue)
 };
 
 // Human labels for the options-window color buttons (index == NpColorRole).
@@ -137,13 +142,13 @@ static int g_colors[kNpColorCount] = {
 static const char *const kNpColorNames[kNpColorCount] = {
     "Con: even", "Con: yellow", "Con: red", "Con: green", "Con: light blue", "Con: blue",
     "Target",    "PvP",         "AFK",      "Linkdead",   "LFG",             "Group",
-    "Raid",      "Roleplay",    "My guild", "Corpse",
+    "Raid",      "Roleplay",    "My guild", "Corpse",     "GM",              "Player",
 };
 
 // ini keys under [NameplateColors] (index == NpColorRole). Stored as RRGGBB hex.
 static const char *const kNpColorIniKeys[kNpColorCount] = {
     "ConEven", "ConYellow", "ConRed", "ConGreen", "ConLightBlue", "ConBlue", "Target", "PVP", "AFK",
-    "LD",      "LFG",       "Group",  "Raid",     "Roleplay",     "MyGuild", "Corpse",
+    "LD",      "LFG",       "Group",  "Raid",     "Roleplay",     "MyGuild", "Corpse", "GM",  "Player",
 };
 static constexpr char kIniColorSection[] = "NameplateColors";
 
@@ -342,15 +347,22 @@ static bool is_group_member(char *ent) {
   void *pc = *kLocalPC;
   if (!pc) return false;
   void *group = *reinterpret_cast<void **>(static_cast<char *>(pc) + kPcGroup);
-  if (!group) return false;  // Not in a group.
-  if (static_cast<void *>(ent) == *kSelf) return true;
+  if (!group) return false;  // No group object at all.
+  void *self = *kSelf;
+  // A group only "counts" if it has at least one member besides you - the client keeps a stale
+  // (solo) group struct around, which otherwise colored your own plate as grouped.
+  int others = 0;
+  bool ent_is_member = false;
   for (int i = 0; i < kGroupMaxMembers; ++i) {
     void *member = *reinterpret_cast<void **>(static_cast<char *>(group) + kGroupMembers + i * 4);
     if (!member) continue;
-    if (*reinterpret_cast<void **>(static_cast<char *>(member) + kGroupMemberPlayer) == static_cast<void *>(ent))
-      return true;
+    void *mp = *reinterpret_cast<void **>(static_cast<char *>(member) + kGroupMemberPlayer);
+    if (!mp) continue;
+    if (mp != self) ++others;
+    if (mp == static_cast<void *>(ent)) ent_is_member = true;
   }
-  return false;
+  if (others == 0) return false;                        // Solo/empty group => not grouped.
+  return (static_cast<void *>(ent) == self) || ent_is_member;
 }
 
 // True if the entity is in the local player's raid (name match against CRaid's member list).
@@ -368,6 +380,7 @@ static int state_color(char *ent, uint8_t type) {
   if (type == kTypeCorpse) return g_colors[kRoleCorpse];
   if (type != kTypePlayer) return 0;  // NPC pet group/raid coloring is a later step.
 
+  if (*reinterpret_cast<char *>(ent + kEntGM)) return g_colors[kRoleGM];  // GMs are green (highest priority).
   if (*reinterpret_cast<uint8_t *>(ent + kEntPvP)) return g_colors[kRolePVP];
   if (*reinterpret_cast<int *>(ent + kEntAFK)) return g_colors[kRoleAFK];
   if (*reinterpret_cast<uint8_t *>(ent + kEntLinkdead)) return g_colors[kRoleLD];
@@ -542,11 +555,92 @@ static const char *generate_player_name(char *ent) {
   return buf;
 }
 
+// POD cache of the client's full nameplate text per NPC entity, captured at the set-string hook
+// (which receives the complete multi-line string - including a pet's owner line and anything else
+// the client appends). Used for the billboard so we don't lose any client text. Fixed-size + fixed
+// buffers so it is safe to write inside an rcp_guard body (no heap; a longjmp abandons nothing).
+static constexpr int kTextCacheSize = 128;
+struct NpTextEntry {
+  void *entity;
+  char text[256];
+};
+static NpTextEntry g_text_cache[kTextCacheSize] = {};
+static int g_text_cache_next = 0;
+
+static void cache_np_text(void *entity, const char *text) {
+  int slot = -1;
+  for (int i = 0; i < kTextCacheSize; ++i)
+    if (g_text_cache[i].entity == entity) {
+      slot = i;
+      break;
+    }
+  if (slot < 0) {
+    slot = g_text_cache_next;
+    g_text_cache_next = (g_text_cache_next + 1) % kTextCacheSize;
+    g_text_cache[slot].entity = entity;
+  }
+  std::snprintf(g_text_cache[slot].text, sizeof(g_text_cache[slot].text), "%s", text);
+}
+
+static const char *lookup_np_text(void *entity) {
+  for (int i = 0; i < kTextCacheSize; ++i)
+    if (g_text_cache[i].entity == entity && g_text_cache[i].text[0]) return g_text_cache[i].text;
+  return nullptr;
+}
+
+// --- Exposed for the custom-font billboard nameplates (font_overlay, N4c) -----------------
+// Text the billboard should draw for an entity: for players, the full generated name line
+// (title/first/last/guild/AFK per shownames). For NPCs/corpses, the client's own captured full
+// text (keeps the pet-owner line etc.), falling back to the plain display name until it is cached.
+std::string nameplate::billboard_text(void *entity) {
+  if (!entity) return {};
+  char *ent = static_cast<char *>(entity);
+  const uint8_t type = *reinterpret_cast<uint8_t *>(ent + kEntType);
+  if (type == kTypePlayer) return generate_player_name(ent);
+  if (const char *cached = lookup_np_text(entity)) return cached;
+  return std::string(ent + kEntDisplayedName);
+}
+
+// Color the billboard name should use: the same con/state palette the tint feature uses (so
+// billboards are con-colored like native), always applied (not gated on the tint options),
+// with a client-like default (cyan PC / white NPC / gray corpse) when nothing special applies.
+int nameplate::billboard_color(void *entity) {
+  if (!entity) return 0xffffff;
+  char *ent = static_cast<char *>(entity);
+  const uint8_t type = *reinterpret_cast<uint8_t *>(ent + kEntType);
+  int rgb = state_color(ent, type);  // guild/group/raid/pvp/afk/ld/lfg/roleplay/corpse
+  if (!rgb && type == kTypeNPC) {
+    void *self = *kSelf;
+    const int my_level = self ? *reinterpret_cast<uint8_t *>(static_cast<char *>(self) + kEntLevel) : 0;
+    rgb = con_color(my_level, *reinterpret_cast<uint8_t *>(ent + kEntLevel));
+  }
+  // Default (no con/state): the customizable Player color for players, Corpse gray for corpses.
+  if (!rgb) rgb = (type == kTypePlayer) ? g_colors[kRolePlayer] : (type == kTypeCorpse ? g_colors[kRoleCorpse] : 0xffffff);
+  return rgb;
+}
+
 // Transforms nameplate text for the enabled options. Uses g_current_entity (set by the
 // SetNameSpriteState hook) so we have the full entity, not just the actor. Returns a pointer into
 // a static buffer, or nullptr to leave `text` unchanged. POD-bodied for rcp_guard.
+static bool g_suppress_native = false;  // Blank ALL native name text (billboard nameplates own the display).
+
+void nameplate::set_suppress_native(bool suppress) { g_suppress_native = suppress; }
+
 static const char *transform_entity(void *actor, const char *text) {
   if (!actor || !text) return nullptr;
+
+  // Billboard nameplates active: blank every native name (the client keeps calling the tint hook on
+  // its own timer, which re-runs this and keeps them blank; the tint still fires so con-color is
+  // unaffected). Returning empty removes the native sprite. First, capture the client's full text
+  // for NPCs so the billboard can reproduce it (pet-owner line etc.) - players are generated instead.
+  if (g_suppress_native) {
+    void *entity = g_current_entity;
+    if (entity && text[0] && *reinterpret_cast<void **>(static_cast<char *>(entity) + kEntActor) == actor &&
+        *reinterpret_cast<uint8_t *>(static_cast<char *>(entity) + kEntType) != kTypePlayer)
+      cache_np_text(entity, text);
+    static char empty[1] = {0};
+    return empty;
+  }
 
   void *entity = g_current_entity;
   if (!entity || *reinterpret_cast<void **>(static_cast<char *>(entity) + kEntActor) != actor) return nullptr;
