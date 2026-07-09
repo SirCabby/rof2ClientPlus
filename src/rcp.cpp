@@ -17,6 +17,7 @@
 #include "logger.h"
 #include "mouse_mods.h"
 #include "nameplate.h"
+#include "no_fog.h"
 #include "rcp_options_ui.h"
 #include "ui_manager.h"
 #include "ui_skin.h"
@@ -57,6 +58,8 @@ RcpService::RcpService() {
   options_ui = std::make_unique<RcpOptionsUI>(this);  // LoadSidl hook also installs in-game (deferred).
   logger::log("  -> FontOverlay");
   font_overlay = std::make_unique<FontOverlay>(this);  // Registers a directx render callback + /rcpfont.
+  logger::log("  -> NoFog");
+  no_fog = std::make_unique<NoFog>(this);  // /rcpfog: filters D3DRS_FOGENABLE on the shared d3d9 device.
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

@@ -53,7 +53,7 @@ WHITE = (255, 255, 255)
 YELLOW = (255, 255, 0)
 
 # ---- window + layout ----
-WINDOW_CX = 280
+WINDOW_CX = 356  # Wide enough for the 5-tab strip at the proven 64 px tab width.
 WINDOW_CY = 356  # Tall enough for the Nameplate tab (billboard + bar toggles + 7 toggles + 2 sliders).
 TAB_Y = 6            # tab-strip row
 TAB_W, TAB_H = 64, 20
@@ -136,7 +136,8 @@ def build_controls():
     tabs = [("Rcp_TabMouse", "Mouse", "Mouse-look settings"),
             ("Rcp_TabCamera", "Camera", "Chase-camera settings"),
             ("Rcp_TabNameplate", "Nameplate", "Nameplate toggles"),
-            ("Rcp_TabColors", "Colors", "Nameplate colors")]
+            ("Rcp_TabColors", "Colors", "Nameplate colors"),
+            ("Rcp_TabDisplay", "Display", "Display and world settings")]
     for i, (name, text, tip) in enumerate(tabs):
         c.append((name, button, (name, COL_X + i * (TAB_W + 3), TAB_Y, TAB_W, TAB_H, text, tip)))
 
@@ -211,6 +212,10 @@ def build_controls():
         col, row = (0, i) if i < 9 else (1, i - 9)
         c.append((f"Rcp_Role{i}", button, (f"Rcp_Role{i}", COL_X + col * 132, CONTENT_Y + row * 20, 128, 18, role,
                                            f"Edit the '{role}' nameplate color")))
+
+    # ---- Tab 4: Display ----
+    c.append(("Rcp_NoFog", button, ("Rcp_NoFog", COL_X, CONTENT_Y, 250, 20, "Remove distance fog",
+                                    "Remove the client's distance fog haze in every zone, day and night (/rcpfog)")))
     return c
 
 

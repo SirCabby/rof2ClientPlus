@@ -1,6 +1,6 @@
 // rof2ClientPlus - options-window UI (stock RoF2 SIDL/EQUI port).
 //
-// A native SIDL options window, TABBED: Mouse / Camera / Nameplate / Colors.
+// A native SIDL options window, TABBED: Mouse / Camera / Nameplate / Colors / Display.
 // The tab strip is a row of checkbox buttons + per-tab control groups whose
 // visibility this class toggles (a real SIDL TabBox renders but does not route
 // mouse input when the window is instantiated at runtime, so only proven
@@ -40,7 +40,7 @@ class RcpOptionsUI {
   void refresh_role_tints();     // Paint each color-role button with its current color.
   void open_color_picker(int role);  // Open the stock picker seeded with a role's color.
 
-  static constexpr int kTabCount = 4;   // Mouse / Camera / Nameplate / Colors.
+  static constexpr int kTabCount = 5;   // Mouse / Camera / Nameplate / Colors / Display.
   static constexpr int kNpCount = 7;    // Nameplate toggle checkboxes (kNpChildNames).
   static constexpr int kRoleCount = 18; // Color roles; == nameplate_colors::count().
 
@@ -78,6 +78,8 @@ class RcpOptionsUI {
   void *lbl_np_dist_ = nullptr;
   // Colors tab (role buttons, indexed by NpColorRole order).
   void *btn_role_[kRoleCount] = {};
+  // Display tab.
+  void *cb_nofog_ = nullptr;
   bool create_attempted_ = false;
 
   // Tab state.
@@ -104,4 +106,5 @@ class RcpOptionsUI {
   int last_blink_ = -1;
   int last_np_dist_ = -1;
   bool last_role_[kRoleCount] = {};
+  bool last_nofog_ = false;
 };

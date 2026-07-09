@@ -586,3 +586,38 @@ other original complaint, genuine *in-game* crashes: the next real crash writes 
 post-mortem to `rof2ClientPlus.log`. If the window ever lands awkwardly on the multi-monitor
 span (dead zones between mixed-size monitors), extend `eq_window_fix.c` with RandR per-monitor
 placement.
+
+## Distance-fog removal (`src/no_fog.cpp`, `/rcpfog`) — DONE (awaiting in-game confirm)
+
+Goal: zero distance fog in every zone, day and night.
+
+### Key finding — the TAKP fog interface does NOT port
+The Zeal/TAKP `CDisplay::SetFog` (0x004add26), `SetYon` (0x004aca7f), `SetDayPeriod`
+(0x004b177f) and `GAMEZONEINFO @ 0x00798784` in `game_structures.h` / `game_addresses.h` are
+**stale TAKP addresses** — all decode to garbage in the RoF2 `eqgame.exe` and are referenced by
+nothing. In RoF2 the zone header is a **heap object** (`new(0x23c)`, e.g. the allocs at 0x497fdc /
+0x49ac16 / 0x645c59 → 0x8dbb3b), not a fixed global, so the Zeal char-select trick
+(`ZoneInfo->0x184/0x194 = big; SetYon(big)`) has no fixed address to poke. The real fog-colour
+setup lives around 0x4ad960–0x4adea0 (writes fog RGB to `ds:0xdcecd4/d8/dc`, init-flag `0xdcece0`),
+but hooking it was unnecessary.
+
+### Mechanism — device-level D3DRS_FOGENABLE filter (zone-layout independent)
+RoF2 distance fog is **fixed-function D3D fog** gated by `D3DRS_FOGENABLE` — proven inside this mod:
+`bitmap_font.cpp:816` disables that exact state so world-pass glyphs aren't "greyed out by depth".
+So `no_fog.cpp` hooks the shared DXVK `IDirect3DDevice9::SetRenderState` (vtable **slot 57**; EndScene
+at 42 in `directx.cpp` fixes the standard layout) and forces `D3DRS_FOGENABLE → FALSE`. The client
+re-issues fog-enable every frame, so a persistent filter covers all zones + day/night with no
+re-hooking; the `/rcpfog` toggle just flips a bool. Install mirrors `mouse_mods` (capture original
+from the slot BEFORE `hooks->Add(..., hook_type_vtable)`, call it directly on the hot path — no
+hook-map lookup). Installed lazily on the first `directx::add_render_callback` device (the shared
+vtable is the same one `directx.cpp` already patched for EndScene).
+
+`/rcpfog on` removes fog (default ON), `off` restores client default, bare toggles; persisted to
+`[Fog] RemoveDistanceFog` in `rof2ClientPlus.ini`. Caveat: also removes underwater fog haze (same
+FOGENABLE gate) — toggle off if that's unwanted. **Confirmed working in-game 2026-07-08.**
+
+Also exposed in `/rcpoptions` as a **new "Display" tab** (checkbox "Remove distance fog", ScreenID
+`Rcp_NoFog`): `no_fog.h` publishes a `no_fog_settings` namespace (`get_enabled`/`set_enabled`), the
+UI binds/polls it like the other toggles, and the tab strip grew 4→5 (window widened 280→356 to keep
+the proven 64 px tab width — see `tools/gen_rcp_options_ui.py`). Regenerate order unchanged:
+`gen_option_overrides.py` then `gen_rcp_options_ui.py`.

@@ -4635,6 +4635,34 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_TabDisplay">
+    <ScreenID>Rcp_TabDisplay</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>280</X>
+      <Y>6</Y>
+    </Location>
+    <Size>
+      <CX>64</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Display and world settings</TooltipReference>
+    <Text>Display</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Button item="Rcp_Enabled">
     <ScreenID>Rcp_Enabled</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -5883,6 +5911,34 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_NoFog">
+    <ScreenID>Rcp_NoFog</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Remove the client's distance fog haze in every zone, day and night (/rcpfog)</TooltipReference>
+    <Text>Remove distance fog</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Screen item="RcpOptions">
     <ScreenID>RcpOptions</ScreenID>
     <RelativePosition>false</RelativePosition>
@@ -5891,7 +5947,7 @@
       <Y>10</Y>
     </Location>
     <Size>
-      <CX>280</CX>
+      <CX>356</CX>
       <CY>356</CY>
     </Size>
     <Text>rof2ClientPlus Options</Text>
@@ -5909,6 +5965,7 @@
     <Pieces>Rcp_TabCamera</Pieces>
     <Pieces>Rcp_TabNameplate</Pieces>
     <Pieces>Rcp_TabColors</Pieces>
+    <Pieces>Rcp_TabDisplay</Pieces>
     <Pieces>Rcp_Enabled</Pieces>
     <Pieces>Rcp_SensXLabel</Pieces>
     <Pieces>Rcp_SensX</Pieces>
@@ -5960,6 +6017,7 @@
     <Pieces>Rcp_Role15</Pieces>
     <Pieces>Rcp_Role16</Pieces>
     <Pieces>Rcp_Role17</Pieces>
+    <Pieces>Rcp_NoFog</Pieces>
   </Screen>
   <!-- RCP-OPTIONS-END -->
 

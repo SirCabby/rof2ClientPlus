@@ -13,6 +13,7 @@
 #include "logger.h"
 #include "mouse_mods.h"
 #include "nameplate.h"
+#include "no_fog.h"
 #include "rcp.h"
 
 // ---- stock RoF2 addresses (eqlib offsets + disasm of the client's own usage) ----
@@ -161,7 +162,8 @@ static void np_read_settings(bool out[7]) {
 }
 
 // Tab strip child names (index == tab id used throughout).
-static const char *const kTabChildNames[] = {"Rcp_TabMouse", "Rcp_TabCamera", "Rcp_TabNameplate", "Rcp_TabColors"};
+static const char *const kTabChildNames[] = {"Rcp_TabMouse", "Rcp_TabCamera", "Rcp_TabNameplate", "Rcp_TabColors",
+                                             "Rcp_TabDisplay"};
 
 // ---- Window-template delivery (no code in the load path at all) ----
 //
@@ -226,6 +228,7 @@ void RcpOptionsUI::create_window() {
     std::snprintf(rolename, sizeof(rolename), "Rcp_Role%d", i);
     btn_role_[i] = get_child(wnd_, rolename);
   }
+  cb_nofog_ = get_child(wnd_, "Rcp_NoFog");
   logger::logf("[ui] controls bound: tabs=%p,%p,%p,%p mouse(en=%p sx=%p) chase(en=%p dist=%p) np0=%p role0=%p",
                btn_tab_[0], btn_tab_[1], btn_tab_[2], btn_tab_[3], cb_enabled_, sl_sensx_, cb_chase_enabled_,
                sl_chase_dist_, cb_np_[0], btn_role_[0]);
@@ -267,6 +270,7 @@ void RcpOptionsUI::set_active_tab(int tab) {
   show_window(sl_np_dist_, tab == 2);
   show_window(lbl_np_dist_, tab == 2);
   for (int i = 0; i < kRoleCount; ++i) show_window(btn_role_[i], tab == 3);
+  show_window(cb_nofog_, tab == 4);
 }
 
 // Paint each color-role button's text with its current palette color.
@@ -309,6 +313,7 @@ void RcpOptionsUI::sync_controls() {
   for (int i = 0; i < kNpCount; ++i) checkbox_set(cb_np_[i], np[i]);
   slider_set(sl_blink_, blink_to_slider(nameplate_settings::get_blink_ms()));
   slider_set(sl_np_dist_, np_dist_to_slider(font_overlay::get_max_dist()));
+  checkbox_set(cb_nofog_, no_fog_settings::get_enabled());
   refresh_role_tints();
 }
 
@@ -332,6 +337,7 @@ void RcpOptionsUI::seed_last_values() {
   last_np_dist_ = slider_get(sl_np_dist_);
   for (int i = 0; i < kTabCount; ++i) last_tab_[i] = checkbox_get(btn_tab_[i]);
   for (int i = 0; i < kRoleCount; ++i) last_role_[i] = checkbox_get(btn_role_[i]);
+  last_nofog_ = checkbox_get(cb_nofog_);
 }
 
 void RcpOptionsUI::update_labels() {
@@ -386,6 +392,7 @@ void RcpOptionsUI::on_frame() {
     sl_blink_ = lbl_blink_hdr_ = lbl_blink_ = nullptr;
     cb_np_billboard_ = cb_np_hp_ = cb_np_mana_ = cb_np_stam_ = nullptr;
     sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
+    cb_nofog_ = nullptr;
     for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
     for (int i = 0; i < kNpCount; ++i) cb_np_[i] = nullptr;
     for (int i = 0; i < kRoleCount; ++i) btn_role_[i] = nullptr;
@@ -482,6 +489,13 @@ void RcpOptionsUI::on_frame() {
     nameplate_settings::set_blink_ms(slider_to_blink(bl));
     update_labels();
     last_blink_ = bl;
+  }
+
+  // Display: remove-distance-fog toggle -> no_fog_settings (applies next frame + persists).
+  bool nf = checkbox_get(cb_nofog_);
+  if (nf != last_nofog_) {
+    no_fog_settings::set_enabled(nf);
+    last_nofog_ = nf;
   }
 
   // Color-role buttons: a click (checked-state change) opens the stock color
