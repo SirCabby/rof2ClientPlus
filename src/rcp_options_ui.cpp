@@ -536,7 +536,7 @@ RcpOptionsUI::RcpOptionsUI(RcpService *rcp) {
   // No hooks: the window's SIDL templates arrive via the EQUI_OptionsWindow.xml
   // override during the client's own UI load, and the stock color picker is
   // driven by polling. This module never touches any load path.
-  rcp->commands_hook->Add("/rcpoptions", {"/rcpopts"}, "Opens or closes the rof2ClientPlus options window.",
+  rcp->commands_hook->Add("/rcpoptions", {"/rcpo"}, "Opens or closes the rof2ClientPlus options window.",
                           [this](std::vector<std::string> &args) {
                             (void)args;
                             toggle_window();

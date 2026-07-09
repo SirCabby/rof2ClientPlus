@@ -15,7 +15,7 @@ A client-side mod for the EverQuest **Rain of Fear 2** client, in the spirit of
     `/playerclickthru`, `/leftclickcon`, `/dampenlev`.
 - An **options window** with a **Cam** tab (Enabled, sensitivity sliders, FOV,
   pan delay, view-cycle toggles), opened/closed with **`/rcpoptions`** (alias
-  `/rcpopts`). Settings persist to `rof2ClientPlus.ini` next to `eqgame.exe`.
+  `/rcpo`). Settings persist to `rof2ClientPlus.ini` next to `eqgame.exe`.
 - `/rcp` lists all commands. `/uierrors on|off` toggles UI skin error reporting.
 
 > **Attribution:** large portions of this project are adapted from Zeal

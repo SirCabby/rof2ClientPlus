@@ -161,7 +161,7 @@ ui_options::ui_options(RcpService *rcp, UIManager *mgr) : ui(mgr) {
   rcp->callbacks->AddGeneric([this]() { Deactivate(); }, callback_type::DeactivateUI);
 
   // Explicit trigger to open/close the options window.
-  rcp->commands_hook->Add("/rcpoptions", {"/rcpopts"},
+  rcp->commands_hook->Add("/rcpoptions", {"/rcpo"},
                           "Opens or closes the rof2ClientPlus options window (Cam tab).",
                           [this](std::vector<std::string> &args) {
                             toggle_window();
