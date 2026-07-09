@@ -54,6 +54,7 @@ class RcpService {
   std::unique_ptr<class TargetRing> target_ring;      // The /rcpring solid-color target ring (Zeal target_ring port).
   std::unique_ptr<class ViewDistance> view_distance;  // The /rcpviewdist terrain view-distance extender (raises the clip-plane int).
   std::unique_ptr<class EquipItem> equip_item;        // The /rcpequip right-click-to-equip (RoF2-native reimplementation).
+  std::unique_ptr<class ChatShortcuts> chat_shortcuts; // The /rcpchat Zeal-style chat tokens (%n/%h/%loc/%thp).
   std::unique_ptr<class CameraMods> camera_mods;  // Zeal chase camera (TAKP addresses; not yet ported).
   std::unique_ptr<class UIManager> ui;            // Options window + uifiles loading.
 

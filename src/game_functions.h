@@ -35,7 +35,9 @@ static int fn_interpretcmd = 0x51FCE0;  // stock RoF2 CEverQuest::InterpretCmd (
 /*inline int fn_loadoptions = 0x536CE0;*/
 static int fn_KeyboardPageHandleKeyboardMsg = 0x42c4fb;
 
-static mem::function<void __fastcall(int t, int unused, char *data, int unknown)> DoPercentConvert = 0x00538110;
+// CEverQuest::DoPercentConvert(char* line, bool bOutGoing) - stock RoF2 0x51B600 (eqlib-confirmed;
+// the old 0x538110 was a stale TAKP offset that lands mid-function in RoF2). See chat_shortcuts.cpp.
+static mem::function<void __fastcall(int t, int unused, char *data, int unknown)> DoPercentConvert = 0x0051B600;
 static mem::function<void __cdecl(const char *data)> gamelog = 0x005240dc;
 static mem::function<char __fastcall(void *this_display, int unused_edx, Rcp::GameStructures::Entity *viewer,
                                      Rcp::GameStructures::Entity *target)>

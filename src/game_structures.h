@@ -1187,7 +1187,9 @@ struct GameClass {
   }
 
   void DoPercentConvert(const char *buffer, int unk_flag) {
-    reinterpret_cast<void(__thiscall *)(GameClass *, const char *, int)>(0x00538110)(this, buffer, unk_flag);
+    // CEverQuest::DoPercentConvert(char* line, bool bOutGoing) - stock RoF2 0x51B600 (eqlib-confirmed;
+    // the old 0x538110 was a stale TAKP offset that lands mid-function in RoF2).
+    reinterpret_cast<void(__thiscall *)(GameClass *, const char *, int)>(0x0051B600)(this, buffer, unk_flag);
   }
 
   void dsp_chat(char *data, short color, bool un) {

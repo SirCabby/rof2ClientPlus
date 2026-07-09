@@ -898,3 +898,55 @@ balances the copy so there's no per-equip leak.
 Shift/Ctrl "pick the Nth valid slot" and the empty-slot-first preference (v1 is first-fit; MoveItem
 swaps if the target slot is occupied); the separate `ClickFromInventory`/`UseAltForClicky` settings
 (one `/rcpequip` toggle gates both behaviors); the bard-melody queue (no melody module here).
+
+---
+
+## Chat shortcuts (Zeal `chat.cpp` percent-replacements → RoF2) — DONE (awaiting in-game confirm 2026-07-09)
+
+`src/chat_shortcuts.cpp`. Always on (no command/toggle - the expansion is harmless when a token isn't
+present). Expands short tokens typed into any OUTGOING chat line into live values, exactly like Zeal's
+`DoPercentReplacements`:
+
+- `%n`   → current mana percent (`"73%"`)
+- `%h`   → current hit-point percent
+- `%loc` → your location, `Y, X, Z` (client `/loc` order, 2 decimals)
+- `%thp` → your target's HP percent
+
+### Render/hook seam
+Detour on **`CEverQuest::DoPercentConvert(char* line, bool bOutGoing)` @ `0x51B600`** (`__thiscall`,
+`this` = the CEverQuest instance `*(0xE67CCC)` = `pinstCEverQuest`). This is the stock client function
+that already expands `%t`/`%s`/… on outgoing chat, so hooking it is the natural seam. We substitute our
+tokens FIRST (plain literal replace-all — the four tokens share no prefix and no replacement value
+introduces a token, so order is irrelevant), then tail-call the original for the client's own tokens.
+
+- **Confirmed offset (disasm + eqlib):** `0x51B600` starts `81 ec 0c 08 00 00` (`sub $0x80c,%esp`)
+  then `push $0x25` (`'%'`) + `call 0x8dd880` (strchr) — the DoPercentConvert fingerprint. 18 callers;
+  outgoing chat (say/tell/group/guild, the `0x51f4xx..0x51f8xx` dispatch cluster near InterpretCmd
+  `0x51fce0`) passes `bOutGoing = 1`; the incoming/display path passes `0`. We gate on `bOutGoing` so an
+  inbound message that literally contains `%h` is never rewritten.
+- **⚠ STALE-OFFSET FIX:** `game_functions.h` (`GameInternal::DoPercentConvert`) and
+  `game_structures.h` (`GameClass::DoPercentConvert`) both carried **`0x538110`**, a TAKP offset that
+  lands **mid-function** in RoF2 (`0x538110` disassembles to `jne 0x538148`, not a prologue). It was
+  dead code so nobody had hit it. Both are now corrected to `0x51B600` (would have crashed if ever
+  called). Cross-checked: neighbours `dsp_chat 0x51F1A0` and `InterpretCmd 0x51FCE0` already match eqlib.
+
+### Values
+- HP%/mana% via the same client accessors the billboard nameplates use (`self_stats` in
+  `font_overlay.cpp`): `pLocalPC (*(0xDD261C)) + 0x2DC8` = CharacterZoneClient `this`, then
+  `Cur_HP 0x449E00 / Max_HP 0x443FA0 / Cur_Mana 0x4442E0 / Max_Mana 0x581E60`. -1 (no mana pool /
+  no target) renders as `0%`.
+- Loc from the local player's position floats `Y@0x64 / X@0x68 / Z@0x6c` (eqlib PlayerBase; EQ memory
+  order is Y,X,Z, which is why the printed order matches `/loc`).
+- Target HP% via `HpCurrent@0x2e4 / HpMax@0x2dc` (NPCs carry a bare percent in Current with Max 0 —
+  same `hp_percent` fallback as nameplate.cpp).
+- **⚠ Self/target pointers must be the raw eqlib globals, NOT `Rcp::Game::get_self()`/`get_target()`.**
+  Those helpers dereference the STALE-TAKP `game_addresses.h` globals (`Self 0x7F94CC`, `Target
+  0x7F94EC`) which are null on RoF2 — the first cut read `0` for `%loc`/`%thp` because of exactly this.
+  Use the confirmed globals `pinstLocalPlayer *(0xDD2630)` and `pinstTarget *(0xDD2648)` directly (as
+  target_ring.cpp / nameplate.cpp do). `%n`/`%h` were unaffected because they already read
+  `pinstLocalPC *(0xDD261C)`.
+
+### Safety
+Game-memory reads happen inside `rcp_guard::run`; the `std::string` build/replace runs AFTER the guard
+(heap-only, can't fault). Write-back is bounded to 2000 bytes, comfortably under the client's own
+`0x800` working buffer that every DoPercentConvert caller must already provide.

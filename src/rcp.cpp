@@ -7,6 +7,7 @@
 #include "callbacks.h"
 #include "camera_mods.h"
 #include "chase_cam.h"
+#include "chat_shortcuts.h"
 #include "commands.h"
 #include "entity_manager.h"
 #include "equip_item.h"
@@ -69,6 +70,8 @@ RcpService::RcpService() {
   view_distance = std::make_unique<ViewDistance>(this);  // /rcpviewdist: forces the terrain clip-plane int past the slider cap.
   logger::log("  -> EquipItem");
   equip_item = std::make_unique<EquipItem>(this);  // /rcpequip: right-click a bag item to auto-equip (RoF2-native CInvSlot RButton detour).
+  logger::log("  -> ChatShortcuts");
+  chat_shortcuts = std::make_unique<ChatShortcuts>(this);  // /rcpchat: Zeal-style chat tokens (%n/%h/%loc/%thp) via DoPercentConvert detour.
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");
