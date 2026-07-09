@@ -19,7 +19,7 @@ Reading raw floats/vtables straight from the PE in python:
 - Confirmed: PE image base makes `.text` run ~`0x401000..0x9c0000`.
 
 ## Build / install / test loop
-- `make && make install` → drops `rof2ClientPlus.asi` (+ `uifiles/rcp/`) into `/home/joshua/Games/RoF2/`.
+- `make && make install` → drops `rof2ClientPlus.asi` (+ `uifiles/rcp/` + fonts) into `/home/joshua/Games/RoF2/`.
 - The Makefile now uses `-MMD -MP` + `-include *.d` header-dependency tracking. Before that it did
   NOT track headers, so editing a shared header (e.g. bumping a constant like `kRoleCount` in
   `rcp_options_ui.h`) without also touching its `.cpp` left a STALE `.o` — which shipped a mismatched
@@ -61,7 +61,7 @@ delta, applied directly to the controlled entity, then zero the buffer
 
 ---
 
-## Phase 2 — third-person chase camera — 2b (positioning) IMPLEMENTED, awaiting in-game test
+## Phase 2 — third-person chase camera — DONE
 Lives in `src/chase_cam.cpp` (the `/rcpchase` feature), a **self-contained** module
 in the mouse_mods.cpp style. The vendored `src/camera_mods.cpp` is a TAKP reference
 only and **cannot be address-swapped**: RoF2's camera model is fundamentally
@@ -110,8 +110,6 @@ different (see below), so it stays unconstructed.
 - Phase-3 refs: `SetViewActor 0x48F030` (bad-cam msg patch: `0x48F091` `74 27`→`EB 27`),
   `GetClickedActor 0x48B6B0`, exact eye-height virtual `0x0058CF00` (thiscall).
 
-- `get_region_from_pos` (water/region tint for the camera).
-- Independent-yaw mouse input in chase mode (the smoothed delta — reuse Phase 1's
 **Status — WORKING (user-confirmed); confirmed addresses above retained as reference:**
 1. **2b chase positioning (`src/chase_cam.cpp`, WORKING)** — tail-detour `0x799140`;
    while enabled && `cameraType==6`, reuse the client's OWN computed camera-behind
@@ -137,7 +135,7 @@ different (see below), so it stays unconstructed.
    internals (disasm-verified): value@0x218, max@0x220, thumb-scale@0x21c,
    thumb-off@0x224; `GetValue 0x895FE0`, `SetValue 0x8961B0`.
 
-**2c world-collision pull-in (IMPLEMENTED in `chase_cam.cpp`, needs in-game test)** —
+**2c world-collision pull-in (DONE, in `chase_cam.cpp`)** —
 `/rcpchase collision on|off` (off by default). In the positioner, after computing
 the wanted camera pos, cast pivot(playerXY@camZ)→wanted through world geometry and
 pull the camera to the clamp point (×0.9 margin) on a hit. Uses the client's own LOS
@@ -154,9 +152,6 @@ primitive (all disasm-verified, coords are EQ-native **Y,X,Z**):
 - Ground-clamp fallback `CDisplay::GetFloorHeight 0x48C5B0`. Region (secondary):
   `pSceneGraph=*(void**)0x15D46A8`, `GetRegionNumber` = scenegraph vtable byte 0x48.
 
-**Still to do (rest of 2c):** independent smooth camera yaw/pitch (mouse) — note LMB
-toggle-cam binds; wire the options window to the camera settings.
-
 ---
 
 ## Nameplate port (Zeal `nameplate.cpp` → RoF2) — ALL DONE (N1 tint, N2 text, N4 font/bars, N6 options)
@@ -167,6 +162,8 @@ depth occlusion (same behavior as native name-sprites):
 - `CRenderInterface::SetRenderCallback` (pRender=`*(void**)0x15D46A4`, vtable **index 50**/+0xC8) is
   registered as a **frame marker only** — disasm proved it fires at `0x10097733` inside
   `CRender::RenderScene` (0x10097420, vtable +0xa8) **BEFORE the world raster** (world/actor draws +
+  particles follow it). Drawing there = world overdraws the text (invisible with z-write off) or
+  z-fails behind the billboards' depth (fog-colored glyph blobs with z-write on).
 - The actual draw is a **detour on `C2DPrimitiveManager::Render`** (EQGraphicsDX9.dll RVA 0xAE370,
   `__thiscall`, 2 dword args, ret 8; instance global 0x101B88B8; called twice per scene @0x10097817
   and @0x100978bb). On the FIRST call of a marked frame (flag from the render callback) the plates
@@ -174,6 +171,10 @@ depth occlusion (same behavior as native name-sprites):
   (windows paint over plates). Install lazily from the EndScene callback once pRender exists; address
   computed as `GetModuleHandleA("EQGraphicsDX9.dll") + 0xAE370 - 0x10000000`.
 - Device = `*(IDirect3DDevice9**)(pRender+0xF08)`. `bitmap_font.cpp` also unbinds vertex/pixel
+  shaders + disables fog/alpha-test + fully specifies sampler state (mid-scene device state is dirty,
+  unlike EndScene). DEAD ENDS (do not retry): EndScene draw (over UI), depth-mask of CXWndManager
+  window rects (top-level list is ~777 flat entries incl. children — can't represent opaque UI),
+  drawing at the SetRenderCallback itself (pre-world), DrawWindows-entry draws (2D path, discarded).
 Lives in `src/nameplate.cpp` (the `/rcpnameplate` feature), a self-contained module in the
 chase_cam.cpp style. Reference: `/home/joshua/workspace/GitHub/Zeal/Zeal/nameplate.cpp` (TAKP).
 
@@ -208,7 +209,7 @@ target `*(Entity**)0xDD2648`, controlled `0xDD2644`, CDisplay `0xDD2660`, CRaid 
 **The vendored `game_functions`/`game_addresses` globals stay TAKP and are NOT used here** —
 the module reads raw RoF2 offsets like chase_cam/mouse_mods.
 
-### Status — N1 (tint) CONFIRMED WORKING; N2 (text) IMPLEMENTED, awaiting in-game test
+### Status — N1 (tint), N2 (text), N6 (options window) all DONE/WORKING
 Both detours off by default; each bails while its options are off (zero behavior change).
 Our detour bodies run inside `rcp_guard::run(...)` (see crash-handler notes) so a stale
 entity/actor degrades to a swallowed frame instead of crashing the client.
