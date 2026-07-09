@@ -70,6 +70,8 @@ static constexpr int kEntAFK = 0x3c0;      // int
 static constexpr int kEntLinkdead = 0x3d0; // uint8 (bool)
 static constexpr int kEntLFG = 0x440;      // uint8 (bool)
 static constexpr int kEntDisplayNameSprite = 0x1228;  // uint8 (bool); SetNameSpriteState early-outs if 0
+static constexpr int kEntTargetable = 0x160;  // bool: PlayerBase::Targetable ("true if mob is targetable").
+static constexpr int kEntRace = 0xeb4;        // uint16 race id (mActorClient.Race); used only for the hide log.
 
 // Entity Type enum (RoF2: SPAWN_PLAYER/NPC/CORPSE from eqlib Constants.h).
 static constexpr uint8_t kTypePlayer = 0;
@@ -376,6 +378,28 @@ static bool is_raid_member(char *ent) {
   return false;
 }
 
+// ---- Hide "controller" NPCs (MQ2 pattern) ------------------------------------------------
+// The client draws nameplates for server-side utility NPCs (EQEmu's zone_controller, event
+// triggers, traps, timers) that aren't meant to be seen. MacroQuest's GetSpawnType buckets all of
+// these as UNTARGETABLE/TRIGGER/TRAP/TIMER, and the one thing they share is that they are
+// untargetable (bodytype NoTarget). RoF2 exposes the client's own verdict directly - the
+// PlayerBase::Targetable bool at 0x160 (eqlib layout matches this client field-for-field) - so we
+// simply blank the nameplate for any NPC the client itself marks non-targetable. Always on;
+// players/corpses/pets/mercs are targetable and so are never affected. (E.g. EQEmu's zone_controller
+// is race 240 / bodytype 11 / untargetable -> Targetable == false.)
+static int g_hide_log = 8;  // Log the first few hidden NPCs (name/race) so the 0x160 offset can be verified in-game.
+
+static bool is_hidden_npc(char *ent, uint8_t type) {
+  if (type != kTypeNPC) return false;                                 // Only NPCs get hidden.
+  if (*reinterpret_cast<bool *>(ent + kEntTargetable)) return false;  // Targetable => a real mob, keep it.
+  if (g_hide_log > 0) {
+    --g_hide_log;
+    logger::logf("[nameplate] hiding untargetable NPC '%s' (race=%d)", ent + kEntDisplayedName,
+                 (int)*reinterpret_cast<uint16_t *>(ent + kEntRace));
+  }
+  return true;
+}
+
 static int state_color(char *ent, uint8_t type) {
   if (type == kTypeCorpse) return g_colors[kRoleCorpse];
   if (type != kTypePlayer) return 0;  // NPC pet group/raid coloring is a later step.
@@ -596,6 +620,7 @@ std::string nameplate::billboard_text(void *entity) {
   if (!entity) return {};
   char *ent = static_cast<char *>(entity);
   const uint8_t type = *reinterpret_cast<uint8_t *>(ent + kEntType);
+  if (is_hidden_npc(ent, type)) return {};  // Untargetable controller/trigger NPC: no billboard.
   if (type == kTypePlayer) return generate_player_name(ent);
   if (const char *cached = lookup_np_text(entity)) return cached;
   return std::string(ent + kEntDisplayedName);
@@ -639,6 +664,18 @@ int nameplate::con_color_for(void *entity) {
 
 static const char *transform_entity(void *actor, const char *text) {
   if (!actor || !text) return nullptr;
+
+  // Blank the native nameplate for untargetable "controller"/trigger NPCs (see is_hidden_npc).
+  // Resolve the full entity from the actor via g_current_entity (set by the SetNameSpriteState
+  // hook). This runs whether or not billboards are on, so those NPCs are hidden in every mode.
+  if (void *entity = g_current_entity) {
+    char *ent = static_cast<char *>(entity);
+    if (*reinterpret_cast<void **>(ent + kEntActor) == actor &&
+        is_hidden_npc(ent, *reinterpret_cast<uint8_t *>(ent + kEntType))) {
+      static char empty[1] = {0};
+      return empty;
+    }
+  }
 
   // Billboard nameplates active: blank every native name (the client keeps calling the tint hook on
   // its own timer, which re-runs this and keeps them blank; the tint still fires so con-color is

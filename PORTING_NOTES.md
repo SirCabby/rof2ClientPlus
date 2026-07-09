@@ -104,9 +104,14 @@ different (see below), so it stays unconstructed.
 - **PlayerClient offsets** (controlled `*(PlayerClient**)0xDD2644`, self `0xDD2630`;
   eqlib + disasm): pos `Y@0x64 X@0x68 Z@0x6c` (feet), `Heading@0x80` (0..512),
   `CameraAngle/pitch@0x90`, `SpeedHeading@0x8c`, `AvatarHeight@0x138` (head height),
-  `Height@0x13c`, `Type@0x125` (Player=1), `Race@0xeb4`, `SpawnID@0x148`,
-  `Mount@0x154`, `WhoFollowing(autofollow)@0xe40`, viewactor `mActorClient@0xea4 +
-  pActor@0x101c` (`CActorInterface*`, all-virtual; BoundingRadius vtable +0x60/+0x64).
+  `Height@0x13c`, `Type@0x125` (Player=1), `Properties@0x128` (CharacterPropertyHash =
+  bodytype), `Targetable@0x160` (bool, "true if mob is targetable"), `Race@0xeb4`,
+  `SpawnID@0x148`, `Mount@0x154`, `WhoFollowing(autofollow)@0xe40`, viewactor
+  `mActorClient@0xea4 + pActor@0x101c` (`CActorInterface*`, all-virtual; BoundingRadius
+  vtable +0x60/+0x64). Struct reference: `GitHub/eqlib/include/eqlib/game/PlayerClient.h`
+  matches this client field-for-field. Nameplates hide untargetable "controller"/trigger
+  NPCs (EQEmu zone_controller etc.) by blanking when `Type==NPC && !Targetable` (MQ2's
+  UNTARGETABLE/TRIGGER/TRAP/TIMER buckets all reduce to untargetable).
 - Phase-3 refs: `SetViewActor 0x48F030` (bad-cam msg patch: `0x48F091` `74 27`→`EB 27`),
   `GetClickedActor 0x48B6B0`, exact eye-height virtual `0x0058CF00` (thiscall).
 
