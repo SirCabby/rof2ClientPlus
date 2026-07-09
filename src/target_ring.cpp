@@ -261,30 +261,28 @@ void draw_ring(IDirect3DDevice9 *device) {
   device->GetTextureStageState(1, D3DTSS_COLOROP, &stage1_colorop);
   device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
 
+  // Stage-0 texture + sampler state. The ring renders in up to TWO passes: a solid color-fill
+  // base (so the chosen ring color always shows across the whole band), and - when a graphic is
+  // set - the texture modulated by that same color + opacity laid ON TOP. Both passes drive these
+  // same stage-0 states, so stash the originals ONCE here and set each pass's values with direct
+  // calls below (a second store_and_modify would capture the base pass's value as the "original"
+  // and corrupt the world pass's restore).
   D3DTextureStateStash ts(*device);
   D3DSamplerStateStash ss(*device);
+  ts.store_and_modify({D3DTSS_COLOROP, D3DTOP_SELECTARG1});  // Base pass: diffuse color straight through.
+  ts.store_and_modify({D3DTSS_COLORARG1, D3DTA_DIFFUSE});
+  ts.store_and_modify({D3DTSS_ALPHAOP, D3DTOP_SELECTARG1});
+  ts.store_and_modify({D3DTSS_ALPHAARG1, D3DTA_DIFFUSE});
   if (use_texture) {
-    // Modulate the ring graphic by the (diffuse) ring color + opacity, exactly like Zeal: a white
-    // ring color shows the texture's own colors, any other tints it, and opacity scales the alpha.
-    ts.store_and_modify({D3DTSS_COLOROP, D3DTOP_MODULATE});
-    ts.store_and_modify({D3DTSS_COLORARG1, D3DTA_TEXTURE});
+    // Stash the extra states the overlay pass drives so the world pass gets an exact restore.
     ts.store_and_modify({D3DTSS_COLORARG2, D3DTA_DIFFUSE});
-    ts.store_and_modify({D3DTSS_ALPHAOP, D3DTOP_MODULATE});
-    ts.store_and_modify({D3DTSS_ALPHAARG1, D3DTA_TEXTURE});
     ts.store_and_modify({D3DTSS_ALPHAARG2, D3DTA_DIFFUSE});
     ss.store_and_modify({D3DSAMP_MINFILTER, D3DTEXF_LINEAR});
     ss.store_and_modify({D3DSAMP_MAGFILTER, D3DTEXF_LINEAR});
     ss.store_and_modify({D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP});  // Radial: clamp across the band.
     ss.store_and_modify({D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP});   // Angular: wrap seamlessly around.
-    device->SetTexture(0, g_texture);
-  } else {
-    // No texture: pass the vertex (diffuse) color straight through stage 0.
-    ts.store_and_modify({D3DTSS_COLOROP, D3DTOP_SELECTARG1});
-    ts.store_and_modify({D3DTSS_COLORARG1, D3DTA_DIFFUSE});
-    ts.store_and_modify({D3DTSS_ALPHAOP, D3DTOP_SELECTARG1});
-    ts.store_and_modify({D3DTSS_ALPHAARG1, D3DTA_DIFFUSE});
-    device->SetTexture(0, NULL);
   }
+  device->SetTexture(0, NULL);  // Base pass draws untextured; the overlay binds g_texture below.
   device->SetFVF(kRingFvf);
 
   // Rotation about the ring's vertical axis (local Z, the ring's normal): a slow continuous spin, or
@@ -325,7 +323,24 @@ void draw_ring(IDirect3DDevice9 *device) {
   world._43 = cz + kGroundLift;
   device->SetTransform(D3DTS_WORLD, &world);
 
+  // Pass 1: the solid color-fill donut. Always drawn, so the ring color is visible across the
+  // whole band even when a graphic is present (a graphic's transparent gaps show this color).
   device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, prim_count, verts, sizeof(RingVertex));
+
+  // Pass 2 (graphic only): the ring texture, modulated by the same ring color + opacity, laid on
+  // top of the color fill - a white graphic shows the color, any tint blends with it, and the
+  // texture's alpha decides where the color underneath shows through. Same geometry/world matrix,
+  // so it registers exactly over pass 1 (ZFUNC LESSEQUAL passes at equal depth).
+  if (use_texture) {
+    device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    device->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+    device->SetTexture(0, g_texture);
+    device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, prim_count, verts, sizeof(RingVertex));
+  }
 
   // Restore everything we touched.
   device->SetTransform(D3DTS_WORLD, &world_prev);
