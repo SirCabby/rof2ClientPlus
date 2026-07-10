@@ -12,6 +12,7 @@
 
 #include "commands.h"
 #include "crash_handler.h"
+#include "directx.h"
 #include "game_functions.h"
 #include "io_ini.h"
 #include "logger.h"
@@ -254,11 +255,20 @@ void on_frame() {
   ++g_loop;
 
   if (!g_hwnd) {
-    HWND h = find_main_window();
+    // The D3D9 device knows the game's real render window exactly; the EnumWindows
+    // heuristic (largest captioned/visible top-level owned by us) is a fallback for
+    // before the first hooked frame - it never matched under this wine/DXVK setup.
+    HWND h = reinterpret_cast<HWND>(directx::get_focus_window());
+    const char *via = "d3d";
+    if (!h) {
+      h = find_main_window();
+      via = "enum";
+    }
     if (!h) return;
     g_hwnd = h;
     g_first_seen = GetTickCount();
     subclass(h);
+    logger::logf("[win] main window via %s", via);
     log_health(h, "found");
     g_last_health = g_first_seen;
     return;
@@ -306,8 +316,14 @@ void set_guard(bool on) {
   save_settings();
 }
 
+// The game window, preferring the D3D device's exact handle over the enum heuristic.
+HWND resolve_window() {
+  if (HWND h = reinterpret_cast<HWND>(directx::get_focus_window())) return h;
+  return find_main_window();
+}
+
 void force_heal_now() {
-  if (!g_hwnd) g_hwnd = find_main_window();
+  if (!g_hwnd) g_hwnd = resolve_window();
   if (!g_hwnd) {
     logger::log("[win] force_heal: no window found");
     return;
@@ -316,7 +332,7 @@ void force_heal_now() {
 }
 
 void log_info() {
-  if (!g_hwnd) g_hwnd = find_main_window();
+  if (!g_hwnd) g_hwnd = resolve_window();
   if (g_hwnd)
     log_health(g_hwnd, "info");
   else

@@ -21,6 +21,12 @@ bool install();
 // first hooked frame. Valid only on the render thread while inside a callback.
 IDirect3DDevice9 *get_device();
 
+// The game's main render window (an HWND, returned as void* to keep this header
+// free of <windows.h>). Captured once from the D3D9 device's creation parameters
+// on the first hooked EndScene - the deterministic identity of the game window,
+// unlike an EnumWindows heuristic. nullptr until that first frame.
+void *get_focus_window();
+
 // Register a callback invoked every EndScene (before the original), on the render
 // thread, with the live device. Each call is wrapped in rcp_guard so a fault in one
 // callback is contained rather than crashing the client.

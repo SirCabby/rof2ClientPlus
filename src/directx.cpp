@@ -20,9 +20,27 @@ static volatile LONG g_frame = 0;
 // into each frame. The callback list is only mutated at load (single-threaded) via
 // add_render_callback and read on the render thread, so no lock is needed.
 static IDirect3DDevice9* g_device = nullptr;
+static HWND g_focus_hwnd = nullptr;  // The game's main render window (see get_focus_window).
 static std::vector<std::function<void(IDirect3DDevice9*)>>* g_callbacks = nullptr;
 
 IDirect3DDevice9* directx::get_device() { return g_device; }
+void* directx::get_focus_window() { return g_focus_hwnd; }
+
+// The game window from the device itself: creation params carry hFocusWindow; if that
+// is null (some windowed devices) fall back to swapchain 0's device window. Both are
+// pure reads of stored params - safe to call on the render thread inside EndScene.
+static HWND query_focus_window(IDirect3DDevice9* dev) {
+    D3DDEVICE_CREATION_PARAMETERS cp = {};
+    if (SUCCEEDED(dev->GetCreationParameters(&cp)) && cp.hFocusWindow) return cp.hFocusWindow;
+    IDirect3DSwapChain9* sc = nullptr;
+    HWND h = nullptr;
+    if (SUCCEEDED(dev->GetSwapChain(0, &sc)) && sc) {
+        D3DPRESENT_PARAMETERS pp = {};
+        if (SUCCEEDED(sc->GetPresentParameters(&pp))) h = pp.hDeviceWindow;
+        sc->Release();
+    }
+    return h;
+}
 
 void directx::add_render_callback(std::function<void(IDirect3DDevice9*)> callback) {
     if (!g_callbacks) g_callbacks = new std::vector<std::function<void(IDirect3DDevice9*)>>();
@@ -38,6 +56,10 @@ static HRESULT WINAPI hkEndScene(IDirect3DDevice9* dev) {
     if (crash_handler::shutting_down()) return g_original_endscene(dev);
 
     g_device = dev;
+    if (!g_focus_hwnd) {  // Capture the game window once, off the device itself.
+        g_focus_hwnd = query_focus_window(dev);
+        if (g_focus_hwnd) logger::logf("directx: game focus window = %p", (void*)g_focus_hwnd);
+    }
     LONG frame = InterlockedIncrement(&g_frame);
     if (frame == 1 || (frame % 300) == 0)
         logger::logf("EndScene hook fired, frame %ld", frame);
