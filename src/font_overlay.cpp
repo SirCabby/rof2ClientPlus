@@ -64,6 +64,11 @@ constexpr uint8_t kTypeCorpse = 2;
 constexpr int kActorStringSprite = 0x204;  // CStringSprite* (name sprite); NULL until a name is set.
 constexpr int kSsWorldPos = 0x6c;          // head-anchor world pos (0x6c, 0x70, 0x74).
 
+// Off-screen cull margin for the orphan-plate fix (see on_render_nameplates). In normalized device
+// coords 1.0 is the exact screen edge; the slack keeps a plate whose anchor sits just past the edge
+// (its text still spans on-screen) while dropping NPCs well out of view. Larger = persist further off.
+constexpr float kFrustumMargin = 1.25f;
+
 // Spawn list (research Q1, triple-confirmed): manager @ 0xE641D0; first node @ mgr+0x08;
 // next node @ entity+0x08; NULL-terminated.
 void **const kSpawnManager = reinterpret_cast<void **>(0xE641D0);
@@ -265,6 +270,14 @@ void on_render_nameplates(IDirect3DDevice9 *device) {
   const float s2 = *reinterpret_cast<float *>(s + kEntPos2);
   const float max_dist_sq = g_np_max_dist * g_np_max_dist;
 
+  // View*projection of the live camera, used to cull plates for NPCs that aren't on screen (see the
+  // per-entity frustum test below). The device still carries the world matrices at this pre-UI seam
+  // - the billboards are drawn with them - so this is exactly the transform the plates use.
+  D3DXMATRIX view_m, proj_m;
+  device->GetTransform(D3DTS_VIEW, &view_m);
+  device->GetTransform(D3DTS_PROJECTION, &proj_m);
+  const D3DXMATRIX view_proj = view_m * proj_m;
+
   const char kBg = BitmapFontBase::kStatsBarBackground;
   const char kHp = BitmapFontBase::kHealthBarValue;
   const char kMana = BitmapFontBase::kManaBarValue;
@@ -293,6 +306,21 @@ void on_render_nameplates(IDirect3DDevice9 *device) {
     const float d0 = p0 - s0, d1 = p1 - s1, d2 = p2 - s2;
     if (d0 * d0 + d1 * d1 + d2 * d2 > max_dist_sq) continue;             // Distance cull (feet pos).
 
+    // Orphan-plate fix: skip any NPC that isn't actually on screen right now. The plate is drawn at
+    // the name-sprite's cached head anchor (below), which the client stops refreshing once the NPC
+    // leaves view - so it freezes at the last-seen on-screen spot and ghosts there. Testing the NPC's
+    // LIVE position against the camera frustum drops the plate the moment the NPC leaves view (turned
+    // away -> behind camera; walked off -> outside the edges), no matter where the stale anchor sits.
+    // (NPCs hidden behind world geometry are already culled by the GPU z-test on the drawn quad.)
+    const float height = *reinterpret_cast<float *>(ent + kEntAvatarHeight);
+    D3DXVECTOR3 live_head(p0, p1, p2 + height);
+    D3DXVECTOR4 clip;
+    D3DXVec3Transform(&clip, &live_head, &view_proj);
+    if (clip.w <= 0.f) continue;                                          // Behind the camera.
+    const float ndc_x = clip.x / clip.w, ndc_y = clip.y / clip.w;
+    if (ndc_x < -kFrustumMargin || ndc_x > kFrustumMargin || ndc_y < -kFrustumMargin || ndc_y > kFrustumMargin)
+      continue;                                                          // Off the screen edges.
+
     // Head anchor: the model's HEAD_NAME point (native's own anchor; scales per model), read live
     // off the name sprite. Fall back to feet+AvatarHeight if the sprite doesn't exist yet.
     float h0, h1, h2;
@@ -304,7 +332,7 @@ void on_render_nameplates(IDirect3DDevice9 *device) {
     } else {
       h0 = p0;
       h1 = p1;
-      h2 = p2 + *reinterpret_cast<float *>(ent + kEntAvatarHeight);
+      h2 = p2 + height;
     }
 
     std::string text = nameplate::billboard_text(e);
