@@ -63,6 +63,10 @@ constexpr uint8_t kTypeCorpse = 2;
 // (0x74 vertical). This is exactly where the client draws the native name.
 constexpr int kActorStringSprite = 0x204;  // CStringSprite* (name sprite); NULL until a name is set.
 constexpr int kSsWorldPos = 0x6c;          // head-anchor world pos (0x6c, 0x70, 0x74).
+// Render-actor "model hidden" byte (+0xd1): 1 = the engine skips drawing this model. Set by the
+// client itself and by our /hidecorpses. A hidden model draws nothing, so its billboard plate would
+// float over empty space - skip it. Same offset the in-game-confirmed hide_corpse module writes.
+constexpr int kActorHiddenFlag = 0xd1;
 
 // Off-screen cull margin for the orphan-plate fix (see on_render_nameplates). In normalized device
 // coords 1.0 is the exact screen edge; the slack keeps a plate whose anchor sits just past the edge
@@ -296,9 +300,13 @@ void on_render_nameplates(IDirect3DDevice9 *device) {
     char *ent = static_cast<char *>(e);
     if (e == self && first_person) continue;                             // No self nameplate in first person.
     const uint8_t type = *reinterpret_cast<uint8_t *>(ent + kEntType);
-    if (type == kTypeCorpse) continue;                                   // Skip corpses.
     void *actor = *reinterpret_cast<void **>(ent + kEntActor);
     if (!actor) continue;                                                // No graphics actor => not in-world.
+    // Corpses get a plate too (gray, name-only - see below), but only while their model is actually
+    // drawn: a corpse hidden via /hidecorpses has its actor "hidden" byte set, and a plate floating
+    // over an invisible corpse would be an orphan. So skip any hidden-model corpse.
+    if (type == kTypeCorpse && *reinterpret_cast<uint8_t *>(static_cast<char *>(actor) + kActorHiddenFlag))
+      continue;
 
     const float p0 = *reinterpret_cast<float *>(ent + kEntPos0);
     const float p1 = *reinterpret_cast<float *>(ent + kEntPos1);
@@ -340,11 +348,12 @@ void on_render_nameplates(IDirect3DDevice9 *device) {
     const int rgb = nameplate::billboard_color(e);
 
     // Health bar. Self comes from the profile; others from the spawn percent field. Only draw
-    // when > 0 (0 usually means "HP unknown" for a non-grouped player, not truly dead).
+    // when > 0 (0 usually means "HP unknown" for a non-grouped player, not truly dead), and never
+    // for a corpse - it's dead, so it shows just its (gray) name like the native nameplate does.
     const int hp = (e == self) ? self_hp
                                : to_percent(*reinterpret_cast<int *>(ent + kEntHPCurrent),
                                             *reinterpret_cast<int *>(ent + kEntHPMax));
-    if (g_show_hp && hp > 0) {
+    if (g_show_hp && hp > 0 && type != kTypeCorpse) {
       g_np_font->set_hp_percent(hp);
       text += '\n';
       text += kBg;
