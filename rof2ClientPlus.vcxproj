@@ -91,6 +91,7 @@
     <ClCompile Include="src\callbacks.cpp" />
     <ClCompile Include="src\camera_math.cpp" />
     <ClCompile Include="src\camera_mods.cpp" />
+    <ClCompile Include="src\chat_timestamp.cpp" />
     <ClCompile Include="src\commands.cpp" />
     <ClCompile Include="src\crash_handler.cpp" />
     <ClCompile Include="src\directx.cpp" />
@@ -121,6 +122,7 @@
     <ClInclude Include="src\callbacks.h" />
     <ClInclude Include="src\camera_math.h" />
     <ClInclude Include="src\camera_mods.h" />
+    <ClInclude Include="src\chat_timestamp.h" />
     <ClInclude Include="src\commands.h" />
     <ClInclude Include="src\compat.h" />
     <ClInclude Include="src\crash_handler.h" />

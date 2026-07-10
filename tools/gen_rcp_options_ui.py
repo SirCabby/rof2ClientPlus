@@ -53,7 +53,7 @@ WHITE = (255, 255, 255)
 YELLOW = (255, 255, 0)
 
 # ---- window + layout ----
-WINDOW_CX = 492  # Wide enough for the 7-tab strip at the proven 64 px tab width (tab 6 right edge 478).
+WINDOW_CX = 560  # Wide enough for the 8-tab strip at the proven 64 px tab width (tab 7 right edge 545).
 WINDOW_CY = 424  # Nameplate tab needs ~356; the extra room lets the Ring-tab graphic combobox (pushed
                  # down a row by the melee-range checkbox) drop its list (bottom ~410) inside the window.
 TAB_Y = 6            # tab-strip row
@@ -165,7 +165,8 @@ def build_controls():
             ("Rcp_TabColors", "Colors", "Nameplate colors"),
             ("Rcp_TabDisplay", "Display", "Display and world settings"),
             ("Rcp_TabRing", "Ring", "Target ring settings"),
-            ("Rcp_TabSounds", "Sounds", "Sound toggles")]
+            ("Rcp_TabSounds", "Sounds", "Sound toggles"),
+            ("Rcp_TabChat", "Chat", "Chat settings")]
     for i, (name, text, tip) in enumerate(tabs):
         c.append((name, button, (name, COL_X + i * (TAB_W + 3), TAB_Y, TAB_W, TAB_H, text, tip)))
 
@@ -315,6 +316,15 @@ def build_controls():
     y += 26
     c.append(("Rcp_SndReset", button, ("Rcp_SndReset", COL_X, y, 220, 20, "Remove selected from list",
                                        "Stop tracking the selected sound; it plays normally again")))
+
+    # ---- Tab 7: Chat (Zeal-style chat timestamps; /timestamp) ----
+    y = CONTENT_Y
+    c.append(("Rcp_Timestamp", button, ("Rcp_Timestamp", COL_X, y, 320, 20, "Show chat timestamps",
+                                        "Prefix every chat line with the local time, the way Zeal does "
+                                        "(default [HH:MM:SS]). Same as /timestamp on|off.")))
+    y += 26
+    c.append(("Rcp_TimestampHint", label, ("Rcp_TimestampHint", COL_X, y, 400, 14,
+                                           "Format is set with  /timestamp format <strftime>")))
     return c
 
 

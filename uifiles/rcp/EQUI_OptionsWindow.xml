@@ -4719,6 +4719,34 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_TabChat">
+    <ScreenID>Rcp_TabChat</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>481</X>
+      <Y>6</Y>
+    </Location>
+    <Size>
+      <CX>64</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Chat settings</TooltipReference>
+    <Text>Chat</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Button item="Rcp_Enabled">
     <ScreenID>Rcp_Enabled</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -6668,6 +6696,54 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_Timestamp">
+    <ScreenID>Rcp_Timestamp</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>320</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Prefix every chat line with the local time, the way Zeal does (default [HH:MM:SS]). Same as /timestamp on|off.</TooltipReference>
+    <Text>Show chat timestamps</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Label item="Rcp_TimestampHint">
+    <ScreenID>Rcp_TimestampHint</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>60</Y>
+    </Location>
+    <Size>
+      <CX>400</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Format is set with  /timestamp format &lt;strftime&gt;</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
   <Screen item="RcpOptions">
     <ScreenID>RcpOptions</ScreenID>
     <RelativePosition>false</RelativePosition>
@@ -6676,7 +6752,7 @@
       <Y>10</Y>
     </Location>
     <Size>
-      <CX>492</CX>
+      <CX>560</CX>
       <CY>424</CY>
     </Size>
     <Text>rof2ClientPlus Options</Text>
@@ -6697,6 +6773,7 @@
     <Pieces>Rcp_TabDisplay</Pieces>
     <Pieces>Rcp_TabRing</Pieces>
     <Pieces>Rcp_TabSounds</Pieces>
+    <Pieces>Rcp_TabChat</Pieces>
     <Pieces>Rcp_Enabled</Pieces>
     <Pieces>Rcp_SensXLabel</Pieces>
     <Pieces>Rcp_SensX</Pieces>
@@ -6781,6 +6858,8 @@
     <Pieces>Rcp_SndVol</Pieces>
     <Pieces>Rcp_SndVolValue</Pieces>
     <Pieces>Rcp_SndReset</Pieces>
+    <Pieces>Rcp_Timestamp</Pieces>
+    <Pieces>Rcp_TimestampHint</Pieces>
   </Screen>
   <!-- RCP-OPTIONS-END -->
 

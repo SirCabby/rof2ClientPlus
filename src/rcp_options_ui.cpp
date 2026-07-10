@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "chase_cam.h"
+#include "chat_timestamp.h"
 #include "commands.h"
 #include "equip_item.h"
 #include "font_overlay.h"
@@ -290,7 +291,7 @@ static void np_read_settings(bool out[7]) {
 // Tab strip child names (index == tab id used throughout).
 static const char *const kTabChildNames[] = {"Rcp_TabMouse",   "Rcp_TabCamera",  "Rcp_TabNameplate",
                                              "Rcp_TabColors", "Rcp_TabDisplay", "Rcp_TabRing",
-                                             "Rcp_TabSounds"};
+                                             "Rcp_TabSounds", "Rcp_TabChat"};
 
 // ---- Window-template delivery (no code in the load path at all) ----
 //
@@ -388,6 +389,8 @@ void RcpOptionsUI::create_window() {
   sl_snd_vol_ = get_child(wnd_, "Rcp_SndVol");
   lbl_snd_vol_ = get_child(wnd_, "Rcp_SndVolValue");
   btn_snd_reset_ = get_child(wnd_, "Rcp_SndReset");
+  cb_timestamp_ = get_child(wnd_, "Rcp_Timestamp");
+  lbl_timestamp_hint_ = get_child(wnd_, "Rcp_TimestampHint");
   logger::logf("[ui] controls bound: tabs=%p,%p,%p,%p mouse(en=%p sx=%p) chase(en=%p dist=%p) np0=%p role0=%p",
                btn_tab_[0], btn_tab_[1], btn_tab_[2], btn_tab_[3], cb_enabled_, sl_sensx_, cb_chase_enabled_,
                sl_chase_dist_, cb_np_[0], btn_role_[0]);
@@ -450,6 +453,8 @@ void RcpOptionsUI::set_active_tab(int tab) {
   void *sounds[] = {lbl_snd_add_,     combo_snd_add_, lbl_snd_list_,  list_snd_,
                     lbl_snd_vol_hdr_, sl_snd_vol_,    lbl_snd_vol_,   btn_snd_reset_};
   for (void *w : sounds) show_window(w, tab == 6);
+  void *chat[] = {cb_timestamp_, lbl_timestamp_hint_};
+  for (void *w : chat) show_window(w, tab == 7);
   // Sync the list contents when the Sounds tab is entered (the CListWnd keeps its rows when hidden, so
   // this only does work when the tracked set actually changed since we last painted it).
   if (tab == 6) refresh_sound_list();
@@ -620,6 +625,7 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_ring_outer_, ring_radius_to_slider(target_ring_settings::get_outer()));
   slider_set(sl_ring_inner_, ring_radius_to_slider(target_ring_settings::get_inner()));
   slider_set(sl_ring_opacity_, ring_opacity_to_slider(target_ring_settings::get_opacity()));
+  checkbox_set(cb_timestamp_, chat_timestamp_settings::get_enabled());
   populate_graphic_combo();  // Refresh the dropdown choices + selection from disk/settings.
   populate_sound_add_combo();  // Refresh the "add sound" choices from the latest history.
   refresh_sound_list();        // Paint the tracked-sound rows + selection.
@@ -665,6 +671,7 @@ void RcpOptionsUI::seed_last_values() {
   last_snd_vol_ = slider_get(sl_snd_vol_);
   last_snd_reset_ = checkbox_get(btn_snd_reset_);
   last_snd_sel_row_ = list_get_cur_sel(list_snd_);
+  last_timestamp_ = checkbox_get(cb_timestamp_);
 }
 
 void RcpOptionsUI::update_labels() {
@@ -749,6 +756,7 @@ void RcpOptionsUI::on_frame() {
     lbl_ring_graphic_hdr_ = combo_ring_graphic_ = cb_ring_spin_ = cb_ring_melee_ = nullptr;
     lbl_snd_add_ = combo_snd_add_ = lbl_snd_list_ = list_snd_ = nullptr;
     lbl_snd_vol_hdr_ = sl_snd_vol_ = lbl_snd_vol_ = btn_snd_reset_ = nullptr;
+    cb_timestamp_ = lbl_timestamp_hint_ = nullptr;
     snd_row_stems_.clear();
     snd_row_texts_.clear();
     snd_add_choices_.clear();
@@ -938,6 +946,13 @@ void RcpOptionsUI::on_frame() {
       const std::string &name = graphic_choices_[gc];
       target_ring_settings::set_graphic(name == "None" ? std::string() : name);
     }
+  }
+
+  // Chat tab: timestamp toggle -> chat_timestamp_settings (applies to the next line + persists).
+  bool ts = checkbox_get(cb_timestamp_);
+  if (ts != last_timestamp_) {
+    chat_timestamp_settings::set_enabled(ts);
+    last_timestamp_ = ts;
   }
 
   // Sounds tab: manage the tracked-sound list (only while it is the active tab).

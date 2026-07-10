@@ -46,7 +46,7 @@ class RcpOptionsUI {
   void populate_sound_add_combo();   // Fill the "add sound" combobox from recently-played untracked sounds.
   void refresh_sound_list();         // Repaint the tracked-sound rows + selection highlight + volume slider.
 
-  static constexpr int kTabCount = 7;   // Mouse / Camera / Nameplate / Colors / Display / Ring / Sounds.
+  static constexpr int kTabCount = 8;   // Mouse / Camera / Nameplate / Colors / Display / Ring / Sounds / Chat.
   static constexpr int kNpCount = 7;    // Nameplate toggle checkboxes (kNpChildNames).
   static constexpr int kRoleCount = 18; // Color roles; == nameplate_colors::count().
 
@@ -120,6 +120,9 @@ class RcpOptionsUI {
   void *sl_snd_vol_ = nullptr;      // Volume of the selected tracked sound (0..100; 0 = mute).
   void *lbl_snd_vol_ = nullptr;
   void *btn_snd_reset_ = nullptr;   // "Remove selected from list" (untrack the selected sound).
+  // Chat tab (Zeal-style chat timestamps; chat_timestamp_settings).
+  void *cb_timestamp_ = nullptr;    // "Show chat timestamps".
+  void *lbl_timestamp_hint_ = nullptr;  // Static hint pointing at /timestamp format.
   bool create_attempted_ = false;
 
   // Tab state.
@@ -169,6 +172,8 @@ class RcpOptionsUI {
   int last_snd_sel_row_ = -1;                 // last CListWnd GetCurSel we saw (detect user row clicks).
   int last_snd_vol_ = -1;
   bool last_snd_reset_ = false;
+  // Chat tab state.
+  bool last_timestamp_ = false;
   // Ring-graphic combobox: the choice list (index -> name, "None" first) currently loaded into the
   // combo, and the last selected index we applied (so the poll only reacts to real user changes).
   std::vector<std::string> graphic_choices_;
