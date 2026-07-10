@@ -13,6 +13,7 @@
 #include "chat_timestamp.h"
 #include "commands.h"
 #include "equip_item.h"
+#include "floating_damage.h"
 #include "font_overlay.h"
 #include "game_functions.h"
 #include "logger.h"
@@ -269,9 +270,24 @@ static int viewdist_to_slider(int units) {
 }
 static int slider_to_viewdist(int v) { return v * kViewDistStep; }
 
-// Sentinel "role" for the ring color button so it reuses the stock color-picker machinery (which is
-// keyed on an int role) without colliding with the 0..kRoleCount-1 nameplate roles.
+// Sentinel "roles" for the non-nameplate color swatches so they reuse the stock color-picker
+// machinery (which is keyed on an int role) without colliding with the 0..kRoleCount-1 nameplate
+// roles. Ring uses 100; the floating-combat-damage swatches use 101..104.
 static constexpr int kRingColorRole = 100;
+static constexpr int kFcdColMineRole = 101;
+static constexpr int kFcdColIncomingRole = 102;
+static constexpr int kFcdColOtherRole = 103;
+static constexpr int kFcdColCritRole = 104;
+
+// Big-hit-threshold slider (Combat tab): 0..100 steps -> 0..2000 damage (20/step). The command can
+// still set a higher threshold (up to floating_damage_settings::big_hit_cap()); the slider clamps.
+static constexpr int kFcdBigSliderMax = 100;
+static constexpr int kFcdBigStep = 20;
+static int fcd_big_to_slider(int dmg) {
+  int v = (dmg + kFcdBigStep / 2) / kFcdBigStep;
+  return v < 0 ? 0 : (v > kFcdBigSliderMax ? kFcdBigSliderMax : v);
+}
+static int fcd_slider_to_big(int v) { return v * kFcdBigStep; }
 
 // Nameplate checkbox child names, in the positional order of nameplate_settings::set
 // (also the order np_read_settings fills). Must stay in sync with cb_np_[]/last_np_[].
@@ -291,7 +307,7 @@ static void np_read_settings(bool out[7]) {
 // Tab strip child names (index == tab id used throughout).
 static const char *const kTabChildNames[] = {"Rcp_TabMouse",   "Rcp_TabCamera",  "Rcp_TabNameplate",
                                              "Rcp_TabColors", "Rcp_TabDisplay", "Rcp_TabRing",
-                                             "Rcp_TabSounds", "Rcp_TabChat"};
+                                             "Rcp_TabSounds", "Rcp_TabChat",    "Rcp_TabCombat"};
 
 // ---- Window-template delivery (no code in the load path at all) ----
 //
@@ -391,6 +407,19 @@ void RcpOptionsUI::create_window() {
   btn_snd_reset_ = get_child(wnd_, "Rcp_SndReset");
   cb_timestamp_ = get_child(wnd_, "Rcp_Timestamp");
   lbl_timestamp_hint_ = get_child(wnd_, "Rcp_TimestampHint");
+  cb_fcd_enabled_ = get_child(wnd_, "Rcp_FcdEnabled");
+  cb_fcd_mine_ = get_child(wnd_, "Rcp_FcdMine");
+  cb_fcd_incoming_ = get_child(wnd_, "Rcp_FcdIncoming");
+  cb_fcd_others_ = get_child(wnd_, "Rcp_FcdOthers");
+  cb_fcd_melee_ = get_child(wnd_, "Rcp_FcdMelee");
+  cb_fcd_spells_ = get_child(wnd_, "Rcp_FcdSpells");
+  sl_fcd_big_ = get_child(wnd_, "Rcp_FcdBig");
+  lbl_fcd_big_hdr_ = get_child(wnd_, "Rcp_FcdBigLabel");
+  lbl_fcd_big_ = get_child(wnd_, "Rcp_FcdBigValue");
+  btn_fcd_col_mine_ = get_child(wnd_, "Rcp_FcdColMine");
+  btn_fcd_col_incoming_ = get_child(wnd_, "Rcp_FcdColIncoming");
+  btn_fcd_col_other_ = get_child(wnd_, "Rcp_FcdColOther");
+  btn_fcd_col_crit_ = get_child(wnd_, "Rcp_FcdColCrit");
   logger::logf("[ui] controls bound: tabs=%p,%p,%p,%p mouse(en=%p sx=%p) chase(en=%p dist=%p) np0=%p role0=%p",
                btn_tab_[0], btn_tab_[1], btn_tab_[2], btn_tab_[3], cb_enabled_, sl_sensx_, cb_chase_enabled_,
                sl_chase_dist_, cb_np_[0], btn_role_[0]);
@@ -407,9 +436,14 @@ void RcpOptionsUI::create_window() {
   slider_set_range(sl_far_, kViewDistSliderMax);    // 0..200 -> 0..20000 world units terrain far clip.
   slider_set_range(sl_actor_, kViewDistSliderMax);  // 0..200 -> 0..20000 world units actor draw distance.
   slider_set_range(sl_snd_vol_, 300);               // 0..300 percent volume (0 = mute, 100 = unchanged, >100 boosts).
+  slider_set_range(sl_fcd_big_, kFcdBigSliderMax);  // 0..100 -> 0..2000 big-hit threshold (Combat tab).
 
   refresh_role_tints();
   set_text_color(btn_ring_color_, target_ring_settings::get_color());  // Ring color swatch (its own color store).
+  set_text_color(btn_fcd_col_mine_, floating_damage_settings::get_color_mine());  // Combat color swatches.
+  set_text_color(btn_fcd_col_incoming_, floating_damage_settings::get_color_incoming());
+  set_text_color(btn_fcd_col_other_, floating_damage_settings::get_color_other());
+  set_text_color(btn_fcd_col_crit_, floating_damage_settings::get_color_crit());
   populate_graphic_combo();     // Fill the ring-graphic dropdown from disk + select the current one.
   populate_sound_add_combo();   // Fill the "add sound" dropdown from recently-played untracked sounds.
   set_active_tab(active_tab_);  // Latch the strip + show only the active group.
@@ -455,6 +489,11 @@ void RcpOptionsUI::set_active_tab(int tab) {
   for (void *w : sounds) show_window(w, tab == 6);
   void *chat[] = {cb_timestamp_, lbl_timestamp_hint_};
   for (void *w : chat) show_window(w, tab == 7);
+  void *combat[] = {cb_fcd_enabled_,  cb_fcd_mine_,     cb_fcd_incoming_,     cb_fcd_others_,
+                    cb_fcd_melee_,    cb_fcd_spells_,   lbl_fcd_big_hdr_,     sl_fcd_big_,
+                    lbl_fcd_big_,     btn_fcd_col_mine_, btn_fcd_col_incoming_, btn_fcd_col_other_,
+                    btn_fcd_col_crit_};
+  for (void *w : combat) show_window(w, tab == 8);
   // Sync the list contents when the Sounds tab is entered (the CListWnd keeps its rows when hidden, so
   // this only does work when the tracked set actually changed since we last painted it).
   if (tab == 6) refresh_sound_list();
@@ -475,11 +514,17 @@ void RcpOptionsUI::open_color_picker(int role) {
     return;
   }
   picker_role_ = role;
-  last_picker_rgb_ = (role == kRingColorRole) ? target_ring_settings::get_color() : nameplate_colors::get(role);
+  switch (role) {
+    case kRingColorRole: last_picker_rgb_ = target_ring_settings::get_color(); break;
+    case kFcdColMineRole: last_picker_rgb_ = floating_damage_settings::get_color_mine(); break;
+    case kFcdColIncomingRole: last_picker_rgb_ = floating_damage_settings::get_color_incoming(); break;
+    case kFcdColOtherRole: last_picker_rgb_ = floating_damage_settings::get_color_other(); break;
+    case kFcdColCritRole: last_picker_rgb_ = floating_damage_settings::get_color_crit(); break;
+    default: last_picker_rgb_ = nameplate_colors::get(role); break;
+  }
   reinterpret_cast<int(__thiscall *)(void *, void *, uint32_t)>(kColorPickerOpen)(
       picker, wnd_, 0xFF000000u | static_cast<uint32_t>(last_picker_rgb_));
-  logger::logf("[ui] color picker opened for %s",
-               role == kRingColorRole ? "target ring" : nameplate_colors::name(role));
+  logger::logf("[ui] color picker opened for role %d", role);
 }
 
 // Rebuild the ring-graphic dropdown from the .tga files on disk and select the current graphic.
@@ -626,6 +671,17 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_ring_inner_, ring_radius_to_slider(target_ring_settings::get_inner()));
   slider_set(sl_ring_opacity_, ring_opacity_to_slider(target_ring_settings::get_opacity()));
   checkbox_set(cb_timestamp_, chat_timestamp_settings::get_enabled());
+  checkbox_set(cb_fcd_enabled_, floating_damage_settings::get_enabled());
+  checkbox_set(cb_fcd_mine_, floating_damage_settings::get_show_mine());
+  checkbox_set(cb_fcd_incoming_, floating_damage_settings::get_show_incoming());
+  checkbox_set(cb_fcd_others_, floating_damage_settings::get_show_others());
+  checkbox_set(cb_fcd_melee_, floating_damage_settings::get_show_melee());
+  checkbox_set(cb_fcd_spells_, floating_damage_settings::get_show_spells());
+  slider_set(sl_fcd_big_, fcd_big_to_slider(floating_damage_settings::get_big_hit()));
+  set_text_color(btn_fcd_col_mine_, floating_damage_settings::get_color_mine());
+  set_text_color(btn_fcd_col_incoming_, floating_damage_settings::get_color_incoming());
+  set_text_color(btn_fcd_col_other_, floating_damage_settings::get_color_other());
+  set_text_color(btn_fcd_col_crit_, floating_damage_settings::get_color_crit());
   populate_graphic_combo();  // Refresh the dropdown choices + selection from disk/settings.
   populate_sound_add_combo();  // Refresh the "add sound" choices from the latest history.
   refresh_sound_list();        // Paint the tracked-sound rows + selection.
@@ -672,6 +728,17 @@ void RcpOptionsUI::seed_last_values() {
   last_snd_reset_ = checkbox_get(btn_snd_reset_);
   last_snd_sel_row_ = list_get_cur_sel(list_snd_);
   last_timestamp_ = checkbox_get(cb_timestamp_);
+  last_fcd_enabled_ = checkbox_get(cb_fcd_enabled_);
+  last_fcd_mine_ = checkbox_get(cb_fcd_mine_);
+  last_fcd_incoming_ = checkbox_get(cb_fcd_incoming_);
+  last_fcd_others_ = checkbox_get(cb_fcd_others_);
+  last_fcd_melee_ = checkbox_get(cb_fcd_melee_);
+  last_fcd_spells_ = checkbox_get(cb_fcd_spells_);
+  last_fcd_big_ = slider_get(sl_fcd_big_);
+  last_fcd_col_mine_ = checkbox_get(btn_fcd_col_mine_);
+  last_fcd_col_incoming_ = checkbox_get(btn_fcd_col_incoming_);
+  last_fcd_col_other_ = checkbox_get(btn_fcd_col_other_);
+  last_fcd_col_crit_ = checkbox_get(btn_fcd_col_crit_);
 }
 
 void RcpOptionsUI::update_labels() {
@@ -718,6 +785,13 @@ void RcpOptionsUI::update_labels() {
   std::snprintf(buf, sizeof(buf), "%.0f%%", target_ring_settings::get_opacity() * 100.0f);
   set_label_text(lbl_ring_opacity_, buf);
   // (The ring-graphic combobox shows its own selection; nothing to refresh here.)
+  // Combat: big-hit threshold ("off" at 0, else the damage value).
+  int fcd_big = floating_damage_settings::get_big_hit();
+  if (fcd_big > 0)
+    std::snprintf(buf, sizeof(buf), "%d", fcd_big);
+  else
+    std::snprintf(buf, sizeof(buf), "off");
+  set_label_text(lbl_fcd_big_, buf);
 }
 
 void RcpOptionsUI::toggle_window() {
@@ -757,6 +831,9 @@ void RcpOptionsUI::on_frame() {
     lbl_snd_add_ = combo_snd_add_ = lbl_snd_list_ = list_snd_ = nullptr;
     lbl_snd_vol_hdr_ = sl_snd_vol_ = lbl_snd_vol_ = btn_snd_reset_ = nullptr;
     cb_timestamp_ = lbl_timestamp_hint_ = nullptr;
+    cb_fcd_enabled_ = cb_fcd_mine_ = cb_fcd_incoming_ = cb_fcd_others_ = cb_fcd_melee_ = cb_fcd_spells_ = nullptr;
+    sl_fcd_big_ = lbl_fcd_big_hdr_ = lbl_fcd_big_ = nullptr;
+    btn_fcd_col_mine_ = btn_fcd_col_incoming_ = btn_fcd_col_other_ = btn_fcd_col_crit_ = nullptr;
     snd_row_stems_.clear();
     snd_row_texts_.clear();
     snd_add_choices_.clear();
@@ -955,6 +1032,69 @@ void RcpOptionsUI::on_frame() {
     last_timestamp_ = ts;
   }
 
+  // Combat tab: floating combat damage toggles + filters (each its own independent setter).
+  bool fe = checkbox_get(cb_fcd_enabled_);
+  if (fe != last_fcd_enabled_) {
+    floating_damage_settings::set_enabled(fe);
+    last_fcd_enabled_ = fe;
+  }
+  bool fm = checkbox_get(cb_fcd_mine_);
+  if (fm != last_fcd_mine_) {
+    floating_damage_settings::set_show_mine(fm);
+    last_fcd_mine_ = fm;
+  }
+  bool fin = checkbox_get(cb_fcd_incoming_);
+  if (fin != last_fcd_incoming_) {
+    floating_damage_settings::set_show_incoming(fin);
+    last_fcd_incoming_ = fin;
+  }
+  bool fo = checkbox_get(cb_fcd_others_);
+  if (fo != last_fcd_others_) {
+    floating_damage_settings::set_show_others(fo);
+    last_fcd_others_ = fo;
+  }
+  bool fml = checkbox_get(cb_fcd_melee_);
+  if (fml != last_fcd_melee_) {
+    floating_damage_settings::set_show_melee(fml);
+    last_fcd_melee_ = fml;
+  }
+  bool fsp = checkbox_get(cb_fcd_spells_);
+  if (fsp != last_fcd_spells_) {
+    floating_damage_settings::set_show_spells(fsp);
+    last_fcd_spells_ = fsp;
+  }
+  int fb = slider_get(sl_fcd_big_);
+  if (fb != last_fcd_big_) {
+    floating_damage_settings::set_big_hit(fcd_slider_to_big(fb));
+    update_labels();
+    last_fcd_big_ = fb;
+  }
+  // Combat color swatches: momentary clicks open the stock picker (sentinel roles), like the ring swatch.
+  bool fcm = checkbox_get(btn_fcd_col_mine_);
+  if (fcm != last_fcd_col_mine_) {
+    checkbox_set(btn_fcd_col_mine_, false);
+    last_fcd_col_mine_ = false;
+    if (fcm) open_color_picker(kFcdColMineRole);
+  }
+  bool fci = checkbox_get(btn_fcd_col_incoming_);
+  if (fci != last_fcd_col_incoming_) {
+    checkbox_set(btn_fcd_col_incoming_, false);
+    last_fcd_col_incoming_ = false;
+    if (fci) open_color_picker(kFcdColIncomingRole);
+  }
+  bool fco = checkbox_get(btn_fcd_col_other_);
+  if (fco != last_fcd_col_other_) {
+    checkbox_set(btn_fcd_col_other_, false);
+    last_fcd_col_other_ = false;
+    if (fco) open_color_picker(kFcdColOtherRole);
+  }
+  bool fcc = checkbox_get(btn_fcd_col_crit_);
+  if (fcc != last_fcd_col_crit_) {
+    checkbox_set(btn_fcd_col_crit_, false);
+    last_fcd_col_crit_ = false;
+    if (fcc) open_color_picker(kFcdColCritRole);
+  }
+
   // Sounds tab: manage the tracked-sound list (only while it is the active tab).
   if (active_tab_ == 6) {
     // Add-from-recent combobox: index 0 is the placeholder; any other pick starts tracking that sound.
@@ -1045,6 +1185,18 @@ void RcpOptionsUI::on_frame() {
             checkbox_set(cb_ring_concolor_, false);
             last_ring_concolor_ = false;
           }
+        } else if (picker_role_ == kFcdColMineRole) {
+          floating_damage_settings::set_color_mine(rgb);
+          set_text_color(btn_fcd_col_mine_, rgb);
+        } else if (picker_role_ == kFcdColIncomingRole) {
+          floating_damage_settings::set_color_incoming(rgb);
+          set_text_color(btn_fcd_col_incoming_, rgb);
+        } else if (picker_role_ == kFcdColOtherRole) {
+          floating_damage_settings::set_color_other(rgb);
+          set_text_color(btn_fcd_col_other_, rgb);
+        } else if (picker_role_ == kFcdColCritRole) {
+          floating_damage_settings::set_color_crit(rgb);
+          set_text_color(btn_fcd_col_crit_, rgb);
         } else {
           nameplate_colors::set(picker_role_, rgb);
           set_text_color(btn_role_[picker_role_], rgb);

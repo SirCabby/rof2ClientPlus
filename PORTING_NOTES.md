@@ -1056,3 +1056,54 @@ disasm-verified against our build — `GetCurSel@0x853430` reads `CurSel@this+0x
 `SetItemText`, preserving scroll position + selection. Row selection is the list's own polled `GetCurSel`
 (no more checkbox rows). This is the first standalone `CListWnd` in the mod — **awaiting in-game verify**
 that a runtime-instantiated list renders, routes row clicks, and scrolls.
+
+---
+
+### Floating combat damage (`/rcpfcd`, `src/floating_damage.{h,cpp}`) - Zeal floating_damage port
+
+Rising/fading damage numbers over each entity as it is struck (the classic Zeal "floating combat
+text"). Off by default; `/rcpfcd` toggles + subcommands, and a new `/rcpoptions` **"Combat" tab**.
+Persisted to `[FloatingDamage]`.
+
+- **Damage source = detour on `CEverQuest::ReportSuccessfulHit` @ `0x52EE40`** (eqlib, which is
+  compiled for our exact `__ClientDate 20130510` build), `bool ReportSuccessfulHit(EQSuccessfulHit*,
+  bool output_text, int)` - a `__thiscall`; detoured with the standard `__fastcall(this, edx, ...)`
+  idiom. This is the same function Zeal hooks on TAKP (Zeal's `0x5297D2`). **The repo's
+  `callbacks.cpp` already had a copy of Zeal's `ReportSuccessfulHit` but with the STALE TAKP offset
+  `0x5297D2` and the TAKP `Damage_Struct` layout, inside the dead/uninstantiated `CallbackManager` -
+  do NOT use it.** The correct RoF2 struct is eqlib's **`EQSuccessfulHit`** (packed): `DamagedID`
+  u16@0, `AttackerID` u16@2, `Skill` u8@4, `SpellID` i32@5, `DamageCaused` i32@9 - field sizes differ
+  from the TAKP `Damage_Struct` (there `type`/`spellid`/`damage` are all 16-bit).
+- **Rendering = 3-D billboard (`SpriteFont`) at the shared pre-UI seam** (`font_overlay::add_scene_draw`),
+  reusing the in-game-confirmed nameplate path + the `arial_bold_24` atlas. Head anchor is the model's
+  name-sprite world pos (`actor@0x101c` -> `CStringSprite@0x204` -> pos@`+0x6c/0x70/0x74`), fallback
+  feet+`AvatarHeight@0x138` - identical to `on_render_nameplates`. Numbers rise in world-Z + fade over
+  ~2.2 s (big hits 3 s, larger, own color). Scale is a per-flush font setting, so normal vs big hits
+  are bucketed into two flushes.
+- **No risky offsets in the hot path.** Categorization (mine / to-me / other) is by comparing the
+  resolved source/target pointers to the `self`/`controlled` globals (`0xDD2630`/`0xDD2644`); pet
+  detection reads eqlib `SpawnID@0x148` / `MasterID@0x38c` (same PlayerBase struct as the confirmed
+  pos/heading offsets) but only inside the crash guard, and a wrong read only mis-colors. Spawn-id ->
+  entity via `Rcp::Game::get_entity_by_id` (`EntityIdArray@0x0078c47c`, size 5000; `pinstSpawnManager
+  0xE641D0` matches eqlib, so the array base is trusted). **Note: `game_structures.h`'s `Entity` struct
+  (SpawnId@0x94, Type@0xa8, Position@0x48) is the STALE TAKP layout - do NOT read spawn fields through
+  it; use the raw eqlib offsets like target_ring/font_overlay do.**
+- **Threading:** the hit detour fires on the main thread, the draw on the render thread. A `std::mutex`
+  guards the active-number list; the detour builds primitives under the crash guard (no lock/dtor
+  inside the guard, so a longjmp can't strand the mutex), then pushes under the lock OUTSIDE the guard;
+  the draw snapshots+expires under the lock, then renders without it.
+- **Options "Combat" tab** (9th tab; window widened to `CX=624`): enable + 5 filter checkboxes
+  (mine/incoming/others/melee/spells) + big-hit threshold slider (0..2000) + 4 color swatches
+  (sentinel picker roles `101..104`, mirroring the ring's `100`). Kept to ONE general tab per user
+  request (avoid granular tabs).
+- **CONFIRMED in-game 2026-07-09.** Tuning constants (`kScaleNormal/Big`, `kBaseLift`, `kRiseWorld`,
+  `kJitter`, durations) are at the top of the .cpp if the size/height/scatter want adjusting.
+- **First-test bug (fixed):** nothing appeared because the spawn-id -> entity lookup used the vendored
+  `Rcp::Game::get_entity_by_id` (flat `EntityIdArray@0x0078c47c`), a **STALE TAKP address on RoF2** that
+  returns a garbage pointer - reading a field off it faulted every hit (the crash guard swallowed
+  `ACCESS_VIOLATION in 'fcd.classify'`, so it failed silently, no numbers). Disasm of ReportSuccessfulHit
+  itself (`mov ecx,[0xE641D0]; push id; call 0x5996E0`) + eqlib gave the real lookup:
+  **`PlayerManagerClient::GetSpawnByID(int) @ 0x5996E0`, this = pinstSpawnManager `*(void**)0xE641D0`,
+  `__thiscall`** - the module now uses a local `get_spawn_by_id()`. The detour ABI and the
+  `EQSuccessfulHit` field reads were correct all along; only the lookup was stale. **General lesson:
+  `get_entity_by_id` is unreliable on RoF2 - prefer `GetSpawnByID@0x5996E0`.**

@@ -46,7 +46,7 @@ class RcpOptionsUI {
   void populate_sound_add_combo();   // Fill the "add sound" combobox from recently-played untracked sounds.
   void refresh_sound_list();         // Repaint the tracked-sound rows + selection highlight + volume slider.
 
-  static constexpr int kTabCount = 8;   // Mouse / Camera / Nameplate / Colors / Display / Ring / Sounds / Chat.
+  static constexpr int kTabCount = 9;   // Mouse / Camera / Nameplate / Colors / Display / Ring / Sounds / Chat / Combat.
   static constexpr int kNpCount = 7;    // Nameplate toggle checkboxes (kNpChildNames).
   static constexpr int kRoleCount = 18; // Color roles; == nameplate_colors::count().
 
@@ -123,6 +123,20 @@ class RcpOptionsUI {
   // Chat tab (Zeal-style chat timestamps; chat_timestamp_settings).
   void *cb_timestamp_ = nullptr;    // "Show chat timestamps".
   void *lbl_timestamp_hint_ = nullptr;  // Static hint pointing at /timestamp format.
+  // Combat tab (floating combat damage; floating_damage_settings).
+  void *cb_fcd_enabled_ = nullptr;
+  void *cb_fcd_mine_ = nullptr;
+  void *cb_fcd_incoming_ = nullptr;
+  void *cb_fcd_others_ = nullptr;
+  void *cb_fcd_melee_ = nullptr;
+  void *cb_fcd_spells_ = nullptr;
+  void *sl_fcd_big_ = nullptr;
+  void *lbl_fcd_big_hdr_ = nullptr;
+  void *lbl_fcd_big_ = nullptr;
+  void *btn_fcd_col_mine_ = nullptr;      // Color swatches: tinted live, open the picker on click.
+  void *btn_fcd_col_incoming_ = nullptr;
+  void *btn_fcd_col_other_ = nullptr;
+  void *btn_fcd_col_crit_ = nullptr;
   bool create_attempted_ = false;
 
   // Tab state.
@@ -174,6 +188,18 @@ class RcpOptionsUI {
   bool last_snd_reset_ = false;
   // Chat tab state.
   bool last_timestamp_ = false;
+  // Combat tab state.
+  bool last_fcd_enabled_ = false;
+  bool last_fcd_mine_ = false;
+  bool last_fcd_incoming_ = false;
+  bool last_fcd_others_ = false;
+  bool last_fcd_melee_ = false;
+  bool last_fcd_spells_ = false;
+  int last_fcd_big_ = -1;
+  bool last_fcd_col_mine_ = false;      // momentary swatch-click latches
+  bool last_fcd_col_incoming_ = false;
+  bool last_fcd_col_other_ = false;
+  bool last_fcd_col_crit_ = false;
   // Ring-graphic combobox: the choice list (index -> name, "None" first) currently loaded into the
   // combo, and the last selected index we applied (so the poll only reacts to real user changes).
   std::vector<std::string> graphic_choices_;

@@ -53,7 +53,7 @@ WHITE = (255, 255, 255)
 YELLOW = (255, 255, 0)
 
 # ---- window + layout ----
-WINDOW_CX = 560  # Wide enough for the 8-tab strip at the proven 64 px tab width (tab 7 right edge 545).
+WINDOW_CX = 624  # Wide enough for the 9-tab strip at the proven 64 px tab width (tab 8 right edge 612).
 WINDOW_CY = 424  # Nameplate tab needs ~356; the extra room lets the Ring-tab graphic combobox (pushed
                  # down a row by the melee-range checkbox) drop its list (bottom ~410) inside the window.
 TAB_Y = 6            # tab-strip row
@@ -166,7 +166,8 @@ def build_controls():
             ("Rcp_TabDisplay", "Display", "Display and world settings"),
             ("Rcp_TabRing", "Ring", "Target ring settings"),
             ("Rcp_TabSounds", "Sounds", "Sound toggles"),
-            ("Rcp_TabChat", "Chat", "Chat settings")]
+            ("Rcp_TabChat", "Chat", "Chat settings"),
+            ("Rcp_TabCombat", "Combat", "Floating combat damage")]
     for i, (name, text, tip) in enumerate(tabs):
         c.append((name, button, (name, COL_X + i * (TAB_W + 3), TAB_Y, TAB_W, TAB_H, text, tip)))
 
@@ -325,6 +326,43 @@ def build_controls():
     y += 26
     c.append(("Rcp_TimestampHint", label, ("Rcp_TimestampHint", COL_X, y, 400, 14,
                                            "Format is set with  /timestamp format <strftime>")))
+
+    # ---- Tab 8: Combat (floating combat damage; /rcpfcd) ----
+    y = CONTENT_Y
+    c.append(("Rcp_FcdEnabled", button, ("Rcp_FcdEnabled", COL_X, y, 260, 20, "Enable floating combat damage",
+                                         "Show rising, fading damage numbers over things as they are hit (/rcpfcd)")))
+    y += 26
+    # Source filters (two columns).
+    c.append(("Rcp_FcdMine", button, ("Rcp_FcdMine", COL_X, y, 150, 20, "My damage",
+                                      "Show damage dealt by you or your pet")))
+    c.append(("Rcp_FcdMelee", button, ("Rcp_FcdMelee", COL_X + 156, y, 110, 20, "Melee",
+                                       "Show melee (non-spell) hits")))
+    y += 22
+    c.append(("Rcp_FcdIncoming", button, ("Rcp_FcdIncoming", COL_X, y, 150, 20, "Damage to me",
+                                          "Show damage dealt to you")))
+    c.append(("Rcp_FcdSpells", button, ("Rcp_FcdSpells", COL_X + 156, y, 110, 20, "Spells",
+                                        "Show spell / non-melee hits")))
+    y += 22
+    c.append(("Rcp_FcdOthers", button, ("Rcp_FcdOthers", COL_X, y, 150, 20, "Others' damage",
+                                        "Show everyone else's damage (mob-on-mob, other players and pets)")))
+    y += 28
+    c.append(("Rcp_FcdBigLabel", label, ("Rcp_FcdBigLabel", COL_X, y, 180, 14, "Big-hit threshold")))
+    c.append(("Rcp_FcdBig", slider, ("Rcp_FcdBig", COL_X, y + 16, SLIDER_W, 16)))
+    c.append(("Rcp_FcdBigValue", label, ("Rcp_FcdBigValue", VAL_X, y + 16, 58, 16, "100", YELLOW)))
+    y += 42
+    # Color swatches: the C++ tints each button's text to the live color and opens the stock color
+    # picker on click (same mechanism as the ring color / nameplate color roles).
+    c.append(("Rcp_FcdColMine", button, ("Rcp_FcdColMine", COL_X, y, 200, 18, "My damage color",
+                                         "Click to pick the color for your own damage")))
+    y += 22
+    c.append(("Rcp_FcdColIncoming", button, ("Rcp_FcdColIncoming", COL_X, y, 200, 18, "Damage-to-me color",
+                                             "Click to pick the color for damage done to you")))
+    y += 22
+    c.append(("Rcp_FcdColOther", button, ("Rcp_FcdColOther", COL_X, y, 200, 18, "Others' damage color",
+                                          "Click to pick the color for everyone else's damage")))
+    y += 22
+    c.append(("Rcp_FcdColCrit", button, ("Rcp_FcdColCrit", COL_X, y, 200, 18, "Big-hit color",
+                                         "Click to pick the color for hits at or above the big-hit threshold")))
     return c
 
 
