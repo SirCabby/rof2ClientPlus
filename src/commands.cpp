@@ -119,6 +119,20 @@ ChatCommands::ChatCommands(RcpService *rcp) {
     print_commands();
     return true;
   });
+  // Short aliases for the native corpse commands, forwarded to the stock client
+  // handler (with any trailing corpse name preserved).
+  Add("/drag", {}, "Alias for /corpsedrag.", [](std::vector<std::string> &args) {
+    std::string cmd = "/corpsedrag";
+    for (size_t i = 1; i < args.size(); ++i) cmd += " " + args[i];
+    ForwardCommand(cmd);
+    return true;
+  });
+  Add("/drop", {}, "Alias for /corpsedrop.", [](std::vector<std::string> &args) {
+    std::string cmd = "/corpsedrop";
+    for (size_t i = 1; i < args.size(); ++i) cmd += " " + args[i];
+    ForwardCommand(cmd);
+    return true;
+  });
   // Feature commands self-register from their own module (e.g. /rcpcam from MouseMods).
   rcp->hooks->Add("commands", Rcp::Game::GameInternal::fn_interpretcmd, InterpretCommand, hook_type_detour);
   logger::logf("[cmd] interpret-command hook installed at 0x%x", Rcp::Game::GameInternal::fn_interpretcmd);
