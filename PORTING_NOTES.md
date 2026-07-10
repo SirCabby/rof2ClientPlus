@@ -1107,3 +1107,63 @@ Persisted to `[FloatingDamage]`.
   `__thiscall`** - the module now uses a local `get_spawn_by_id()`. The detour ABI and the
   `EQSuccessfulHit` field reads were correct all along; only the lookup was stale. **General lesson:
   `get_entity_by_id` is unreliable on RoF2 - prefer `GetSpawnByID@0x5996E0`.**
+
+## Extra /hidecorpses options: always + showlast (`src/hide_corpse.{h,cpp}`) — DONE (awaiting in-game confirm)
+
+**Extends the stock `/hidecorpses` command** (does NOT add a separate command) with the two conveniences
+RoF2 native lacks: `/hidecorpses always` (keep every NPC corpse hidden, including ones that spawn after
+the command) and `/hidecorpses showlast` (reveal the single most-recently-hidden corpse so you can loot
+it). Player corpses (incl. your own) are never hidden. The command hook intercepts `/hidecorpses`, handles
+`always`/`showlast`/`debug` (returns true), and **returns false for the native keywords + no-arg so the
+stock handler still runs** (case-insensitive; `none` also cancels `always` so the scan stops re-hiding).
+
+### Native `/hidecorpses` is plural, one-shot, and server-mediated (so both features are genuinely new)
+- The native command is **`/hidecorpses`** (plural, handler `0x4E78C0`), not `/hidecorpse`. Its option
+  keywords are string-DB resources (not ASCII in the exe — that's why they don't grep): id `0x3395`=ALL,
+  `0x3397`=ALLBUTGROUP, `0x33F6`=LOOTED, `0x18D6`=NPC, plus NONE. Usage text (id 0x3392/0x3393) states
+  *"any corpses created after use of this command will not be hidden"* and *"your own corpse(s) will
+  never be hidden."* Every mode just enqueues the mode to the server via `0x8C51F0` (a mutex-guarded
+  message queue on the connection object `0xDD25AC`) + sets a LOOTED byte at `camera+0x14` (camera =
+  `*(void**)0xDD2660`). There is **no continuous mode, no showlast, and no callable local "hide all
+  spawns" function** — so we add those two keywords to the command itself and forward the native ones.
+
+### Model-hide primitive — reuse the client's own `/hideme` field (do NOT reinvent)
+- **Write `spawn+0x338` (int32): `3001` (0xBB9) = invisible, `0` = visible.** This is exactly what the
+  GM `/hideme` command (handler `0x4FBB40`) toggles. The spawn vtable setter `[+0xD8] = 0x597F30` is
+  literally `mov [ecx+0x338], arg; ret 4`, so a **direct field write is identical to the client's own
+  path and avoids any indirect-call risk** (hide_model/show_model write the field directly, only when it
+  differs, to avoid re-triggering the refresh each frame). eqstr confirms semantics: id 0x3296 "%1 is now
+  Invisible.", 0x3297 "%1 is now Visible." The client's per-frame spawn processing `0x4592B0` reads this
+  field and calls actor-refresh `0x434090` — so the render loop honours it; our EndScene scan re-asserts
+  it every frame, which keeps a corpse hidden even if the client consumes/clears the field between frames.
+  A name-sprite reader at `0x58E822` also treats `[spawn+0x338]>0` as invisible. **Note the offset aliases
+  to a POINTER on a different object class (`0x6C93B9`/`0x70222E`) — only write it on spawns walked from
+  the PlayerManagerClient list, which are PlayerClient-layout.** If a set alone ever fails to re-cull the
+  3D model in-game, add `reinterpret_cast<void(__thiscall*)(void*)>(0x434090)(spawn)` after the write.
+
+### NPC-vs-PC corpse — no clean field; name-shape heuristic (protects your own corpse)
+- `type@0x125` ∈ {0=Player,1=NPC,2=Corpse} only (verified: **no value 3 anywhere**; `IsCorpse` at
+  `0x8CFCD0` = `cmp [ecx+0x125],2`), so it can't tell an NPC corpse from a player corpse — that split is
+  server-side in native `/hidecorpses NPC`. Heuristic: a corpse's display name (`+0xe4`) is
+  "<Base>'s corpse"; take the part before the `'`; if <Base> is a single **capitalized all-alpha token**
+  it's a PLAYER corpse → never hidden (EQ player names can't contain space/digit/underscore, so this
+  always protects your own corpse). Everything else ("a bat", "an orc pawn", "Lord Nagafen",
+  "gnoll_pup039") is hidden. Only miss: a single-token capitalized *named* NPC stays visible.
+  **`/hidecorpses debug`** dumps the target's name/type/`+0x338`/`+0x150`(fork's candidate discriminator,
+  getter `0x8CFCE0`)/spawnid so a clean PC/NPC field can be pinned in-game and replace the heuristic.
+
+### Design + shared offsets
+- Spawn walk (confirmed, shared w/ font_overlay): mgr `*(void**)0xE641D0` → head `+0x08`, next `+0x08`;
+  type `+0x125`; actor(CActorInterface*) `+0x101c`; SpawnID(u32) `+0x148`; name `+0xe4`; self
+  `*(void**)0xDD2630`; target `*(void**)0xDD2648`. Show-last validates via `GetSpawnByID@0x5996E0`
+  (this=`*0xE641D0`), never the stale vendored lookup.
+- `always` = persisted `[HideCorpse] Always`; a `directx::add_render_callback` (EndScene) scan hides
+  every non-revealed NPC corpse and records the most-recently-newly-hidden as "last". `showlast` un-hides
+  that one and adds it to a `revealed` map (validated by id→ptr) so the scan won't re-hide it; toggling
+  `always` off reveals everything we hid. `g_writes_armed` is a master kill-switch (ships true because
+  the field write is safe).
+- **Dead ends (don't retry):** TAKP `ActorInfo->IsInvisible` / `ViewActor->Flags |= 0x40000000` is stale
+  on RoF2 (DPVS engine; the DLL's only 0x40000000 tests are CPUID/format false-positives); the
+  `Active_Corpse` global `0x7f9500` has **0 xrefs** (stale); native `/hidecorpses` can't be driven
+  locally (server round-trip); the CActorInterface `+0x101c` vtable route is 133+ entries with unresolved
+  RTTI — the `/hideme` `+0x338` field is simpler and is the client's own path.

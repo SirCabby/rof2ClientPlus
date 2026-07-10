@@ -15,6 +15,7 @@
 #include "floating_damage.h"
 #include "font_overlay.h"
 #include "game_functions.h"
+#include "hide_corpse.h"
 #include "hook_wrapper.h"
 #include "io_ini.h"
 #include "keybinds.h"
@@ -81,6 +82,8 @@ RcpService::RcpService() {
   sound_mods = std::make_unique<SoundMods>(this);  // /rcpsound: mute sounds by name (Asset::Play detour; thunder to start).
   logger::log("  -> FloatingDamage");
   floating_damage = std::make_unique<FloatingDamage>(this);  // /rcpfcd: floating combat damage numbers (ReportSuccessfulHit detour + billboard).
+  logger::log("  -> HideCorpse");
+  hide_corpse = std::make_unique<HideCorpse>(this);  // /hidecorpses always + showlast: continuous NPC-corpse hiding (render-callback re-assert).
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

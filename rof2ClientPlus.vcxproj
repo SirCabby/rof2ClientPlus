@@ -98,6 +98,7 @@
     <ClCompile Include="src\dllmain.cpp" />
     <ClCompile Include="src\entity_manager.cpp" />
     <ClCompile Include="src\floating_damage.cpp" />
+    <ClCompile Include="src\hide_corpse.cpp" />
     <ClCompile Include="src\game_functions.cpp" />
     <ClCompile Include="src\hooks.cpp" />
     <ClCompile Include="src\hook_wrapper.cpp" />
@@ -130,6 +131,7 @@
     <ClInclude Include="src\directx.h" />
     <ClInclude Include="src\entity_manager.h" />
     <ClInclude Include="src\floating_damage.h" />
+    <ClInclude Include="src\hide_corpse.h" />
     <ClInclude Include="src\game_addresses.h" />
     <ClInclude Include="src\game_functions.h" />
     <ClInclude Include="src\game_packets.h" />

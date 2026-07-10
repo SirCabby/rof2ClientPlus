@@ -71,6 +71,9 @@
     <ClCompile Include="src\floating_damage.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\hide_corpse.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\target_ring.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -179,6 +182,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\floating_damage.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\hide_corpse.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\target_ring.h">
