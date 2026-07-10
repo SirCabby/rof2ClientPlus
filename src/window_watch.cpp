@@ -24,6 +24,7 @@ namespace {
 bool g_self_heal = false;  // Force the window visible/foreground on a broken windowed start. Opt-in.
 bool g_verbose = false;    // Log the chatty window messages (pos-changing, focus) too.
 bool g_guard = true;       // Wrap our detour bodies in the fault net (crash containment). Default on.
+bool g_char_title = true;  // Put the logged-in character's name in the window title. On by default (see sync_title).
 
 constexpr char kIni[] = "Window";
 constexpr DWORD kHealWindowMs = 8000;  // Only self-heal during the window's first few seconds.
@@ -34,6 +35,10 @@ constexpr DWORD kHealthGapMs = 500;
 // ---- Runtime state. ----
 HWND g_hwnd = nullptr;
 WNDPROC g_orig_wndproc = nullptr;
+std::string g_orig_title;     // The client's own window caption, captured at subclass; restored when not in-world.
+std::string g_pending_title;  // Title the wndproc should apply (see WM_SETTITLE handling); render-thread-only, no lock.
+std::string g_posted_title;   // Last title we asked for, so on_frame only re-posts on an actual change.
+UINT g_wm_settitle = 0;       // RegisterWindowMessage id: "apply g_pending_title" - handled in wndproc, off the ProcessGameEvents stack.
 DWORD g_first_seen = 0;
 DWORD g_last_heal = 0;
 DWORD g_last_health = 0;
@@ -45,6 +50,7 @@ void load_settings() {
   if (ini.exists(kIni, "SelfHeal")) g_self_heal = ini.getValue<bool>(kIni, "SelfHeal");
   if (ini.exists(kIni, "VerboseLog")) g_verbose = ini.getValue<bool>(kIni, "VerboseLog");
   if (ini.exists(kIni, "GuardDetours")) g_guard = ini.getValue<bool>(kIni, "GuardDetours");
+  if (ini.exists(kIni, "CharTitle")) g_char_title = ini.getValue<bool>(kIni, "CharTitle");
   rcp_guard::set_enabled(g_guard);
 }
 
@@ -53,6 +59,7 @@ void save_settings() {
   ini.setValue<bool>(kIni, "SelfHeal", g_self_heal);
   ini.setValue<bool>(kIni, "VerboseLog", g_verbose);
   ini.setValue<bool>(kIni, "GuardDetours", g_guard);
+  ini.setValue<bool>(kIni, "CharTitle", g_char_title);
 }
 
 bool belongs_to_us(HWND h) {
@@ -142,6 +149,14 @@ HWND find_main_window() {
 
 // ---- Subclass: log the lifecycle messages that reveal WHY the window vanishes. ----
 LRESULT CALLBACK wndproc_hk(HWND h, UINT msg, WPARAM w, LPARAM l) {
+  // Apply the character-name title here, NOT from sync_title: this fires during the
+  // game's normal message dispatch (top of the loop), so SetWindowTextA is safe - unlike
+  // calling it from inside ProcessGameEvents, which deadlocked under wine. See sync_title.
+  if (msg == g_wm_settitle && g_wm_settitle) {
+    SetWindowTextA(h, g_pending_title.c_str());
+    logger::logf("[win] window title -> '%s'", g_pending_title.c_str());
+    return 0;
+  }
   switch (msg) {
     case WM_ACTIVATEAPP:
       logger::logf("[win] WM_ACTIVATEAPP active=%d", (int)w);
@@ -186,8 +201,41 @@ LRESULT CALLBACK wndproc_hk(HWND h, UINT msg, WPARAM w, LPARAM l) {
 void subclass(HWND h) {
   g_orig_wndproc = reinterpret_cast<WNDPROC>(
       SetWindowLongPtrA(h, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(wndproc_hk)));
-  logger::logf("[win] subclassed main window %p title='%s' orig_wndproc=%p", (void *)h, window_title(h).c_str(),
+  g_orig_title = window_title(h);  // The stock caption, restored whenever we're not in-world.
+  logger::logf("[win] subclassed main window %p title='%s' orig_wndproc=%p", (void *)h, g_orig_title.c_str(),
                (void *)g_orig_wndproc);
+}
+
+// ---- Reflect the logged-in character in the OS window title; restore the stock caption
+// on camp/char-select. Each client is its own process with its own HWND, so multi-boxed
+// windows each show their own character.
+//
+// CRITICAL: this runs from ProcessGameEvents (the game's main loop), which is itself a
+// nested window-message context. Calling SetWindowTextA here dispatches WM_SETTEXT inline
+// through our subclassed wndproc while wine holds window locks -> re-entrant deadlock (it
+// hung the client on the first in-game frame). So we NEVER touch the window synchronously
+// here: we compute the desired title (pure, cheap) and PostMessage a private message
+// (async, never blocks). The actual SetWindowTextA happens in wndproc_hk when the game
+// dispatches that message at the top of its loop - off the ProcessGameEvents stack. Same
+// thread throughout, so g_pending_title needs no lock. Opt-in ([Window] CharTitle). ----
+void sync_title(HWND h) {
+  if (!g_char_title) return;
+  std::string want;
+  if (Rcp::Game::get_gamestate() == GAMESTATE_INGAME) {
+    // pinstLocalPlayer + PlayerBase::Name @ 0xA4 (char[0x40]) - the RoF2 offset proven in-game by
+    // keybinds.cpp::self_name(). NOT Entity.Name@0x000 (stale TAKP layout; that read back "q"), and
+    // NOT Rcp::Game::get_self() (stale TAKP global 0x7F94CC -> garbage ptr -> crash). See chat_shortcuts.cpp.
+    if (char *self = *reinterpret_cast<char **>(0xDD2630)) {
+      const char *name = self + 0xA4;
+      if (name[0]) want = std::string(name) + " - EverQuest";
+    }
+  }
+  if (want.empty()) want = g_orig_title.empty() ? "EverQuest" : g_orig_title;  // Not in-world -> stock caption.
+  if (want == g_posted_title) return;                                          // Only act on a real transition.
+  g_posted_title = want;
+  g_pending_title = want;
+  if (!g_wm_settitle) g_wm_settitle = RegisterWindowMessageA("RofClientPlus_SetWindowTitle");
+  PostMessageA(h, g_wm_settitle, 0, 0);  // Non-blocking; applied later in wndproc_hk.
 }
 
 void log_health(HWND h, const char *tag) {
@@ -296,6 +344,8 @@ void on_frame() {
       heal(g_hwnd, vis, icon, is_fg);
     }
   }
+
+  sync_title(g_hwnd);  // Put the logged-in character's name in the window title (restored on camp).
 }
 
 bool get_self_heal() { return g_self_heal; }
@@ -313,6 +363,12 @@ void set_verbose(bool on) {
 void set_guard(bool on) {
   g_guard = on;
   rcp_guard::set_enabled(on);
+  save_settings();
+}
+bool get_char_title() { return g_char_title; }
+void set_char_title(bool on) {
+  g_char_title = on;
+  g_posted_title.clear();  // On enable, makes sync_title post the current title next frame. (Off = inert.)
   save_settings();
 }
 
@@ -346,11 +402,11 @@ void log_info() {
 
 // ---- /rcpwindow command (self-registers from this module, like the other features). ----
 static void print_status() {
-  char msg[224];
+  char msg[256];
   std::snprintf(msg, sizeof(msg),
-                "rof2ClientPlus window: self-heal=%s | guard-detours=%s | verbose=%s (see rof2ClientPlus.log)",
+                "rof2ClientPlus window: self-heal=%s | guard-detours=%s | verbose=%s | char-title=%s (see rof2ClientPlus.log)",
                 window_watch::get_self_heal() ? "ON" : "OFF", rcp_guard::enabled() ? "ON" : "OFF",
-                window_watch::get_verbose() ? "ON" : "OFF");
+                window_watch::get_verbose() ? "ON" : "OFF", window_watch::get_char_title() ? "ON" : "OFF");
   Rcp::Game::print_chat(msg);
 }
 
@@ -360,7 +416,8 @@ WindowWatch::WindowWatch(RcpService *rcp) : rcp_(rcp) {
   rcp->commands_hook->Add(
       "/rcpwindow", {"/rcpwin"},
       "Windowed-startup diagnostics + self-heal. '/rcpwindow on|off' (self-heal), "
-      "'/rcpwindow guard on|off', '/rcpwindow verbose on|off', '/rcpwindow heal', '/rcpwindow info'.",
+      "'/rcpwindow guard on|off', '/rcpwindow verbose on|off', '/rcpwindow title on|off' (character name in "
+      "window title), '/rcpwindow heal', '/rcpwindow info'.",
       [](std::vector<std::string> &args) {
         auto onoff = [&](size_t i, bool cur) -> bool {
           if (args.size() > i && (args[i] == "on" || args[i] == "1")) return true;
@@ -371,6 +428,8 @@ WindowWatch::WindowWatch(RcpService *rcp) : rcp_(rcp) {
           window_watch::set_guard(onoff(2, window_watch::get_guard()));
         } else if (args.size() >= 2 && args[1] == "verbose") {
           window_watch::set_verbose(onoff(2, window_watch::get_verbose()));
+        } else if (args.size() >= 2 && args[1] == "title") {
+          window_watch::set_char_title(onoff(2, window_watch::get_char_title()));
         } else if (args.size() >= 2 && args[1] == "heal") {
           window_watch::force_heal_now();
           Rcp::Game::print_chat("rof2ClientPlus: forced a window heal (see log).");

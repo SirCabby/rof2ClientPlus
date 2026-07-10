@@ -4523,8 +4523,8 @@
        visibility the mod toggles (a real TabBox does not route input when the
        window is created at runtime). Groups overlap in the same region. -->
 
-  <Button item="Rcp_TabMouse">
-    <ScreenID>Rcp_TabMouse</ScreenID>
+  <Button item="Rcp_TabGeneral">
+    <ScreenID>Rcp_TabGeneral</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
@@ -4535,8 +4535,8 @@
       <CY>20</CY>
     </Size>
     <Style_Checkbox>true</Style_Checkbox>
-    <TooltipReference>Mouse-look settings</TooltipReference>
-    <Text>Mouse</Text>
+    <TooltipReference>General settings</TooltipReference>
+    <Text>General</Text>
     <TextColor>
       <R>255</R>
       <G>255</G>
@@ -4551,8 +4551,8 @@
     </ButtonDrawTemplate>
   </Button>
 
-  <Button item="Rcp_TabCamera">
-    <ScreenID>Rcp_TabCamera</ScreenID>
+  <Button item="Rcp_TabMouse">
+    <ScreenID>Rcp_TabMouse</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>79</X>
@@ -4563,8 +4563,8 @@
       <CY>20</CY>
     </Size>
     <Style_Checkbox>true</Style_Checkbox>
-    <TooltipReference>Chase-camera settings</TooltipReference>
-    <Text>Camera</Text>
+    <TooltipReference>Mouse-look settings</TooltipReference>
+    <Text>Mouse</Text>
     <TextColor>
       <R>255</R>
       <G>255</G>
@@ -4647,7 +4647,7 @@
       <CY>20</CY>
     </Size>
     <Style_Checkbox>true</Style_Checkbox>
-    <TooltipReference>Display and world settings</TooltipReference>
+    <TooltipReference>Display, chase-camera, and world settings</TooltipReference>
     <Text>Display</Text>
     <TextColor>
       <R>255</R>
@@ -4719,39 +4719,11 @@
     </ButtonDrawTemplate>
   </Button>
 
-  <Button item="Rcp_TabChat">
-    <ScreenID>Rcp_TabChat</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>481</X>
-      <Y>6</Y>
-    </Location>
-    <Size>
-      <CX>64</CX>
-      <CY>20</CY>
-    </Size>
-    <Style_Checkbox>true</Style_Checkbox>
-    <TooltipReference>Chat settings</TooltipReference>
-    <Text>Chat</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>255</B>
-    </TextColor>
-    <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
-    </ButtonDrawTemplate>
-  </Button>
-
   <Button item="Rcp_TabCombat">
     <ScreenID>Rcp_TabCombat</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
-      <X>548</X>
+      <X>481</X>
       <Y>6</Y>
     </Location>
     <Size>
@@ -5020,116 +4992,6 @@
       <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
     </ButtonDrawTemplate>
   </Button>
-
-  <Button item="Rcp_ChaseEnabled">
-    <ScreenID>Rcp_ChaseEnabled</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>34</Y>
-    </Location>
-    <Size>
-      <CX>250</CX>
-      <CY>20</CY>
-    </Size>
-    <Style_Checkbox>true</Style_Checkbox>
-    <TooltipReference>Adjust the mouse-wheel third-person chase camera (/rcpchase)</TooltipReference>
-    <Text>Enable chase camera</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>255</B>
-    </TextColor>
-    <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
-    </ButtonDrawTemplate>
-  </Button>
-
-  <Button item="Rcp_ChaseCollision">
-    <ScreenID>Rcp_ChaseCollision</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>56</Y>
-    </Location>
-    <Size>
-      <CX>250</CX>
-      <CY>20</CY>
-    </Size>
-    <Style_Checkbox>true</Style_Checkbox>
-    <TooltipReference>Pull the camera in when world geometry blocks the view</TooltipReference>
-    <Text>Wall collision pull-in</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>255</B>
-    </TextColor>
-    <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
-    </ButtonDrawTemplate>
-  </Button>
-
-  <Label item="Rcp_ChaseDistLabel">
-    <ScreenID>Rcp_ChaseDistLabel</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>82</Y>
-    </Location>
-    <Size>
-      <CX>200</CX>
-      <CY>14</CY>
-    </Size>
-    <Text>Max zoom out (0 = native)</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>255</B>
-    </TextColor>
-    <NoWrap>true</NoWrap>
-  </Label>
-
-  <Slider item="Rcp_ChaseDist">
-    <ScreenID>Rcp_ChaseDist</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>98</Y>
-    </Location>
-    <Size>
-      <CX>190</CX>
-      <CY>16</CY>
-    </Size>
-    <SliderArt>SDT_DefSlider</SliderArt>
-  </Slider>
-
-  <Label item="Rcp_ChaseDistValue">
-    <ScreenID>Rcp_ChaseDistValue</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>208</X>
-      <Y>98</Y>
-    </Location>
-    <Size>
-      <CX>58</CX>
-      <CY>16</CY>
-    </Size>
-    <Text>native</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>0</B>
-    </TextColor>
-    <NoWrap>true</NoWrap>
-  </Label>
 
   <Button item="Rcp_NpBillboard">
     <ScreenID>Rcp_NpBillboard</ScreenID>
@@ -6187,6 +6049,136 @@
     <NoWrap>true</NoWrap>
   </Label>
 
+  <Label item="Rcp_CamHeader">
+    <ScreenID>Rcp_CamHeader</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>154</Y>
+    </Location>
+    <Size>
+      <CX>200</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Chase camera</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Button item="Rcp_ChaseEnabled">
+    <ScreenID>Rcp_ChaseEnabled</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>172</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Adjust the mouse-wheel third-person chase camera (/rcpchase)</TooltipReference>
+    <Text>Enable chase camera</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_ChaseCollision">
+    <ScreenID>Rcp_ChaseCollision</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>194</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Pull the camera in when world geometry blocks the view</TooltipReference>
+    <Text>Wall collision pull-in</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Label item="Rcp_ChaseDistLabel">
+    <ScreenID>Rcp_ChaseDistLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>220</Y>
+    </Location>
+    <Size>
+      <CX>200</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Max zoom out (0 = native)</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Slider item="Rcp_ChaseDist">
+    <ScreenID>Rcp_ChaseDist</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>236</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>16</CY>
+    </Size>
+    <SliderArt>SDT_DefSlider</SliderArt>
+  </Slider>
+
+  <Label item="Rcp_ChaseDistValue">
+    <ScreenID>Rcp_ChaseDistValue</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>208</X>
+      <Y>236</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>native</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
   <Button item="Rcp_RingEnabled">
     <ScreenID>Rcp_RingEnabled</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -6724,12 +6716,40 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_WindowTitle">
+    <ScreenID>Rcp_WindowTitle</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>340</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Put your logged-in character's name in the game window's title bar, restored when you camp. Same as /rcpwindow title.</TooltipReference>
+    <Text>Show character name in window title</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Button item="Rcp_Timestamp">
     <ScreenID>Rcp_Timestamp</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>34</Y>
+      <Y>60</Y>
     </Location>
     <Size>
       <CX>320</CX>
@@ -6757,7 +6777,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>60</Y>
+      <Y>86</Y>
     </Location>
     <Size>
       <CX>400</CX>
@@ -7128,14 +7148,13 @@
     <Style_Minimizebox>true</Style_Minimizebox>
     <Style_Border>true</Style_Border>
     <Style_Sizable>false</Style_Sizable>
+    <Pieces>Rcp_TabGeneral</Pieces>
     <Pieces>Rcp_TabMouse</Pieces>
-    <Pieces>Rcp_TabCamera</Pieces>
     <Pieces>Rcp_TabNameplate</Pieces>
     <Pieces>Rcp_TabColors</Pieces>
     <Pieces>Rcp_TabDisplay</Pieces>
     <Pieces>Rcp_TabRing</Pieces>
     <Pieces>Rcp_TabSounds</Pieces>
-    <Pieces>Rcp_TabChat</Pieces>
     <Pieces>Rcp_TabCombat</Pieces>
     <Pieces>Rcp_Enabled</Pieces>
     <Pieces>Rcp_SensXLabel</Pieces>
@@ -7149,11 +7168,6 @@
     <Pieces>Rcp_SmoothValue</Pieces>
     <Pieces>Rcp_LockMouse</Pieces>
     <Pieces>Rcp_Equip</Pieces>
-    <Pieces>Rcp_ChaseEnabled</Pieces>
-    <Pieces>Rcp_ChaseCollision</Pieces>
-    <Pieces>Rcp_ChaseDistLabel</Pieces>
-    <Pieces>Rcp_ChaseDist</Pieces>
-    <Pieces>Rcp_ChaseDistValue</Pieces>
     <Pieces>Rcp_NpBillboard</Pieces>
     <Pieces>Rcp_NpHpBar</Pieces>
     <Pieces>Rcp_NpManaBar</Pieces>
@@ -7196,6 +7210,12 @@
     <Pieces>Rcp_ActorClipLabel</Pieces>
     <Pieces>Rcp_ActorClip</Pieces>
     <Pieces>Rcp_ActorClipValue</Pieces>
+    <Pieces>Rcp_CamHeader</Pieces>
+    <Pieces>Rcp_ChaseEnabled</Pieces>
+    <Pieces>Rcp_ChaseCollision</Pieces>
+    <Pieces>Rcp_ChaseDistLabel</Pieces>
+    <Pieces>Rcp_ChaseDist</Pieces>
+    <Pieces>Rcp_ChaseDistValue</Pieces>
     <Pieces>Rcp_RingEnabled</Pieces>
     <Pieces>Rcp_RingHideSelf</Pieces>
     <Pieces>Rcp_RingConColor</Pieces>
@@ -7221,6 +7241,7 @@
     <Pieces>Rcp_SndVol</Pieces>
     <Pieces>Rcp_SndVolValue</Pieces>
     <Pieces>Rcp_SndReset</Pieces>
+    <Pieces>Rcp_WindowTitle</Pieces>
     <Pieces>Rcp_Timestamp</Pieces>
     <Pieces>Rcp_TimestampHint</Pieces>
     <Pieces>Rcp_FcdEnabled</Pieces>

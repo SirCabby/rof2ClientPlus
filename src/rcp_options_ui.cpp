@@ -24,6 +24,7 @@
 #include "sound_mods.h"
 #include "target_ring.h"
 #include "view_distance.h"
+#include "window_watch.h"
 
 // ---- stock RoF2 addresses (eqlib offsets + disasm of the client's own usage) ----
 static constexpr int kCreateXWnd = 0x870400;              // CSidlManagerBase::CreateXWndFromTemplate(parent,name)
@@ -304,10 +305,11 @@ static void np_read_settings(bool out[7]) {
   out[6] = nameplate_settings::get_hide_self();
 }
 
-// Tab strip child names (index == tab id used throughout).
-static const char *const kTabChildNames[] = {"Rcp_TabMouse",   "Rcp_TabCamera",  "Rcp_TabNameplate",
-                                             "Rcp_TabColors", "Rcp_TabDisplay", "Rcp_TabRing",
-                                             "Rcp_TabSounds", "Rcp_TabChat",    "Rcp_TabCombat"};
+// Tab strip child names (index == tab id used throughout; must match the tabs[] order in
+// tools/gen_rcp_options_ui.py and the tab == N groups in set_active_tab).
+static const char *const kTabChildNames[] = {"Rcp_TabGeneral", "Rcp_TabMouse",   "Rcp_TabNameplate",
+                                             "Rcp_TabColors",  "Rcp_TabDisplay", "Rcp_TabRing",
+                                             "Rcp_TabSounds",  "Rcp_TabCombat"};
 
 // ---- Window-template delivery (no code in the load path at all) ----
 //
@@ -352,6 +354,7 @@ void RcpOptionsUI::create_window() {
   lbl_sensx_ = get_child(wnd_, "Rcp_SensXValue");
   lbl_sensy_ = get_child(wnd_, "Rcp_SensYValue");
   lbl_smooth_ = get_child(wnd_, "Rcp_SmoothValue");
+  lbl_cam_hdr_ = get_child(wnd_, "Rcp_CamHeader");
   cb_chase_enabled_ = get_child(wnd_, "Rcp_ChaseEnabled");
   cb_chase_collision_ = get_child(wnd_, "Rcp_ChaseCollision");
   sl_chase_dist_ = get_child(wnd_, "Rcp_ChaseDist");
@@ -405,6 +408,7 @@ void RcpOptionsUI::create_window() {
   sl_snd_vol_ = get_child(wnd_, "Rcp_SndVol");
   lbl_snd_vol_ = get_child(wnd_, "Rcp_SndVolValue");
   btn_snd_reset_ = get_child(wnd_, "Rcp_SndReset");
+  cb_windowtitle_ = get_child(wnd_, "Rcp_WindowTitle");
   cb_timestamp_ = get_child(wnd_, "Rcp_Timestamp");
   lbl_timestamp_hint_ = get_child(wnd_, "Rcp_TimestampHint");
   cb_fcd_enabled_ = get_child(wnd_, "Rcp_FcdEnabled");
@@ -458,11 +462,11 @@ void RcpOptionsUI::set_active_tab(int tab) {
     checkbox_set(btn_tab_[i], i == tab);
     last_tab_[i] = (i == tab);
   }
+  void *general[] = {cb_windowtitle_, cb_timestamp_, lbl_timestamp_hint_};
+  for (void *w : general) show_window(w, tab == 0);
   void *mouse[] = {cb_enabled_, lbl_sensx_hdr_,  sl_sensx_,  lbl_sensx_,  lbl_sensy_hdr_, sl_sensy_,
                    lbl_sensy_,  lbl_smooth_hdr_, sl_smooth_, lbl_smooth_, cb_lockmouse_, cb_equip_};
-  void *camera[] = {cb_chase_enabled_, cb_chase_collision_, lbl_chase_dist_hdr_, sl_chase_dist_, lbl_chase_dist_};
-  for (void *w : mouse) show_window(w, tab == 0);
-  for (void *w : camera) show_window(w, tab == 1);
+  for (void *w : mouse) show_window(w, tab == 1);
   show_window(cb_np_billboard_, tab == 2);
   show_window(cb_np_hp_, tab == 2);
   show_window(cb_np_mana_, tab == 2);
@@ -475,8 +479,11 @@ void RcpOptionsUI::set_active_tab(int tab) {
   show_window(sl_np_dist_, tab == 2);
   show_window(lbl_np_dist_, tab == 2);
   for (int i = 0; i < kRoleCount; ++i) show_window(btn_role_[i], tab == 3);
-  void *display[] = {cb_nofog_,      lbl_far_hdr_,   sl_far_,        lbl_far_,
-                     lbl_actor_hdr_, sl_actor_,      lbl_actor_};
+  // The Display tab also carries the chase-camera controls (folded in from the former Camera tab).
+  void *display[] = {cb_nofog_,           lbl_far_hdr_,      sl_far_,             lbl_far_,
+                     lbl_actor_hdr_,      sl_actor_,         lbl_actor_,
+                     lbl_cam_hdr_,        cb_chase_enabled_, cb_chase_collision_,
+                     lbl_chase_dist_hdr_, sl_chase_dist_,    lbl_chase_dist_};
   for (void *w : display) show_window(w, tab == 4);
   void *ring[] = {cb_ring_enabled_,   cb_ring_hideself_,    cb_ring_concolor_,  cb_ring_melee_, btn_ring_color_,
                   lbl_ring_outer_hdr_, sl_ring_outer_,       lbl_ring_outer_,
@@ -487,13 +494,11 @@ void RcpOptionsUI::set_active_tab(int tab) {
   void *sounds[] = {lbl_snd_add_,     combo_snd_add_, lbl_snd_list_,  list_snd_,
                     lbl_snd_vol_hdr_, sl_snd_vol_,    lbl_snd_vol_,   btn_snd_reset_};
   for (void *w : sounds) show_window(w, tab == 6);
-  void *chat[] = {cb_timestamp_, lbl_timestamp_hint_};
-  for (void *w : chat) show_window(w, tab == 7);
   void *combat[] = {cb_fcd_enabled_,  cb_fcd_mine_,     cb_fcd_incoming_,     cb_fcd_others_,
                     cb_fcd_melee_,    cb_fcd_spells_,   lbl_fcd_big_hdr_,     sl_fcd_big_,
                     lbl_fcd_big_,     btn_fcd_col_mine_, btn_fcd_col_incoming_, btn_fcd_col_other_,
                     btn_fcd_col_crit_};
-  for (void *w : combat) show_window(w, tab == 8);
+  for (void *w : combat) show_window(w, tab == 7);
   // Sync the list contents when the Sounds tab is entered (the CListWnd keeps its rows when hidden, so
   // this only does work when the tracked set actually changed since we last painted it).
   if (tab == 6) refresh_sound_list();
@@ -670,6 +675,7 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_ring_outer_, ring_radius_to_slider(target_ring_settings::get_outer()));
   slider_set(sl_ring_inner_, ring_radius_to_slider(target_ring_settings::get_inner()));
   slider_set(sl_ring_opacity_, ring_opacity_to_slider(target_ring_settings::get_opacity()));
+  checkbox_set(cb_windowtitle_, window_watch::get_char_title());
   checkbox_set(cb_timestamp_, chat_timestamp_settings::get_enabled());
   checkbox_set(cb_fcd_enabled_, floating_damage_settings::get_enabled());
   checkbox_set(cb_fcd_mine_, floating_damage_settings::get_show_mine());
@@ -727,6 +733,7 @@ void RcpOptionsUI::seed_last_values() {
   last_snd_vol_ = slider_get(sl_snd_vol_);
   last_snd_reset_ = checkbox_get(btn_snd_reset_);
   last_snd_sel_row_ = list_get_cur_sel(list_snd_);
+  last_windowtitle_ = checkbox_get(cb_windowtitle_);
   last_timestamp_ = checkbox_get(cb_timestamp_);
   last_fcd_enabled_ = checkbox_get(cb_fcd_enabled_);
   last_fcd_mine_ = checkbox_get(cb_fcd_mine_);
@@ -817,7 +824,7 @@ void RcpOptionsUI::on_frame() {
   if (!Rcp::Game::is_in_game()) {
     wnd_ = cb_enabled_ = cb_lockmouse_ = cb_equip_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
     lbl_sensx_hdr_ = lbl_sensy_hdr_ = lbl_smooth_hdr_ = lbl_sensx_ = lbl_sensy_ = lbl_smooth_ = nullptr;
-    cb_chase_enabled_ = cb_chase_collision_ = sl_chase_dist_ = lbl_chase_dist_hdr_ = lbl_chase_dist_ = nullptr;
+    lbl_cam_hdr_ = cb_chase_enabled_ = cb_chase_collision_ = sl_chase_dist_ = lbl_chase_dist_hdr_ = lbl_chase_dist_ = nullptr;
     sl_blink_ = lbl_blink_hdr_ = lbl_blink_ = nullptr;
     cb_np_billboard_ = cb_np_hp_ = cb_np_mana_ = cb_np_stam_ = nullptr;
     sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
@@ -830,7 +837,7 @@ void RcpOptionsUI::on_frame() {
     lbl_ring_graphic_hdr_ = combo_ring_graphic_ = cb_ring_spin_ = cb_ring_melee_ = nullptr;
     lbl_snd_add_ = combo_snd_add_ = lbl_snd_list_ = list_snd_ = nullptr;
     lbl_snd_vol_hdr_ = sl_snd_vol_ = lbl_snd_vol_ = btn_snd_reset_ = nullptr;
-    cb_timestamp_ = lbl_timestamp_hint_ = nullptr;
+    cb_windowtitle_ = cb_timestamp_ = lbl_timestamp_hint_ = nullptr;
     cb_fcd_enabled_ = cb_fcd_mine_ = cb_fcd_incoming_ = cb_fcd_others_ = cb_fcd_melee_ = cb_fcd_spells_ = nullptr;
     sl_fcd_big_ = lbl_fcd_big_hdr_ = lbl_fcd_big_ = nullptr;
     btn_fcd_col_mine_ = btn_fcd_col_incoming_ = btn_fcd_col_other_ = btn_fcd_col_crit_ = nullptr;
@@ -1025,7 +1032,14 @@ void RcpOptionsUI::on_frame() {
     }
   }
 
-  // Chat tab: timestamp toggle -> chat_timestamp_settings (applies to the next line + persists).
+  // General tab: window-title toggle -> window_watch (character name in the OS window title; persists).
+  bool wt = checkbox_get(cb_windowtitle_);
+  if (wt != last_windowtitle_) {
+    window_watch::set_char_title(wt);
+    last_windowtitle_ = wt;
+  }
+
+  // General tab: timestamp toggle -> chat_timestamp_settings (applies to the next line + persists).
   bool ts = checkbox_get(cb_timestamp_);
   if (ts != last_timestamp_) {
     chat_timestamp_settings::set_enabled(ts);

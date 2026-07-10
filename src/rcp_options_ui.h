@@ -1,6 +1,7 @@
 // rof2ClientPlus - options-window UI (stock RoF2 SIDL/EQUI port).
 //
-// A native SIDL options window, TABBED: Mouse / Camera / Nameplate / Colors / Display.
+// A native SIDL options window, TABBED: General / Mouse / Nameplate / Colors /
+// Display (which now includes the chase-camera controls) / Ring / Sounds / Combat.
 // The tab strip is a row of checkbox buttons + per-tab control groups whose
 // visibility this class toggles (a real SIDL TabBox renders but does not route
 // mouse input when the window is instantiated at runtime, so only proven
@@ -46,7 +47,7 @@ class RcpOptionsUI {
   void populate_sound_add_combo();   // Fill the "add sound" combobox from recently-played untracked sounds.
   void refresh_sound_list();         // Repaint the tracked-sound rows + selection highlight + volume slider.
 
-  static constexpr int kTabCount = 9;   // Mouse / Camera / Nameplate / Colors / Display / Ring / Sounds / Chat / Combat.
+  static constexpr int kTabCount = 8;   // General / Mouse / Nameplate / Colors / Display / Ring / Sounds / Combat.
   static constexpr int kNpCount = 7;    // Nameplate toggle checkboxes (kNpChildNames).
   static constexpr int kRoleCount = 18; // Color roles; == nameplate_colors::count().
 
@@ -65,7 +66,8 @@ class RcpOptionsUI {
   void *lbl_sensx_ = nullptr;       // numeric value labels
   void *lbl_sensy_ = nullptr;
   void *lbl_smooth_ = nullptr;
-  // Camera tab.
+  // Chase-camera controls (shown at the bottom of the Display tab; formerly their own Camera tab).
+  void *lbl_cam_hdr_ = nullptr;  // "Chase camera" section header.
   void *cb_chase_enabled_ = nullptr;
   void *cb_chase_collision_ = nullptr;
   void *sl_chase_dist_ = nullptr;
@@ -120,8 +122,9 @@ class RcpOptionsUI {
   void *sl_snd_vol_ = nullptr;      // Volume of the selected tracked sound (0..100; 0 = mute).
   void *lbl_snd_vol_ = nullptr;
   void *btn_snd_reset_ = nullptr;   // "Remove selected from list" (untrack the selected sound).
-  // Chat tab (Zeal-style chat timestamps; chat_timestamp_settings).
-  void *cb_timestamp_ = nullptr;    // "Show chat timestamps".
+  // General tab (window title + Zeal-style chat timestamps).
+  void *cb_windowtitle_ = nullptr;  // "Show character name in window title" (window_watch::set_char_title).
+  void *cb_timestamp_ = nullptr;    // "Show chat timestamps" (chat_timestamp_settings).
   void *lbl_timestamp_hint_ = nullptr;  // Static hint pointing at /timestamp format.
   // Combat tab (floating combat damage; floating_damage_settings).
   void *cb_fcd_enabled_ = nullptr;
@@ -186,7 +189,8 @@ class RcpOptionsUI {
   int last_snd_sel_row_ = -1;                 // last CListWnd GetCurSel we saw (detect user row clicks).
   int last_snd_vol_ = -1;
   bool last_snd_reset_ = false;
-  // Chat tab state.
+  // General tab state.
+  bool last_windowtitle_ = false;
   bool last_timestamp_ = false;
   // Combat tab state.
   bool last_fcd_enabled_ = false;

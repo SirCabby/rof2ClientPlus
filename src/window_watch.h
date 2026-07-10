@@ -37,9 +37,11 @@ void on_frame();
 bool get_self_heal();
 bool get_verbose();
 bool get_guard();  // Detour fault-net (rcp_guard) - owned here so it persists.
+bool get_char_title();  // /rcpwindow title - show the logged-in character's name in the window title.
 void set_self_heal(bool on);
 void set_verbose(bool on);
 void set_guard(bool on);
+void set_char_title(bool on);
 void force_heal_now();  // /rcpwindow heal - apply one corrective pass immediately.
 void log_info();        // /rcpwindow info - dump current window state + sibling scan.
 }  // namespace window_watch

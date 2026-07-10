@@ -53,7 +53,7 @@ WHITE = (255, 255, 255)
 YELLOW = (255, 255, 0)
 
 # ---- window + layout ----
-WINDOW_CX = 624  # Wide enough for the 9-tab strip at the proven 64 px tab width (tab 8 right edge 612).
+WINDOW_CX = 624  # Wide enough for the 8-tab strip at the proven 64 px tab width (tab 7 right edge 545), with headroom.
 WINDOW_CY = 424  # Nameplate tab needs ~356; the extra room lets the Ring-tab graphic combobox (pushed
                  # down a row by the melee-range checkbox) drop its list (bottom ~410) inside the window.
 TAB_Y = 6            # tab-strip row
@@ -159,19 +159,18 @@ def build_controls():
     c = []
 
     # ---- Tab strip (checkbox buttons; C++ enforces radio behavior) ----
-    tabs = [("Rcp_TabMouse", "Mouse", "Mouse-look settings"),
-            ("Rcp_TabCamera", "Camera", "Chase-camera settings"),
+    tabs = [("Rcp_TabGeneral", "General", "General settings"),
+            ("Rcp_TabMouse", "Mouse", "Mouse-look settings"),
             ("Rcp_TabNameplate", "Nameplate", "Nameplate toggles"),
             ("Rcp_TabColors", "Colors", "Nameplate colors"),
-            ("Rcp_TabDisplay", "Display", "Display and world settings"),
+            ("Rcp_TabDisplay", "Display", "Display, chase-camera, and world settings"),
             ("Rcp_TabRing", "Ring", "Target ring settings"),
             ("Rcp_TabSounds", "Sounds", "Sound toggles"),
-            ("Rcp_TabChat", "Chat", "Chat settings"),
             ("Rcp_TabCombat", "Combat", "Floating combat damage")]
     for i, (name, text, tip) in enumerate(tabs):
         c.append((name, button, (name, COL_X + i * (TAB_W + 3), TAB_Y, TAB_W, TAB_H, text, tip)))
 
-    # ---- Tab 0: Mouse ----
+    # ---- Tab 1: Mouse ----
     y = CONTENT_Y
     c.append(("Rcp_Enabled", button, ("Rcp_Enabled", COL_X, y, 250, 20, "Enable mouse-look sensitivity",
                                       "Enable rof2ClientPlus mouse-look sensitivity")))
@@ -195,17 +194,7 @@ def build_controls():
                                     "Right-click a wearable item in a bag to auto-equip it into the best slot "
                                     "(a clicky item casts instead; Alt+right-click equips it). Same as /rcpequip.")))
 
-    # ---- Tab 1: Camera (chase) ----
-    y = CONTENT_Y
-    c.append(("Rcp_ChaseEnabled", button, ("Rcp_ChaseEnabled", COL_X, y, 250, 20, "Enable chase camera",
-                                           "Adjust the mouse-wheel third-person chase camera (/rcpchase)")))
-    y += 22
-    c.append(("Rcp_ChaseCollision", button, ("Rcp_ChaseCollision", COL_X, y, 250, 20, "Wall collision pull-in",
-                                             "Pull the camera in when world geometry blocks the view")))
-    y += 26
-    c.append(("Rcp_ChaseDistLabel", label, ("Rcp_ChaseDistLabel", COL_X, y, 200, 14, "Max zoom out (0 = native)")))
-    c.append(("Rcp_ChaseDist", slider, ("Rcp_ChaseDist", COL_X, y + 16, SLIDER_W, 16)))
-    c.append(("Rcp_ChaseDistValue", label, ("Rcp_ChaseDistValue", VAL_X, y + 16, 58, 16, "native", YELLOW)))
+    # (The former Camera tab's chase-camera controls now live at the bottom of the Display tab.)
 
     # ---- Tab 2: Nameplate (custom billboard + color toggles + sliders) ----
     # (Name generation is always active - not an option.)
@@ -247,7 +236,7 @@ def build_controls():
         c.append((f"Rcp_Role{i}", button, (f"Rcp_Role{i}", COL_X + col * 132, CONTENT_Y + row * 20, 128, 18, role,
                                            f"Edit the '{role}' nameplate color")))
 
-    # ---- Tab 4: Display ----
+    # ---- Tab 4: Display (world/display settings + the former Camera tab's chase controls) ----
     y = CONTENT_Y
     c.append(("Rcp_NoFog", button, ("Rcp_NoFog", COL_X, y, 250, 20, "Remove distance fog",
                                     "Remove the client's distance fog haze in every zone, day and night (/rcpfog)")))
@@ -259,6 +248,19 @@ def build_controls():
     c.append(("Rcp_ActorClipLabel", label, ("Rcp_ActorClipLabel", COL_X, y, 190, 14, "Actor distance (0 = off)")))
     c.append(("Rcp_ActorClip", slider, ("Rcp_ActorClip", COL_X, y + 16, SLIDER_W, 16)))
     c.append(("Rcp_ActorClipValue", label, ("Rcp_ActorClipValue", VAL_X, y + 16, 58, 16, "off", YELLOW)))
+    y += 48
+    # Chase camera (folded in from the former Camera tab; C++ shows these with the Display group).
+    c.append(("Rcp_CamHeader", label, ("Rcp_CamHeader", COL_X, y, 200, 14, "Chase camera", YELLOW)))
+    y += 18
+    c.append(("Rcp_ChaseEnabled", button, ("Rcp_ChaseEnabled", COL_X, y, 250, 20, "Enable chase camera",
+                                           "Adjust the mouse-wheel third-person chase camera (/rcpchase)")))
+    y += 22
+    c.append(("Rcp_ChaseCollision", button, ("Rcp_ChaseCollision", COL_X, y, 250, 20, "Wall collision pull-in",
+                                             "Pull the camera in when world geometry blocks the view")))
+    y += 26
+    c.append(("Rcp_ChaseDistLabel", label, ("Rcp_ChaseDistLabel", COL_X, y, 200, 14, "Max zoom out (0 = native)")))
+    c.append(("Rcp_ChaseDist", slider, ("Rcp_ChaseDist", COL_X, y + 16, SLIDER_W, 16)))
+    c.append(("Rcp_ChaseDistValue", label, ("Rcp_ChaseDistValue", VAL_X, y + 16, 58, 16, "native", YELLOW)))
 
     # ---- Tab 5: Target ring (solid-color donut under the target; /rcpring) ----
     y = CONTENT_Y
@@ -318,8 +320,12 @@ def build_controls():
     c.append(("Rcp_SndReset", button, ("Rcp_SndReset", COL_X, y, 220, 20, "Remove selected from list",
                                        "Stop tracking the selected sound; it plays normally again")))
 
-    # ---- Tab 7: Chat (Zeal-style chat timestamps; /timestamp) ----
+    # ---- Tab 0: General (window title + chat timestamps) ----
     y = CONTENT_Y
+    c.append(("Rcp_WindowTitle", button, ("Rcp_WindowTitle", COL_X, y, 340, 20, "Show character name in window title",
+                                          "Put your logged-in character's name in the game window's title bar, "
+                                          "restored when you camp. Same as /rcpwindow title.")))
+    y += 26
     c.append(("Rcp_Timestamp", button, ("Rcp_Timestamp", COL_X, y, 320, 20, "Show chat timestamps",
                                         "Prefix every chat line with the local time, the way Zeal does "
                                         "(default [HH:MM:SS]). Same as /timestamp on|off.")))
@@ -327,7 +333,7 @@ def build_controls():
     c.append(("Rcp_TimestampHint", label, ("Rcp_TimestampHint", COL_X, y, 400, 14,
                                            "Format is set with  /timestamp format <strftime>")))
 
-    # ---- Tab 8: Combat (floating combat damage; /rcpfcd) ----
+    # ---- Tab 7: Combat (floating combat damage; /rcpfcd) ----
     y = CONTENT_Y
     c.append(("Rcp_FcdEnabled", button, ("Rcp_FcdEnabled", COL_X, y, 260, 20, "Enable floating combat damage",
                                          "Show rising, fading damage numbers over things as they are hit (/rcpfcd)")))
