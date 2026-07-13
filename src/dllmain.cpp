@@ -12,6 +12,7 @@
 // sits inside our constructor it cannot also be running the loop.
 #include <windows.h>
 
+#include "aa_exp.h"
 #include "crash_handler.h"
 #include "directx.h"
 #include "hook_wrapper.h"
@@ -67,6 +68,9 @@ static int __cdecl ProcessGameEvents_hk() {
     // Window diagnostics + opt-in self-heal run every frame regardless of service
     // state (they only need the main window, which exists by the time we get here).
     window_watch::on_frame();
+    // Auto-AA-experience enforcement (self-gating: no-op unless enabled + in-game;
+    // its own throttle + rcp_guard). Namespace fn like window_watch, driven here.
+    aa_exp::on_frame();
     mouse_settings::apply_cursor_lock();
     return g_boot->hook_map["ProcessGameEvents"]->original(ProcessGameEvents_hk)();
 }

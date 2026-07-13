@@ -11,6 +11,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\aa_exp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\binds.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -106,6 +109,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\aa_exp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="src\binds.h">
       <Filter>Header Files</Filter>
     </ClInclude>

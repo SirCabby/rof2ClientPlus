@@ -1167,3 +1167,40 @@ stock handler still runs** (case-insensitive; `none` also cancels `always` so th
   `Active_Corpse` global `0x7f9500` has **0 xrefs** (stale); native `/hidecorpses` can't be driven
   locally (server round-trip); the CActorInterface `+0x101c` vtable route is 133+ entries with unresolved
   RTTI — the `/hideme` `+0x338` field is simpler and is the client's own path.
+
+---
+
+## Automatic AA experience (`src/aa_exp.cpp`, `/rcpaaexp`) — DONE (awaiting in-game confirm)
+
+Gate AA experience on/off by how far into the current level you are: pick a THRESHOLD (0-100% of the
+current level's XP bar) and an ACTIVE % (0-100%, snapped to native 10% steps). Each ~1s tick, in game:
+`level XP% < threshold → set AA % to 0`, else `→ set AA % to ACTIVE`. Enable + both sliders live on the
+**General tab** of `/rcpoptions` (`Rcp_AaExpEnabled` / `Rcp_AaExpThresh` / `Rcp_AaExpActive` +
+`Rcp_AaExpStatus` live readout). `[Experience]` ini, off by default. Enforcement runs from
+`ProcessGameEvents_hk` (`aa_exp::on_frame`, throttled + `rcp_guard`), like `window_watch`.
+
+**Why a bare field write is not enough:** the SERVER owns the level-XP-vs-AA split; the client only tells
+it "my AA % is N" when the AA-window slider moves. So the mod must reproduce that write+send.
+
+**Verified levers (disasm-confirmed against 4+ independent sites; `pLocalPC = *(void**)0xDD261C`):**
+- `PercentEXPtoAA` — **`pLocalPC + 0x2081`** (uint8, 0..100). This IS the AA-window slider value. Read at
+  `0x607c48`, `0x60a125`; the native +/- buttons step it ±10 clamped to 0x64 at `0x60aaee` / `0x60ab21`.
+- `Exp` — **`pLocalPC + 0x2910`** (int64), experience **WITHIN the current level, range 0..330** (NOT
+  cumulative; hi dword forced 0 at `0x4b707c`). **level XP% = `Exp * 100 / 330`** (client const 100/330 =
+  `0x9fb5f8`). eqlib comment: "divide with 3.30f and you get the percent."
+- **Set + server-sync = write the byte, then `call 0x607C40`** — `void __cdecl(void)`, no args: it reads
+  `pLocalPC+0x2081`, builds the 18-byte packet at `0xDD00E0` (logical opcode **`0x424e`**, flag 1=on/2=off
+  at +2, value at +0xE), and sends on `UdpConnection::Send`(`0x8C51F0`) channel 4. Bails if world
+  (`*0xDD25AC`) is null, so it is safe off-world. This is exactly what CAAWnd's +/- handlers call.
+- Optional cosmetic repaint if the AA window is open: `CAAWnd::Update` `0x609F90` (`this = *(void**)0xD1FC20`,
+  guard non-null). Not needed for the packet.
+
+**KEY OFFSET GOTCHA:** these exp/AA data fields are at `pLocalPC + offset` **directly** — NOT via the
+`+0x2DC8` `CharacterZoneClient` base. That `+0x2DC8` is only the `this` for the `Cur_/Max_` **vtable**
+accessors (see `chat_shortcuts.cpp` HP/mana); the raw fields are pLocalPC-relative (eqlib PcClient
+offset-comments, confirmed in disasm: same fn `0x762468` does `lea 0x2dc8; call Cur_HP` for HP but reads
+Exp/AAExp with no adjustment).
+
+**Caveat (untested):** at MAX level the within-level `Exp` reporting is unverified — if it reads 0 the gate
+would force AA to 0 there. Disable the feature at max level if it misbehaves. The server-side `OP_*` name
+for opcode `0x424e` is not in the client binary (would need the emu opcode map); not needed by the mod.

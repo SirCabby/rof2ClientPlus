@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "aa_exp.h"
 #include "chase_cam.h"
 #include "chat_timestamp.h"
 #include "commands.h"
@@ -261,6 +262,17 @@ static int ring_opacity_to_slider(float a) {
 }
 static float ring_slider_to_opacity(int v) { return v / static_cast<float>(kRingOpacitySliderMax); }
 
+// Automatic-AA sliders (General tab): the threshold slider is identity 0..100 (percent into the
+// current level). The "active %" slider has 11 stops (0..10) mapping to 0,10,..,100 - the native
+// AA granularity - so the thumb never drifts against aa_exp_settings' snap-to-10.
+static constexpr int kAaThreshSliderMax = 100;
+static constexpr int kAaActiveSliderMax = 10;
+static int aa_active_to_slider(int pct) {
+  int v = (pct + 5) / 10;
+  return v < 0 ? 0 : (v > kAaActiveSliderMax ? kAaActiveSliderMax : v);
+}
+static int aa_slider_to_active(int v) { return v * 10; }
+
 // View-distance sliders (Display tab), shared by terrain far clip + actor clip: 0..200 steps ->
 // 0..20000 world units (100 units/step). Raw 0 == the layer off (client default).
 static constexpr int kViewDistSliderMax = 200;
@@ -411,6 +423,15 @@ void RcpOptionsUI::create_window() {
   cb_windowtitle_ = get_child(wnd_, "Rcp_WindowTitle");
   cb_timestamp_ = get_child(wnd_, "Rcp_Timestamp");
   lbl_timestamp_hint_ = get_child(wnd_, "Rcp_TimestampHint");
+  lbl_aa_hdr_ = get_child(wnd_, "Rcp_AaExpHeader");
+  cb_aa_enabled_ = get_child(wnd_, "Rcp_AaExpEnabled");
+  lbl_aa_thresh_hdr_ = get_child(wnd_, "Rcp_AaExpThreshLabel");
+  sl_aa_thresh_ = get_child(wnd_, "Rcp_AaExpThresh");
+  lbl_aa_thresh_ = get_child(wnd_, "Rcp_AaExpThreshValue");
+  lbl_aa_active_hdr_ = get_child(wnd_, "Rcp_AaExpActiveLabel");
+  sl_aa_active_ = get_child(wnd_, "Rcp_AaExpActive");
+  lbl_aa_active_ = get_child(wnd_, "Rcp_AaExpActiveValue");
+  lbl_aa_status_ = get_child(wnd_, "Rcp_AaExpStatus");
   cb_fcd_enabled_ = get_child(wnd_, "Rcp_FcdEnabled");
   cb_fcd_mine_ = get_child(wnd_, "Rcp_FcdMine");
   cb_fcd_incoming_ = get_child(wnd_, "Rcp_FcdIncoming");
@@ -441,6 +462,8 @@ void RcpOptionsUI::create_window() {
   slider_set_range(sl_actor_, kViewDistSliderMax);  // 0..200 -> 0..20000 world units actor draw distance.
   slider_set_range(sl_snd_vol_, 300);               // 0..300 percent volume (0 = mute, 100 = unchanged, >100 boosts).
   slider_set_range(sl_fcd_big_, kFcdBigSliderMax);  // 0..100 -> 0..2000 big-hit threshold (Combat tab).
+  slider_set_range(sl_aa_thresh_, kAaThreshSliderMax);  // 0..100 percent into the current level (General tab).
+  slider_set_range(sl_aa_active_, kAaActiveSliderMax);  // 0..10 -> 0..100 AA% in native 10% steps.
 
   refresh_role_tints();
   set_text_color(btn_ring_color_, target_ring_settings::get_color());  // Ring color swatch (its own color store).
@@ -462,7 +485,9 @@ void RcpOptionsUI::set_active_tab(int tab) {
     checkbox_set(btn_tab_[i], i == tab);
     last_tab_[i] = (i == tab);
   }
-  void *general[] = {cb_windowtitle_, cb_timestamp_, lbl_timestamp_hint_};
+  void *general[] = {cb_windowtitle_,    cb_timestamp_,      lbl_timestamp_hint_, lbl_aa_hdr_,
+                     cb_aa_enabled_,     lbl_aa_thresh_hdr_, sl_aa_thresh_,       lbl_aa_thresh_,
+                     lbl_aa_active_hdr_, sl_aa_active_,      lbl_aa_active_,      lbl_aa_status_};
   for (void *w : general) show_window(w, tab == 0);
   void *mouse[] = {cb_enabled_, lbl_sensx_hdr_,  sl_sensx_,  lbl_sensx_,  lbl_sensy_hdr_, sl_sensy_,
                    lbl_sensy_,  lbl_smooth_hdr_, sl_smooth_, lbl_smooth_, cb_lockmouse_, cb_equip_};
@@ -677,6 +702,9 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_ring_opacity_, ring_opacity_to_slider(target_ring_settings::get_opacity()));
   checkbox_set(cb_windowtitle_, window_watch::get_char_title());
   checkbox_set(cb_timestamp_, chat_timestamp_settings::get_enabled());
+  checkbox_set(cb_aa_enabled_, aa_exp_settings::get_enabled());
+  slider_set(sl_aa_thresh_, aa_exp_settings::get_threshold());
+  slider_set(sl_aa_active_, aa_active_to_slider(aa_exp_settings::get_active_pct()));
   checkbox_set(cb_fcd_enabled_, floating_damage_settings::get_enabled());
   checkbox_set(cb_fcd_mine_, floating_damage_settings::get_show_mine());
   checkbox_set(cb_fcd_incoming_, floating_damage_settings::get_show_incoming());
@@ -735,6 +763,9 @@ void RcpOptionsUI::seed_last_values() {
   last_snd_sel_row_ = list_get_cur_sel(list_snd_);
   last_windowtitle_ = checkbox_get(cb_windowtitle_);
   last_timestamp_ = checkbox_get(cb_timestamp_);
+  last_aa_enabled_ = checkbox_get(cb_aa_enabled_);
+  last_aa_thresh_ = slider_get(sl_aa_thresh_);
+  last_aa_active_ = slider_get(sl_aa_active_);
   last_fcd_enabled_ = checkbox_get(cb_fcd_enabled_);
   last_fcd_mine_ = checkbox_get(cb_fcd_mine_);
   last_fcd_incoming_ = checkbox_get(cb_fcd_incoming_);
@@ -799,6 +830,11 @@ void RcpOptionsUI::update_labels() {
   else
     std::snprintf(buf, sizeof(buf), "off");
   set_label_text(lbl_fcd_big_, buf);
+  // Auto-AA (General tab): threshold + active-% value labels (both plain percentages).
+  std::snprintf(buf, sizeof(buf), "%d%%", aa_exp_settings::get_threshold());
+  set_label_text(lbl_aa_thresh_, buf);
+  std::snprintf(buf, sizeof(buf), "%d%%", aa_exp_settings::get_active_pct());
+  set_label_text(lbl_aa_active_, buf);
 }
 
 void RcpOptionsUI::toggle_window() {
@@ -838,6 +874,8 @@ void RcpOptionsUI::on_frame() {
     lbl_snd_add_ = combo_snd_add_ = lbl_snd_list_ = list_snd_ = nullptr;
     lbl_snd_vol_hdr_ = sl_snd_vol_ = lbl_snd_vol_ = btn_snd_reset_ = nullptr;
     cb_windowtitle_ = cb_timestamp_ = lbl_timestamp_hint_ = nullptr;
+    lbl_aa_hdr_ = cb_aa_enabled_ = lbl_aa_thresh_hdr_ = sl_aa_thresh_ = lbl_aa_thresh_ = nullptr;
+    lbl_aa_active_hdr_ = sl_aa_active_ = lbl_aa_active_ = lbl_aa_status_ = nullptr;
     cb_fcd_enabled_ = cb_fcd_mine_ = cb_fcd_incoming_ = cb_fcd_others_ = cb_fcd_melee_ = cb_fcd_spells_ = nullptr;
     sl_fcd_big_ = lbl_fcd_big_hdr_ = lbl_fcd_big_ = nullptr;
     btn_fcd_col_mine_ = btn_fcd_col_incoming_ = btn_fcd_col_other_ = btn_fcd_col_crit_ = nullptr;
@@ -1044,6 +1082,39 @@ void RcpOptionsUI::on_frame() {
   if (ts != last_timestamp_) {
     chat_timestamp_settings::set_enabled(ts);
     last_timestamp_ = ts;
+  }
+
+  // General tab: automatic AA experience -> aa_exp_settings (enable + threshold + active-% sliders).
+  bool ae = checkbox_get(cb_aa_enabled_);
+  if (ae != last_aa_enabled_) {
+    aa_exp_settings::set_enabled(ae);
+    last_aa_enabled_ = ae;
+  }
+  int athr = slider_get(sl_aa_thresh_);
+  if (athr != last_aa_thresh_) {
+    aa_exp_settings::set_threshold(athr);
+    update_labels();
+    last_aa_thresh_ = athr;
+  }
+  int aact = slider_get(sl_aa_active_);
+  if (aact != last_aa_active_) {
+    aa_exp_settings::set_active_pct(aa_slider_to_active(aact));
+    update_labels();
+    last_aa_active_ = aact;
+  }
+  // Live status readout, refreshed while the General tab is actually on screen.
+  if (lbl_aa_status_ && active_tab_ == 0 && is_visible(wnd_)) {
+    const int lvl = aa_exp_settings::current_level_pct();
+    const int aa = aa_exp_settings::current_aa_pct();
+    const char *mode = !aa_exp_settings::get_enabled()
+                           ? "auto off"
+                           : (lvl >= aa_exp_settings::get_threshold() ? "AA on" : "leveling");
+    char sbuf[96];
+    if (lvl < 0)
+      std::snprintf(sbuf, sizeof(sbuf), "Now: (not in game)");
+    else
+      std::snprintf(sbuf, sizeof(sbuf), "Now: level XP %d%%, AA %d%% (%s)", lvl, aa < 0 ? 0 : aa, mode);
+    set_label_text(lbl_aa_status_, sbuf);
   }
 
   // Combat tab: floating combat damage toggles + filters (each its own independent setter).

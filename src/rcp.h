@@ -59,6 +59,7 @@ class RcpService {
   std::unique_ptr<class SoundMods> sound_mods;        // The /rcpsound sound muting (Asset::Play detour; e.g. thunder).
   std::unique_ptr<class FloatingDamage> floating_damage; // The /rcpfcd floating combat damage (Zeal floating_damage port).
   std::unique_ptr<class HideCorpse> hide_corpse;      // Extra /hidecorpses options: always + showlast continuous NPC-corpse hiding.
+  std::unique_ptr<class AaExp> aa_exp;                // The /rcpaaexp automatic AA-experience gating (by current-level XP%).
   std::unique_ptr<class CameraMods> camera_mods;  // Zeal chase camera (TAKP addresses; not yet ported).
   std::unique_ptr<class UIManager> ui;            // Options window + uifiles loading.
 

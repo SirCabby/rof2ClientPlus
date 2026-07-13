@@ -126,6 +126,16 @@ class RcpOptionsUI {
   void *cb_windowtitle_ = nullptr;  // "Show character name in window title" (window_watch::set_char_title).
   void *cb_timestamp_ = nullptr;    // "Show chat timestamps" (chat_timestamp_settings).
   void *lbl_timestamp_hint_ = nullptr;  // Static hint pointing at /timestamp format.
+  // Automatic AA experience (aa_exp_settings): enable + threshold slider + active-% slider + live status.
+  void *lbl_aa_hdr_ = nullptr;          // "Automatic AA experience" section header.
+  void *cb_aa_enabled_ = nullptr;
+  void *lbl_aa_thresh_hdr_ = nullptr;
+  void *sl_aa_thresh_ = nullptr;        // 0..100: percent into the current level to switch AA on.
+  void *lbl_aa_thresh_ = nullptr;
+  void *lbl_aa_active_hdr_ = nullptr;
+  void *sl_aa_active_ = nullptr;        // 0..10 -> 0..100 AA% in native 10% steps.
+  void *lbl_aa_active_ = nullptr;
+  void *lbl_aa_status_ = nullptr;       // Live "level XP nn% / AA nn%" readout.
   // Combat tab (floating combat damage; floating_damage_settings).
   void *cb_fcd_enabled_ = nullptr;
   void *cb_fcd_mine_ = nullptr;
@@ -192,6 +202,9 @@ class RcpOptionsUI {
   // General tab state.
   bool last_windowtitle_ = false;
   bool last_timestamp_ = false;
+  bool last_aa_enabled_ = false;
+  int last_aa_thresh_ = -1;
+  int last_aa_active_ = -1;
   // Combat tab state.
   bool last_fcd_enabled_ = false;
   bool last_fcd_mine_ = false;

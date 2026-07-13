@@ -3,6 +3,7 @@
 
 #include <windows.h>
 
+#include "aa_exp.h"
 #include "binds.h"
 #include "callbacks.h"
 #include "camera_mods.h"
@@ -84,6 +85,8 @@ RcpService::RcpService() {
   floating_damage = std::make_unique<FloatingDamage>(this);  // /rcpfcd: floating combat damage numbers (ReportSuccessfulHit detour + billboard).
   logger::log("  -> HideCorpse");
   hide_corpse = std::make_unique<HideCorpse>(this);  // /hidecorpses always + showlast: continuous NPC-corpse hiding (render-callback re-assert).
+  logger::log("  -> AaExp");
+  aa_exp = std::make_unique<AaExp>(this);  // /rcpaaexp: auto-gate AA experience % by current-level XP (writes PercentEXPtoAA + server sync).
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

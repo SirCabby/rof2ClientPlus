@@ -87,6 +87,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\aa_exp.cpp" />
     <ClCompile Include="src\binds.cpp" />
     <ClCompile Include="src\callbacks.cpp" />
     <ClCompile Include="src\camera_math.cpp" />
@@ -120,6 +121,7 @@
     <ClCompile Include="src\window_watch.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\aa_exp.h" />
     <ClInclude Include="src\binds.h" />
     <ClInclude Include="src\callbacks.h" />
     <ClInclude Include="src\camera_math.h" />

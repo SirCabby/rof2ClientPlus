@@ -332,6 +332,23 @@ def build_controls():
     y += 26
     c.append(("Rcp_TimestampHint", label, ("Rcp_TimestampHint", COL_X, y, 400, 14,
                                            "Format is set with  /timestamp format <strftime>")))
+    # Automatic AA experience (/rcpaaexp): gate AA XP by how far into the current level you are.
+    y += 24
+    c.append(("Rcp_AaExpHeader", label, ("Rcp_AaExpHeader", COL_X, y, 300, 14, "Automatic AA experience", YELLOW)))
+    y += 18
+    c.append(("Rcp_AaExpEnabled", button, ("Rcp_AaExpEnabled", COL_X, y, 360, 20, "Auto-manage AA experience",
+                                           "Automatically switch AA experience on or off based on how far into "
+                                           "the current level you are. Same as /rcpaaexp on|off.")))
+    y += 26
+    c.append(("Rcp_AaExpThreshLabel", label, ("Rcp_AaExpThreshLabel", COL_X, y, 200, 14, "Turn AA on above level XP")))
+    c.append(("Rcp_AaExpThreshValue", label, ("Rcp_AaExpThreshValue", VAL_X, y + 16, 58, 16, "50%", YELLOW)))
+    c.append(("Rcp_AaExpThresh", slider, ("Rcp_AaExpThresh", COL_X, y + 16, SLIDER_W, 16)))
+    y += 40
+    c.append(("Rcp_AaExpActiveLabel", label, ("Rcp_AaExpActiveLabel", COL_X, y, 200, 14, "AA % when active")))
+    c.append(("Rcp_AaExpActiveValue", label, ("Rcp_AaExpActiveValue", VAL_X, y + 16, 58, 16, "100%", YELLOW)))
+    c.append(("Rcp_AaExpActive", slider, ("Rcp_AaExpActive", COL_X, y + 16, SLIDER_W, 16)))
+    y += 42
+    c.append(("Rcp_AaExpStatus", label, ("Rcp_AaExpStatus", COL_X, y, 400, 14, "", YELLOW)))
 
     # ---- Tab 7: Combat (floating combat damage; /rcpfcd) ----
     y = CONTENT_Y

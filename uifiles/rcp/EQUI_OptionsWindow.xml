@@ -6792,6 +6792,182 @@
     <NoWrap>true</NoWrap>
   </Label>
 
+  <Label item="Rcp_AaExpHeader">
+    <ScreenID>Rcp_AaExpHeader</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>110</Y>
+    </Location>
+    <Size>
+      <CX>300</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Automatic AA experience</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Button item="Rcp_AaExpEnabled">
+    <ScreenID>Rcp_AaExpEnabled</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>128</Y>
+    </Location>
+    <Size>
+      <CX>360</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Automatically switch AA experience on or off based on how far into the current level you are. Same as /rcpaaexp on|off.</TooltipReference>
+    <Text>Auto-manage AA experience</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Label item="Rcp_AaExpThreshLabel">
+    <ScreenID>Rcp_AaExpThreshLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>154</Y>
+    </Location>
+    <Size>
+      <CX>200</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Turn AA on above level XP</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Label item="Rcp_AaExpThreshValue">
+    <ScreenID>Rcp_AaExpThreshValue</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>208</X>
+      <Y>170</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>50%</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Slider item="Rcp_AaExpThresh">
+    <ScreenID>Rcp_AaExpThresh</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>170</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>16</CY>
+    </Size>
+    <SliderArt>SDT_DefSlider</SliderArt>
+  </Slider>
+
+  <Label item="Rcp_AaExpActiveLabel">
+    <ScreenID>Rcp_AaExpActiveLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>194</Y>
+    </Location>
+    <Size>
+      <CX>200</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>AA % when active</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Label item="Rcp_AaExpActiveValue">
+    <ScreenID>Rcp_AaExpActiveValue</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>208</X>
+      <Y>210</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>100%</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Slider item="Rcp_AaExpActive">
+    <ScreenID>Rcp_AaExpActive</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>210</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>16</CY>
+    </Size>
+    <SliderArt>SDT_DefSlider</SliderArt>
+  </Slider>
+
+  <Label item="Rcp_AaExpStatus">
+    <ScreenID>Rcp_AaExpStatus</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>236</Y>
+    </Location>
+    <Size>
+      <CX>400</CX>
+      <CY>14</CY>
+    </Size>
+    <Text></Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
   <Button item="Rcp_FcdEnabled">
     <ScreenID>Rcp_FcdEnabled</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -7244,6 +7420,15 @@
     <Pieces>Rcp_WindowTitle</Pieces>
     <Pieces>Rcp_Timestamp</Pieces>
     <Pieces>Rcp_TimestampHint</Pieces>
+    <Pieces>Rcp_AaExpHeader</Pieces>
+    <Pieces>Rcp_AaExpEnabled</Pieces>
+    <Pieces>Rcp_AaExpThreshLabel</Pieces>
+    <Pieces>Rcp_AaExpThreshValue</Pieces>
+    <Pieces>Rcp_AaExpThresh</Pieces>
+    <Pieces>Rcp_AaExpActiveLabel</Pieces>
+    <Pieces>Rcp_AaExpActiveValue</Pieces>
+    <Pieces>Rcp_AaExpActive</Pieces>
+    <Pieces>Rcp_AaExpStatus</Pieces>
     <Pieces>Rcp_FcdEnabled</Pieces>
     <Pieces>Rcp_FcdMine</Pieces>
     <Pieces>Rcp_FcdMelee</Pieces>
