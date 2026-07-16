@@ -553,17 +553,57 @@ int __fastcall DefBuildNew_hk(void *self, int edx, int a1, int a2, int a3) {
 // runs inside enter/leave (table shows the alias code only for the duration).
 typedef void(__fastcall *Apply1Fn)(void *self, int edx, int slot);
 typedef int(__fastcall *Set6Fn)(void *self, int edx, int a1, int a2, int a3, int a4, int a5, int a6);
-typedef void(__fastcall *Slot1Fn)(void *self, int edx, int slot);
+// TRUE signature of RefreshEquipSlot@0x594e50 (ret 0x20 = 8 stack args), verified from its caller's
+// pushes @0x595c9c..0x595cca: (slot, props[5] = the slot's 5-dword ArmorProperties BY VALUE, tintARGB,
+// local_only). The old 1-arg detour only survived because gcc emitted the passthrough as a TAIL JUMP
+// (caller's frame reached the original untouched); with the real signature it is robust either way.
+// (This wrong-arg-count call is also what the old "0x594e50 AV'd when called out of context" note was.)
+typedef int(__fastcall *SlotRefreshFn)(void *self, int edx, int slot, uint32_t p0, uint32_t p1,
+                                       uint32_t p2, uint32_t p3, uint32_t p4, uint32_t tint, int local);
 Apply1Fn g_apply_orig = nullptr;
 Set6Fn g_set6_orig = nullptr;
-Slot1Fn g_slotref_orig = nullptr;
+SlotRefreshFn g_slotref_orig = nullptr;
 int g_learn_count = 0;
 // These dress-chain detours are now LOG-ONLY again: the resolver detour supplies alias names at the
 // resolver seam, so no per-call table window is needed here.
+//
+// EXCEPT ApplyArmorTexture, which also carries the CLASSIC-HELM GATE (2026-07-16). Its WLD head-slot
+// path (0x40e656..0x40e6c9) maps helm materials straight to the Luclin 3D helm attach pieces -- material
+// 1/2/3 -> IT(5000+mat) plus the 0x40a290 race/gender offset, Velious 240/241 -> IT5028/5029, all living
+// in lgequip_amr*.s3d -- gated ONLY on bShowHelm@ActorClient+0x7c. There is NO classic-vs-Luclin body
+// check in that mapping: on a stock install classic bodies never show these pieces only because
+// lgequip_amr* isn't loaded outside the Luclin config, so the attach lookup misses silently. Our
+// GlobalLoad.txt hair fix force-loads the lgequip archives, which un-gated the helm attach and put Luclin
+// helms on classic bodies (user report: "modern helm instead of the classic helm"). Gate: when the
+// spawn's BUILT body is classic WLD (def+0x34 == 0; the [pcmodel] logs show 0 for every classic def and
+// 1 for Luclin), zero bShowHelm for the duration of the call -- the native "helm hidden" branch, which
+// both skips the 3D piece and detaches a stale one. Head/coif TEXTURES are untouched (they ride the
+// separate set6->0x4099f0 material path), so the classic helm look is exactly stock. Luclin bodies
+// (def34=1) keep their 3D helms. The -1 all-slots call recurses per-slot through this same detour; the
+// nested calls read saved==0 and pass through, the outermost call restores.
 void __fastcall ApplyArmor_hk(void *self, int edx, int slot) {
   if (g_learn_count < 300) {
     ++g_learn_count;
     logger::logf("[learn] apply this=%p slot=%d ret=%p", self, slot, __builtin_return_address(0));
+  }
+  constexpr int kAcShowHelm = 0x7c;  // ActorClient bShowHelm (eqlib graphics/Actors.h)
+  uint8_t *show_helm = nullptr;
+  uint8_t saved = 0;
+  if (!crash_handler::shutting_down()) {
+    rcp_guard::run("pc.helmgate", [&] {
+      char *spawn = reinterpret_cast<char *>(self) - 0xea4;    // this = ActorClient, inline @ spawn+0xEA4
+      void *def = *reinterpret_cast<void **>(spawn + 0x1024);  // cached CActorDefinition* (kEntDefCache)
+      if (def && !*reinterpret_cast<uint8_t *>(reinterpret_cast<char *>(def) + 0x34)) {  // classic WLD body
+        show_helm = reinterpret_cast<uint8_t *>(self) + kAcShowHelm;
+        saved = *show_helm;
+      }
+    });
+  }
+  if (show_helm && saved) {
+    *show_helm = 0;
+    g_apply_orig(self, edx, slot);
+    *show_helm = saved;
+    return;
   }
   g_apply_orig(self, edx, slot);
 }
@@ -575,12 +615,14 @@ int __fastcall Set6_hk(void *self, int edx, int a1, int a2, int a3, int a4, int 
   }
   return g_set6_orig(self, edx, a1, a2, a3, a4, a5, a6);
 }
-void __fastcall SlotRefresh_hk(void *self, int edx, int slot) {
+int __fastcall SlotRefresh_hk(void *self, int edx, int slot, uint32_t p0, uint32_t p1, uint32_t p2,
+                              uint32_t p3, uint32_t p4, uint32_t tint, int local) {
   if (g_learn_count < 300) {
     ++g_learn_count;
-    logger::logf("[learn] slotref spawn=%p slot=%d ret=%p", self, slot, __builtin_return_address(0));
+    logger::logf("[learn] slotref spawn=%p slot=%d props=%u,%u,%u,%u,%u ret=%p", self, slot, p0, p1, p2,
+                 p3, p4, __builtin_return_address(0));
   }
-  g_slotref_orig(self, edx, slot);
+  return g_slotref_orig(self, edx, slot, p0, p1, p2, p3, p4, tint, local);
 }
 // (The natural spawn-add / illusion visual-init tail @0x595ED0 was briefly detoured to open an alias
 //  window around its head/face/hair styling, but its arg count is ambiguous -- callers push 3 vs 4 -- so
@@ -842,8 +884,15 @@ constexpr int kEquipSize = 0xb4;
 // creation uses; F_48ff's create path reads 0xEB9 @0x49000b). Re-run it before our rebuild so the fresh
 // instance picks the variant up again.
 constexpr uintptr_t kSetBodyTexture = 0x59e400;
-constexpr uintptr_t kRefreshEquipSlot = 0x594e50;  // __thiscall(spawn; int slot): native per-slot equipment
-                                                   // refresh (illusion handler's primitive; no packet sends)
+// RefreshEquipSlot@0x594e50 = __thiscall(spawn; int slot, ArmorProperties props BY VALUE (5 dwords),
+// uint tintARGB, int local_only) ret 0x20 -- THE native per-slot dress. Verified from its spawn-add
+// caller @0x595c9c..0x595cca (push 1; push tint; sub esp,0x14 + 5 stores; push slot). For the HEAD
+// (slot 0) it routes to SetHead@0x594210 (ret 0x30: new-props[5], old-props[5] = current ActorEquipment[0],
+// tint, local_only), which is where BOTH helm looks live: classic WLD (def+0x34==0) -> SetHeldModel(0,"0")
+// detach + DLL actor vt[0x14C] SwapHead("%sHE%02d_DMSPRITEDEF") = the classic head-PIECE (coif/kettle);
+// Velious 240/241 -> 0x40a5b0 racial IT map + SetHeldModel("IT%d") attach; Luclin (def34) -> HeadType@0xEAB
+// + ApplyArmorTexture(0) piece attach. local_only=1 suppresses the WearChange send (0x7994).
+constexpr uintptr_t kRefreshEquipSlot = 0x594e50;
 constexpr uintptr_t kSet6 = 0x594de0;  // __thiscall(spawn; slot, material, 0, tintARGB, 5, 0) ret 0x18 --
                                        // the per-slot dress setter the natural spawn-add emits (learn log)
 constexpr int kEntBodyTex = 0xeb9;
@@ -1123,6 +1172,24 @@ void pc_reapply() {
           reinterpret_cast<int(__thiscall *)(void *, int, int, int, int, int, int)>(kSet6)(
               spawn, slot, static_cast<int>(mat), 0, static_cast<int>(tint), 5, 0);
       }
+      // NATIVE HEAD-SET (the missing piece of the live-flip dress, 2026-07-16): the helm LOOK is applied
+      // by RefreshEquipSlot(0) -> SetHead@0x594210, which the set6 loop above does NOT reach -- set6 only
+      // applies slot MATERIALS. On a rebuilt actor the head stays the actordef's default piece (HE00),
+      // which the (now-gated) Luclin IT5xxx helm used to mask: "modern helm gone but classic helm missing".
+      // Replicate the natural spawn-add call exactly (0x595cca): zero ActorEquipment[0] first so the
+      // swap-OUT name is the fresh actor's real default head (fresh spawns start zeroed; Zeal's helm
+      // manager documents that a mismatched old-material locks the head), then refresh with the raw
+      // Equipment[0] server truth. Classic body -> SwapHead coif/kettle piece (+ Velious racial IT
+      // attach); Luclin body -> HeadType + gated piece attach. local_only=1 = no WearChange send.
+      std::memset(base + kEntWearObj + kWearEquip, 0, 0x14);
+      {
+        uint32_t hp[5];
+        std::memcpy(hp, base + kEntEquipSrc, sizeof(hp));
+        uint32_t htint = *reinterpret_cast<uint32_t *>(base + kEntWearObj + 0x58);
+        reinterpret_cast<int(__thiscall *)(void *, int, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
+                                           uint32_t, int)>(kRefreshEquipSlot)(spawn, 0, hp[0], hp[1],
+                                                                              hp[2], hp[3], hp[4], htint, 1);
+      }
       reinterpret_cast<void(__thiscall *)(void *)>(kApplyBodyTexture)(spawn);
       // (Head/hair attach for alias Luclin bodies is an UNSOLVED structural blocker -- see memory. Every
       // live-poke of the head path either did nothing or corrupted classic head state. Removed so classic
@@ -1354,7 +1421,8 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
   g_defb_classic = rcp->hooks->hook_map["rcp_defb_c"]->original(DefBuildClassic_hk);
   rcp->hooks->Add("rcp_defb_n", static_cast<int>(0x407dc0), DefBuildNew_hk, hook_type_detour);
   g_defb_new = rcp->hooks->hook_map["rcp_defb_n"]->original(DefBuildNew_hk);
-  // temporary learn-hooks on the dress chain (see above)
+  // dress-chain detours: set6/slotref are temporary learn-hooks; the apply hook ALSO carries the
+  // permanent classic-helm gate (suppress Luclin 3D helm pieces on classic WLD bodies -- see ApplyArmor_hk)
   rcp->hooks->Add("rcp_learn_apply", static_cast<int>(kApplyArmor), ApplyArmor_hk, hook_type_detour);
   g_apply_orig = rcp->hooks->hook_map["rcp_learn_apply"]->original(ApplyArmor_hk);
   rcp->hooks->Add("rcp_learn_set6", static_cast<int>(0x594de0), Set6_hk, hook_type_detour);
