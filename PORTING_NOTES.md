@@ -1204,3 +1204,78 @@ Exp/AAExp with no adjustment).
 **Caveat (untested):** at MAX level the within-level `Exp` reporting is unverified — if it reads 0 the gate
 would force AA to 0 there. Disable the feature at max level if it misbehaves. The server-side `OP_*` name
 for opcode `0x424e` is not in the client binary (would need the emu opcode map); not needed by the mod.
+
+## Chat clipboard copy/paste (`src/chat_clipboard.cpp`) — DONE (awaiting in-game confirm 2026-07-16)
+
+Zeal's `chat.cpp` "ZealInput" copy/paste (Ctrl+C/X/V in the chat edit box), ported to stock RoF2. Always on,
+no command, no options tab — copy/paste is universally-expected behaviour.
+
+### Key finding — RoF2 can paste but physically CANNOT copy, and native paste never fires in chat
+Import-table scan of `eqgame.exe` (authoritative): `OpenClipboard` / `GetClipboardData` / `CloseClipboard`
+are imported (IAT `0x9c0380` / `0x9c0384` / `0x9c0388`), but **`SetClipboardData` and `EmptyClipboard` are
+absent from the entire binary** — the client was compiled without them, so it can read the OS clipboard
+(paste) but can never write it (copy). Our injected DLL imports the full user32 clipboard API, so we supply
+the missing copy side ourselves.
+
+Native paste IS present (the read path at `0x4daeeb`: `OpenClipboard`→`GetClipboardData(CF_TEXT)`→`GlobalLock`,
+filters control chars→space, then `ReplaceSelection`), but it lives inside `ExecuteCmd` (`0x4D7230`) as the
+`CMD_CLIPBOARD_PASTE` keymap command. While you are typing in an edit box, `CXWndManager::HandleKeyboardMsg`
+routes the key straight to the focused window and the keymap is never scanned (see the keybinds.cpp note), so
+that command can't fire in chat. That is why paste is dead in-game even though the code exists.
+
+### Mechanism — one detour on the UI keyboard choke point
+Detour `CXWndManager::HandleKeyboardMsg` @ **`0x876530`** — `__thiscall(uint32 dikScanCode, uint32 down)`,
+`ret 0x8`. `KeypressHandler::HandleKeyDown` (`0x5594E0`) calls it FIRST and, iff it returns **0** (consumed),
+skips the keymap scan (`test eax,eax; je past-keymap` at `0x559508`). So **return 0 = swallow the key**; any
+non-zero = let the keymap run. This is the raw-keystroke seam (bypasses the whole keymap/command system),
+the RoF2 analog of Zeal's `EditWndHandleKey` hook.
+
+Disasm of `0x876530` gave the members/vtable we use:
+- Ctrl state byte `[mgr+0x9e]` (set by the LCONTROL `0x1d` / RCONTROL `0x9d` scancode handlers; a scancode
+  jump table at `0x876758`/`0x876740` maps `0x1d/0x9d→+0x9e Ctrl`, `0x2a/0x36→+0x9d Shift`, alts→`+0x9f/+0xa0`).
+- Focus window ptr `[mgr+0x64]`.
+- Target edit box = `focus->GetActiveEditWnd()` (CXWnd vtable **`+0x15c`**, eqlib) — returns null for non-edit
+  windows, so it doubles as the "is this an edit box" test. This is the exact call the native paste path uses.
+
+Per key (keydown + Ctrl held + focus resolves to an edit box; else fall through to original):
+- **Ctrl+C (`0x2e`) / Ctrl+X (`0x2d`)**: read the selection `InputText[StartPos..EndPos)` and `SetClipboardData`.
+  Cut also deletes via `ReplaceSelection(edit,"",1)`.
+- **Ctrl+V (`0x2f`)**: `GetClipboardData`, collapse control chars (incl. newlines) to spaces (matches the stock
+  paste filter so a multi-line paste stays one chat line), `ReplaceSelection(edit, text, 1)`.
+
+### Offsets (eqlib + disasm, May 10 2013 build)
+- `CEditBaseWnd`: `StartPos@0x1dc`, `EndPos@0x1e0`, `InputText(CXStr = CStrRep*)@0x1ec` (eqlib UI.h).
+- `CStrRep`: `length@0x08`, `encoding@0x0c` (0 = Utf8/ASCII; we handle ASCII only for now), inline `data@0x14`
+  (eqlib CXStr.h).
+- `CEditWnd::ReplaceSelection(char ch, bool bFilter)` @ **`0x87d0e0`** — the **SINGLE-CHAR** overload (builds
+  a 1-char CXStr from the arg's low byte via the char ctor `0x805be0`: `[rep+8]=1; [rep+0x14]=byte`). **NOT a
+  char\*** — the v1 bug passed `text.c_str()` here and pasted one `(` (the pointer's low byte `0x28`). Paste
+  correctly = feed the clipboard one char at a time (first call replaces the selection, each next inserts at
+  the advancing caret); no CXStr lifetime to manage.
+- `CEditWnd::ReplaceSelection(CXStr, bool bFilter)` @ **`0x87CD30`** — the CXStr overload; a **null rep ==
+  empty string == delete the selection** (it null-checks the rep and no-ops on the read-only style bit
+  `ewsReadOnly 0x200000`). Used only for cut's delete, so no CXStr allocation/refcount is needed.
+- DIK scancodes C `0x2e` / V `0x2f` / X `0x2d` — same values Zeal keys off of.
+
+### Landmine avoided
+The vendored `game_ui.h` `EditWnd`/`CXSTR` offsets (`ReplaceSelection 0x5a41b0`, `CXSTR` methods `0x575xxx`)
+are STALE Titanium/TAKP — using them would crash. All addresses here are the eqlib RoF2 build's own. Also the
+older `BaseVTable` in `game_ui.h` puts `SetWindowText@0xEC`; eqlib's authoritative CXWnd vtable has it at
+`+0x124` and `HandleKeyboardMsg@+0x68`, `GetActiveEditWnd@+0x15c` — use eqlib.
+
+### Copy only reaches the INPUT line — history is a CStmlWnd (no selection)
+`GetActiveEditWnd` returns the chat **input** line only (a `CEditWnd`). The scrollback/**history is a
+`CStmlWnd`** (STML rich-text: `CChatWindow.InputWnd@0x224` = CEditWnd, `OutputWnd@0x228` = CStmlWnd), which
+has **no text-selection mechanism at all** — that is why you cannot drag-highlight chat history, and why copy
+can never reach it through this hook. This is a real RoF2 limitation (Zeal had the same: input-line copy
+only). Ctrl+C therefore copies the input line (the highlighted range, or the whole line if nothing is
+selected — also handy for confirming the copy→OS-clipboard path works).
+
+**Copying from history is a separate, unbuilt feature.** CStmlWnd exposes no `GetSelectedText`; the raw
+material is `STMLText@0x1d8` (full buffer, with markup tags), `TextLines@0x1dc`
+(`CircularArrayClass2<STextLine>`), `Links@0x210`, and `GetVisibleText @ 0x8803C0`. Candidate designs:
+click/modifier-click a line to copy it; a "copy whole window" hotkey/command; or full drag-to-highlight (track
+the drag over TextLines, render the highlight, extract + tag-strip). Pick per the user.
+
+Item-link tags in a copied input selection are not expanded (rare). Unicode (non-ASCII) selections are skipped
+by copy for now.

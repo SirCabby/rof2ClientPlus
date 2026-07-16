@@ -90,6 +90,9 @@ const NpcRevamp kNpcRevamps[] = {
 };
 
 RcpService *g_rcp_svc = nullptr;  // stored by the ctor for lazy hook registration
+HookWrapper *g_hookwrap = nullptr;   // wrapper hosting our detours: install_early's at attach, else the
+                                     // service's (needed pre-service for the lazy dagreg hook)
+bool g_early_installed = false;      // install_early ran at DllMain; the ctor must not double-detour
 std::mutex g_mu;
 std::map<std::string, std::string> g_redirect;  // active: "<code>_ACTORDEF" -> "<classic>_ACTORDEF"
 std::set<std::string> g_persistent_subs;        // redirect TARGETS that must STAY in spawn+0xEBA after the
@@ -775,35 +778,38 @@ void __fastcall DagReg_hk(void *actor, int edx, int slot, char *name) {
   });
 }
 void ensure_dagreg_hook() {
-  if (g_dagreg_hooked || !g_rcp_svc) return;
+  if (g_dagreg_hooked || !g_hookwrap) return;  // g_hookwrap set at attach (install_early) or by the ctor
   HMODULE dll = GetModuleHandleA("EQGraphicsDX9.dll");
   if (!dll) return;
   uintptr_t addr = reinterpret_cast<uintptr_t>(dll) + 0x41140;
-  g_rcp_svc->hooks->Add("rcp_dagreg", static_cast<int>(addr), DagReg_hk, hook_type_detour);
-  g_dagreg_orig = g_rcp_svc->hooks->hook_map["rcp_dagreg"]->original(DagReg_hk);
+  g_hookwrap->Add("rcp_dagreg", static_cast<int>(addr), DagReg_hk, hook_type_detour);
+  g_dagreg_orig = g_hookwrap->hook_map["rcp_dagreg"]->original(DagReg_hk);
   g_dagreg_hooked = true;
   logger::logf("[dagfix] RegisterAttachSlot detour @%p (dll+0x41140)", (void *)addr);
 }
 
 
 int g_pc_hook_hits = 0;  // DIAGNOSTIC: count/log hook fires so we can see if the config re-runs on zone.
+// ALWAYS answers "classic" for the 12 managed races (Native=1 debug leaves the map empty = passthrough).
+// This is load-bearing now that the hook is armed at DllMain: the ONE consult is the init-time
+// ConfigureLuclinModels@0x491c20 (it never re-runs on zone -- zero FIRED lines in-world), and answering
+// Luclin there would load globalXXX_chr, whose same-named actordefs (HUM_ACTORDEF) override classic
+// global_chr's as the fragment source and break the classic direction for the whole session. The modern
+// look never comes from the native archives -- it is exclusively the rcp alias (HU7/...) via the
+// resolver + BuildActor redirects -- so the native side must stay classic regardless of the toggles.
 int __fastcall ShouldUseLuclin_hk(void *mgr, int edx, int race, int gender) {
   if (!crash_handler::shutting_down()) {
-    bool classic = false, have = false;
+    bool have = false;
     rcp_guard::run("pcluclin.decide", [&] {
       std::lock_guard<std::mutex> lk(g_mu);
-      auto it = g_pc_classic.find(pc_key(race, gender));
-      if (it != g_pc_classic.end()) {
-        classic = it->second;
-        have = true;
-      }
+      have = g_pc_classic.find(pc_key(race, gender)) != g_pc_classic.end();
       if (g_pc_hook_hits < 400) {
         ++g_pc_hook_hits;
-        logger::logf("[pcmodel] ShouldUseLuclin FIRED race=%d gender=%d have=%d -> %d", race, gender,
-                     (int)have, have ? (classic ? 0 : 1) : -1);
+        logger::logf("[pcmodel] ShouldUseLuclin FIRED race=%d gender=%d managed=%d -> %s", race, gender,
+                     (int)have, have ? "classic" : "ini");
       }
     });
-    if (have) return classic ? 0 : 1;  // OUR choice, ignore ini: 0=classic global_chr, 1=Luclin globalXXX_chr
+    if (have) return 0;  // managed race: force classic global_chr, ini ignored
   }
   return g_pc_orig(mgr, edx, race, gender);
 }
@@ -1421,11 +1427,48 @@ void set_all(bool on) {
 
 }  // namespace npc_model_settings
 
+// Armed at DllMain (PROCESS_ATTACH), BEFORE client init. The char-select scene -- the clz stage world
+// AND the preview player -- is built during startup ("Starting char select" in dbg.txt precedes the
+// first ProcessGameEvents tick where RcpService constructs), so ctor-time detours miss it entirely and
+// char select ignored every model setting (session forensics: preview actor resident by the first
+// selfdiag tick with ZERO [resolve]/[pcargs] lines until world entry). With these four seams armed at
+// attach the preview build takes the exact proven world path: BuildActor rewrites spawn+0xEBA to the
+// alias, the resolver feeds alias dress names, ShouldUseLuclin keeps the init config classic-native,
+// and the helm gate keeps Luclin IT pieces off classic bodies. The rcp alias archives are
+// GlobalLoad.txt-loaded during the same init ("Global data initialized"), before char select, so alias
+// defs build normally. Everything the hook bodies touch is attach-safe: logger/crash_handler/rcp_guard
+// install earlier in on_attach and the settings live in plain file statics loaded from the ini here.
+// The diagnostic/learn detours (find/mdf/defb/set6/slotref) stay ctor-time -- log-only, not needed for
+// char-select correctness.
+namespace npc_model_swap_api {
+void install_early(HookWrapper *hooks) {
+  if (g_early_installed) return;
+  g_hookwrap = hooks;  // dagreg's lazy install can now happen pre-service (first char-select build)
+  load_settings();     // creature toggles + elemental split + PC alias redirects ([NpcModels])
+  pc_load();           // per-race+gender classic/modern map ([PcModels])
+  hooks->Add("rcp_npc_build", static_cast<int>(kBuildActor), BuildActor_hk, hook_type_detour);
+  g_build_orig = hooks->hook_map["rcp_npc_build"]->original(BuildActor_hk);
+  hooks->Add("rcp_resolve", static_cast<int>(kResolveModelCode), Resolve_hk, hook_type_detour);
+  g_resolve_orig = hooks->hook_map["rcp_resolve"]->original(Resolve_hk);
+  hooks->Add("rcp_pc_luclin", static_cast<int>(kShouldUseLuclin), ShouldUseLuclin_hk, hook_type_detour);
+  g_pc_orig = hooks->hook_map["rcp_pc_luclin"]->original(ShouldUseLuclin_hk);
+  hooks->Add("rcp_learn_apply", static_cast<int>(kApplyArmor), ApplyArmor_hk, hook_type_detour);
+  g_apply_orig = hooks->hook_map["rcp_learn_apply"]->original(ApplyArmor_hk);
+  g_early_installed = true;
+  logger::logf("[pcmodel] EARLY hooks @attach: build 0x%x / resolve 0x%x / luclin 0x%x / helm 0x%x",
+               (unsigned)kBuildActor, (unsigned)kResolveModelCode, (unsigned)kShouldUseLuclin,
+               (unsigned)kApplyArmor);
+}
+}  // namespace npc_model_swap_api
+
 NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
   g_rcp_svc = rcp;
+  if (!g_hookwrap) g_hookwrap = rcp->hooks.get();  // install_early normally set this at attach
   load_settings();  // auto-apply persisted classic-creature toggles ([NpcModels] ini)
-  rcp->hooks->Add("rcp_npc_build", static_cast<int>(kBuildActor), BuildActor_hk, hook_type_detour);
-  g_build_orig = rcp->hooks->hook_map["rcp_npc_build"]->original(BuildActor_hk);
+  if (!g_early_installed) {  // normally armed at DllMain (install_early) so char select is covered
+    rcp->hooks->Add("rcp_npc_build", static_cast<int>(kBuildActor), BuildActor_hk, hook_type_detour);
+    g_build_orig = rcp->hooks->hook_map["rcp_npc_build"]->original(BuildActor_hk);
+  }
   rcp->hooks->Add("rcp_npc_find", static_cast<int>(kFindActorDefByName), FindActorDef_hk, hook_type_detour);
   g_find_orig = rcp->hooks->hook_map["rcp_npc_find"]->original(FindActorDef_hk);
   rcp->hooks->Add("rcp_mdf", static_cast<int>(0x8dc12f), Sprintf_hk, hook_type_detour);
@@ -1436,8 +1479,10 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
   g_defb_new = rcp->hooks->hook_map["rcp_defb_n"]->original(DefBuildNew_hk);
   // dress-chain detours: set6/slotref are temporary learn-hooks; the apply hook ALSO carries the
   // permanent classic-helm gate (suppress Luclin 3D helm pieces on classic WLD bodies -- see ApplyArmor_hk)
-  rcp->hooks->Add("rcp_learn_apply", static_cast<int>(kApplyArmor), ApplyArmor_hk, hook_type_detour);
-  g_apply_orig = rcp->hooks->hook_map["rcp_learn_apply"]->original(ApplyArmor_hk);
+  if (!g_early_installed) {
+    rcp->hooks->Add("rcp_learn_apply", static_cast<int>(kApplyArmor), ApplyArmor_hk, hook_type_detour);
+    g_apply_orig = rcp->hooks->hook_map["rcp_learn_apply"]->original(ApplyArmor_hk);
+  }
   rcp->hooks->Add("rcp_learn_set6", static_cast<int>(0x594de0), Set6_hk, hook_type_detour);
   g_set6_orig = rcp->hooks->hook_map["rcp_learn_set6"]->original(Set6_hk);
   rcp->hooks->Add("rcp_learn_slotref", static_cast<int>(kRefreshEquipSlot), SlotRefresh_hk, hook_type_detour);
@@ -1445,19 +1490,25 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
   // Resolver detour: rewrites the model-table code STRING (not the record) to the alias for modern races,
   // so all dress-time name construction (body/armor/hair/metrics) resolves alias-keyed with the record
   // resting native (no movement freeze). Replaces the old table-record swap + the crashing visinit hook.
-  rcp->hooks->Add("rcp_resolve", static_cast<int>(kResolveModelCode), Resolve_hk, hook_type_detour);
-  g_resolve_orig = rcp->hooks->hook_map["rcp_resolve"]->original(Resolve_hk);
-  logger::logf("[pcmodel] resolver detour @0x%x", (unsigned)kResolveModelCode);
-  logger::logf("[npcbody] BuildActor detour @0x%x + Find @0x%x", (unsigned)kBuildActor,
-               (unsigned)kFindActorDefByName);
+  if (!g_early_installed) {
+    rcp->hooks->Add("rcp_resolve", static_cast<int>(kResolveModelCode), Resolve_hk, hook_type_detour);
+    g_resolve_orig = rcp->hooks->hook_map["rcp_resolve"]->original(Resolve_hk);
+  }
+  logger::logf("[pcmodel] resolver detour @0x%x%s", (unsigned)kResolveModelCode,
+               g_early_installed ? " (attach)" : "");
+  logger::logf("[npcbody] BuildActor detour @0x%x%s + Find @0x%x", (unsigned)kBuildActor,
+               g_early_installed ? " (attach)" : "", (unsigned)kFindActorDefByName);
 
   // Player-race classic<->Luclin via the native ShouldUseLuclinModel decision (correct armor/face).
-  rcp->hooks->Add("rcp_pc_luclin", static_cast<int>(kShouldUseLuclin), ShouldUseLuclin_hk, hook_type_detour);
-  g_pc_orig = rcp->hooks->hook_map["rcp_pc_luclin"]->original(ShouldUseLuclin_hk);
+  if (!g_early_installed) {
+    rcp->hooks->Add("rcp_pc_luclin", static_cast<int>(kShouldUseLuclin), ShouldUseLuclin_hk, hook_type_detour);
+    g_pc_orig = rcp->hooks->hook_map["rcp_pc_luclin"]->original(ShouldUseLuclin_hk);
+  }
   font_overlay::add_scene_draw([](IDirect3DDevice9 *) { self_diag_tick(); });  // TEMP freeze-hunt diag
   pc_load();
-  logger::logf("[pcmodel] ShouldUseLuclin detour @0x%x (%d PC races, ini-ignored)",
-               (unsigned)kShouldUseLuclin, (int)(sizeof(kPcRaces) / sizeof(kPcRaces[0])));
+  logger::logf("[pcmodel] ShouldUseLuclin detour @0x%x%s (%d PC races, ini-ignored)",
+               (unsigned)kShouldUseLuclin, g_early_installed ? " (attach)" : "",
+               (int)(sizeof(kPcRaces) / sizeof(kPcRaces[0])));
 
   rcp->commands_hook->Add(
       "/rcpbody", {},

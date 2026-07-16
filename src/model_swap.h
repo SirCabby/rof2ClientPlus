@@ -13,6 +13,7 @@
 #include <vector>
 
 class RcpService;
+class HookWrapper;
 
 class ModelSwap {
  public:
@@ -41,4 +42,9 @@ void set_all(bool on);                // apply/clear the whole catalog
 // applied) onto its freshly built actor. No-op for spawns never seen holding anything. Main-thread only.
 namespace model_swap_api {
 void reattach_held(void *spawn);
+// Called from DllMain (PROCESS_ATTACH): loads the [Models] ini state and arms the SetHeldModel
+// redirect BEFORE client init. The char-select preview player (and its held weapons) is built during
+// startup, before the first ProcessGameEvents tick where RcpService constructs, so a ctor-time hook
+// misses it and char select shows unswapped weapon models. The ctor skips its install when this ran.
+void install_early(HookWrapper *hooks);
 }  // namespace model_swap_api

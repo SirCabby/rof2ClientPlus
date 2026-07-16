@@ -18,7 +18,9 @@
 #include "hook_wrapper.h"
 #include "keybinds.h"
 #include "logger.h"
+#include "model_swap.h"
 #include "mouse_mods.h"
+#include "npc_model_swap.h"
 #include "rcp.h"
 #include "rcp_options_ui.h"
 #include "window_watch.h"
@@ -95,6 +97,13 @@ static void on_attach() {
     g_boot = new HookWrapper();
     g_boot->Add("ProcessGameEvents", kProcessGameEventsAddr, ProcessGameEvents_hk, hook_type_detour);
     logger::logf("boot hook installed on ProcessGameEvents (0x%X)", kProcessGameEventsAddr);
+
+    // Model-swap seams must be armed BEFORE client init: the char-select scene (clz world + the
+    // preview player, weapons included) is built before the first ProcessGameEvents tick, so
+    // ctor-time hooks miss it and char select ignores the model settings. Both load their ini
+    // state themselves and only touch facilities installed above (logger/crash guard).
+    model_swap_api::install_early(g_boot);
+    npc_model_swap_api::install_early(g_boot);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID /*reserved*/) {

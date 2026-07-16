@@ -13,6 +13,7 @@
 #include <vector>
 
 class RcpService;
+class HookWrapper;
 
 class NpcModelSwap {
  public:
@@ -21,6 +22,15 @@ class NpcModelSwap {
  private:
   RcpService *rcp_;
 };
+
+// Called from DllMain (PROCESS_ATTACH): loads the [NpcModels]/[PcModels] ini state and arms the four
+// model seams (BuildActor redirect, resolver alias rewrite, ShouldUseLuclin classic-force, classic-helm
+// gate) BEFORE client init. The char-select scene -- clz world + the preview player -- is built during
+// startup, before the first ProcessGameEvents tick where RcpService constructs, so ctor-time hooks miss
+// it and char select ignores every model-swap setting. The ctor skips these installs when this ran.
+namespace npc_model_swap_api {
+void install_early(HookWrapper *hooks);
+}  // namespace npc_model_swap_api
 
 // Consumed by the /rcpoptions Models tab (NPC section): the curated classic-creature catalog + state.
 namespace npc_model_settings {

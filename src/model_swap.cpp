@@ -68,6 +68,7 @@ const Revamp kRevamps[] = {
 
 typedef int(__fastcall *SetHeldFn)(void *self, int edx, int slot, void *tag, int a2, int a3);
 SetHeldFn g_orig_held = nullptr;
+bool g_early_installed = false;  // install_early ran at DllMain; the ctor must not double-detour
 
 std::mutex g_mu;
 std::map<int, int> g_map;                        // applied redirects: modern IT -> classic IT
@@ -330,6 +331,20 @@ void set_all(bool on) {
 
 namespace model_swap_api {
 
+// Armed at DllMain so the char-select preview's held-weapon attaches (built during client init,
+// before the first ProcessGameEvents tick) take the classic redirect. Everything the detour touches
+// is attach-safe: logger/crash_handler/rcp_guard install earlier in on_attach, and the redirect map
+// is plain file-static state loaded from the ini right here. The ctor skips its own Add when this ran.
+void install_early(HookWrapper *hooks) {
+  if (g_early_installed) return;
+  load_settings();
+  hooks->Add("rcp_model_held", static_cast<int>(kSetHeldModel), SetHeld_hk, hook_type_detour);
+  g_orig_held = hooks->hook_map["rcp_model_held"]->original(SetHeld_hk);
+  g_early_installed = true;
+  logger::logf("[modelswap] EARLY SetHeldModel detour @0x%x (attach; %d models classic)",
+               (unsigned)kSetHeldModel, (int)g_map.size());
+}
+
 // Re-attach one spawn's cached held-model tags (slots 7/8) onto its CURRENT actor. Used by the PC/NPC
 // body swap right after it rebuilds an actor: the rebuild strips every held attachment, and its wear
 // redress (armor materials / head) never reaches the hand slots. The tags are the exact strings the
@@ -372,10 +387,13 @@ void reattach_held(void *spawn) {
 
 ModelSwap::ModelSwap(RcpService *rcp) : rcp_(rcp) {
   load_settings();
-  rcp->hooks->Add("rcp_model_held", static_cast<int>(kSetHeldModel), SetHeld_hk, hook_type_detour);
-  g_orig_held = rcp->hooks->hook_map["rcp_model_held"]->original(SetHeld_hk);
-  logger::logf("[modelswap] SetHeldModel detour @0x%x; %d/%d models set classic",
-               (unsigned)kSetHeldModel, (int)g_map.size(), (int)(sizeof(kRevamps) / sizeof(kRevamps[0])));
+  if (!g_early_installed) {  // normally armed at DllMain (install_early) so char select is covered
+    rcp->hooks->Add("rcp_model_held", static_cast<int>(kSetHeldModel), SetHeld_hk, hook_type_detour);
+    g_orig_held = rcp->hooks->hook_map["rcp_model_held"]->original(SetHeld_hk);
+  }
+  logger::logf("[modelswap] SetHeldModel detour @0x%x%s; %d/%d models set classic",
+               (unsigned)kSetHeldModel, g_early_installed ? " (attach)" : "", (int)g_map.size(),
+               (int)(sizeof(kRevamps) / sizeof(kRevamps[0])));
 
   rcp->commands_hook->Add(
       "/rcpmodels", {"/rcpmodelswap"},
