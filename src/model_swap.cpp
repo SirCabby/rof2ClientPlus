@@ -328,6 +328,48 @@ void set_all(bool on) {
 
 }  // namespace model_settings
 
+namespace model_swap_api {
+
+// Re-attach one spawn's cached held-model tags (slots 7/8) onto its CURRENT actor. Used by the PC/NPC
+// body swap right after it rebuilds an actor: the rebuild strips every held attachment, and its wear
+// redress (armor materials / head) never reaches the hand slots. The tags are the exact strings the
+// client last passed to SetHeldModel for this spawn (detour cache -- same source refresh_world uses,
+// proven in-game), and reattach() re-applies any classic weapon redirect. Spawns with no cached tags
+// (never held anything) no-op.
+void reattach_held(void *spawn) {
+  if (!spawn || !g_orig_held || crash_handler::shutting_down()) return;
+  bool is_self = false;
+  int sid = 0;
+  rcp_guard::run("modelswap.reheld", [&] {
+    is_self = (spawn == *reinterpret_cast<void **>(kSelfPtr));
+    sid = read_spawn_id(spawn);
+  });
+  std::string m, o;
+  {
+    std::lock_guard<std::mutex> lk(g_mu);
+    if (is_self) {
+      m = g_last_main;
+      o = g_last_off;
+    }
+    auto it = g_spawn_tag.find(sid);
+    if (it != g_spawn_tag.end()) {
+      if (m.empty()) m = it->second.first;
+      if (o.empty()) o = it->second.second;
+    }
+  }
+  if (m.empty() && o.empty()) return;
+  reattach(spawn, 7, m);
+  reattach(spawn, 8, o);
+  static int s_log = 0;  // diagnostic for the in-game confirm pass; strip with the other learn logs
+  if (s_log < 60) {
+    ++s_log;
+    logger::logf("[modelswap] reattach_held spawn=%p id=%d self=%d main='%s' off='%s'", spawn, sid,
+                 (int)is_self, m.c_str(), o.c_str());
+  }
+}
+
+}  // namespace model_swap_api
+
 ModelSwap::ModelSwap(RcpService *rcp) : rcp_(rcp) {
   load_settings();
   rcp->hooks->Add("rcp_model_held", static_cast<int>(kSetHeldModel), SetHeld_hk, hook_type_detour);

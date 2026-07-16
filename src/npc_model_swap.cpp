@@ -20,6 +20,7 @@
 #include "hook_wrapper.h"
 #include "io_ini.h"
 #include "logger.h"
+#include "model_swap.h"  // model_swap_api::reattach_held -- rebuilt actors lose their held-item attachments
 #include "rcp.h"
 
 namespace {
@@ -269,6 +270,13 @@ void refresh_world() {
     // redirect via our detour (which save/rewrites/restores spawn+0xEBA, so toggle-off reverts too).
     rcp_guard::run("npcbody.rebuild",
                    [&] { reinterpret_cast<BuildActorFn>(kBuildActor)(mgr, 0, spawn, nullptr, 1, 2, 1, 0); });
+    // The rebuild strips held-item attachments (weapon-carrying skeletons etc. came back bare-handed,
+    // same gap as the PC path in pc_reapply). Re-attach the spawn's cached weapon tags onto the fresh
+    // actor; no-op for spawns that never held anything.
+    void *rebuilt = nullptr;
+    rcp_guard::run("npcbody.rebuiltactor",
+                   [&] { rebuilt = *reinterpret_cast<void **>(reinterpret_cast<char *>(spawn) + kEntActor); });
+    if (rebuilt) model_swap_api::reattach_held(spawn);
     // guard (3): if the rebuild produced a NEW actor, the old PC actor is orphaned but still ref'd/scene-
     // linked (ghost + leak) -- drop its leftover ref so it's destroyed. pc-only: creature actors already
     // hit ref 0 in F_48ff, so re-releasing them would be a use-after-free.
@@ -1210,6 +1218,11 @@ void pc_reapply() {
       logger::logf("[selfview] rebuild produced no actor -- restored old=%p", old_actor);
       continue;
     }
+    // HELD ITEMS (slots 7/8): the rebuild strips every held attachment, and the redress above only
+    // covers armor materials + head -- the fresh actor comes up empty-handed. Re-attach the exact
+    // weapon tags the client last resolved for this spawn (model_swap's detour cache + proven
+    // primitive; any classic weapon redirect re-applies on the way through).
+    if (new_actor) model_swap_api::reattach_held(spawn);
     // CAMERA RE-ACQUIRE (the previously-missing half of the live-self flip): if the view is anchored to
     // the actor we just replaced, re-run the client's zone-in acquire (0x51c829) on the new one. Must run
     // BEFORE the destroy below -- SetViewActor un-hides the outgoing view actor, which would resurrect

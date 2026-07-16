@@ -34,3 +34,11 @@ std::vector<ToggleItem> get_items();  // the full revamp catalog + current state
 void set_on(int modern, bool on);     // revert this model to classic (on) / new (off); persists + live
 void set_all(bool on);                // apply/clear the whole catalog
 }  // namespace model_settings
+
+// Consumed by the body-model swap (npc_model_swap.cpp): a live actor rebuild strips the held-item
+// attachments, and the wear-slot redress there only covers armor materials + head. Re-attaches this
+// spawn's last-seen held models (slots 7/8, the exact tags the client resolved, classic redirect
+// applied) onto its freshly built actor. No-op for spawns never seen holding anything. Main-thread only.
+namespace model_swap_api {
+void reattach_held(void *spawn);
+}  // namespace model_swap_api
