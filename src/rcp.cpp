@@ -4,6 +4,8 @@
 #include <windows.h>
 
 #include "aa_exp.h"
+#include "model_swap.h"
+#include "npc_model_swap.h"
 #include "binds.h"
 #include "callbacks.h"
 #include "camera_mods.h"
@@ -87,6 +89,10 @@ RcpService::RcpService() {
   hide_corpse = std::make_unique<HideCorpse>(this);  // /hidecorpses always + showlast: continuous NPC-corpse hiding (render-callback re-assert).
   logger::log("  -> AaExp");
   aa_exp = std::make_unique<AaExp>(this);  // /rcpaaexp: auto-gate AA experience % by current-level XP (writes PercentEXPtoAA + server sync).
+  logger::log("  -> ModelSwap");
+  model_swap = std::make_unique<ModelSwap>(this);  // Phase-0 probe for the live classic/new model toggle (/rcpmodellog).
+  logger::log("  -> NpcModelSwap");
+  npc_model_swap = std::make_unique<NpcModelSwap>(this);  // Phase 2: NPC body-model /rcpbody probe + redirect.
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

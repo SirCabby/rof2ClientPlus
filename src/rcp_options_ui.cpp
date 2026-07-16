@@ -3,6 +3,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 
@@ -18,6 +19,8 @@
 #include "font_overlay.h"
 #include "game_functions.h"
 #include "logger.h"
+#include "model_swap.h"
+#include "npc_model_swap.h"
 #include "mouse_mods.h"
 #include "nameplate.h"
 #include "no_fog.h"
@@ -189,11 +192,11 @@ static int list_add_string(void *list, const char *text, uint32_t argb) {
   reinterpret_cast<void(__thiscall *)(void *)>(kCXStrDtor)(&cxstr);  // AddString copies; release our temp.
   return idx;
 }
-static void list_set_item_text(void *list, int row, const char *text) {
+static void list_set_item_text(void *list, int row, const char *text, int col = 0) {
   if (!list) return;
   uint32_t cxstr;
   cxstr_init(&cxstr, text);
-  reinterpret_cast<void(__thiscall *)(void *, int, int, const void *)>(kListSetItemText)(list, row, 0, &cxstr);
+  reinterpret_cast<void(__thiscall *)(void *, int, int, const void *)>(kListSetItemText)(list, row, col, &cxstr);
   reinterpret_cast<void(__thiscall *)(void *)>(kCXStrDtor)(&cxstr);
 }
 static int list_get_cur_sel(void *list) {
@@ -321,7 +324,7 @@ static void np_read_settings(bool out[7]) {
 // tools/gen_rcp_options_ui.py and the tab == N groups in set_active_tab).
 static const char *const kTabChildNames[] = {"Rcp_TabGeneral", "Rcp_TabMouse",   "Rcp_TabNameplate",
                                              "Rcp_TabColors",  "Rcp_TabDisplay", "Rcp_TabRing",
-                                             "Rcp_TabSounds",  "Rcp_TabCombat"};
+                                             "Rcp_TabSounds",  "Rcp_TabCombat",  "Rcp_TabModels"};
 
 // ---- Window-template delivery (no code in the load path at all) ----
 //
@@ -339,6 +342,10 @@ static const char *const kTabChildNames[] = {"Rcp_TabGeneral", "Rcp_TabMouse",  
 // ---- RcpOptionsUI ----
 
 void RcpOptionsUI::create_window() {
+  // Guard the tab-name table against kTabCount drift: the bind loop below indexes kTabChildNames by
+  // [0, kTabCount), so a short table would read out of bounds and crash GetChildItem.
+  static_assert(sizeof(kTabChildNames) / sizeof(kTabChildNames[0]) == kTabCount,
+                "kTabChildNames must have exactly kTabCount entries");
   create_attempted_ = true;
   void *sidlmgr = *kSidlManager;
   if (!sidlmgr) {
@@ -445,6 +452,16 @@ void RcpOptionsUI::create_window() {
   btn_fcd_col_incoming_ = get_child(wnd_, "Rcp_FcdColIncoming");
   btn_fcd_col_other_ = get_child(wnd_, "Rcp_FcdColOther");
   btn_fcd_col_crit_ = get_child(wnd_, "Rcp_FcdColCrit");
+  lbl_model_hint_ = get_child(wnd_, "Rcp_ModelHint");
+  list_model_ = get_child(wnd_, "Rcp_ModelList");
+  btn_model_all_classic_ = get_child(wnd_, "Rcp_ModelAllClassic");
+  btn_model_all_new_ = get_child(wnd_, "Rcp_ModelAllNew");
+  lbl_model_count_ = get_child(wnd_, "Rcp_ModelCount");
+  lbl_npc_hint_ = get_child(wnd_, "Rcp_NpcHint");
+  list_npc_ = get_child(wnd_, "Rcp_NpcList");
+  btn_npc_all_classic_ = get_child(wnd_, "Rcp_NpcAllClassic");
+  btn_npc_all_new_ = get_child(wnd_, "Rcp_NpcAllNew");
+  lbl_npc_count_ = get_child(wnd_, "Rcp_NpcCount");
   logger::logf("[ui] controls bound: tabs=%p,%p,%p,%p mouse(en=%p sx=%p) chase(en=%p dist=%p) np0=%p role0=%p",
                btn_tab_[0], btn_tab_[1], btn_tab_[2], btn_tab_[3], cb_enabled_, sl_sensx_, cb_chase_enabled_,
                sl_chase_dist_, cb_np_[0], btn_role_[0]);
@@ -524,9 +541,18 @@ void RcpOptionsUI::set_active_tab(int tab) {
                     lbl_fcd_big_,     btn_fcd_col_mine_, btn_fcd_col_incoming_, btn_fcd_col_other_,
                     btn_fcd_col_crit_};
   for (void *w : combat) show_window(w, tab == 7);
+  void *models[] = {lbl_model_hint_,       list_model_,         btn_model_all_classic_,
+                    btn_model_all_new_,    lbl_model_count_,    lbl_npc_hint_,
+                    list_npc_,             btn_npc_all_classic_, btn_npc_all_new_,
+                    lbl_npc_count_};
+  for (void *w : models) show_window(w, tab == 8);
   // Sync the list contents when the Sounds tab is entered (the CListWnd keeps its rows when hidden, so
   // this only does work when the tracked set actually changed since we last painted it).
   if (tab == 6) refresh_sound_list();
+  if (tab == 8) {
+    refresh_model_list();
+    refresh_npc_list();
+  }
 }
 
 // Paint each color-role button's text with its current palette color.
@@ -669,6 +695,99 @@ void RcpOptionsUI::refresh_sound_list() {
   }
 }
 
+// Rebuild (or update in place) the Models-tab list from the revamp catalog, alphabetized by name, plus
+// the "N of M set to classic" count. The list is two columns -- name (col 0) and state (col 1) -- so
+// the CLASSIC/MODERN text aligns in its own right-hand column instead of trailing raggedly after the
+// name. Structural build on first entry; thereafter only the state cell of changed rows is repainted,
+// so flipping one row keeps the user's scroll position.
+void RcpOptionsUI::refresh_model_list() {
+  if (!list_model_) return;
+  char *lw = reinterpret_cast<char *>(list_model_);
+  *reinterpret_cast<uint32_t *>(lw + kListStyleOffset) &= ~kListStyle_ColumnHeader;
+  *reinterpret_cast<int *>(lw + kListHeaderHeightOffset) = 0;
+
+  std::vector<model_settings::ToggleItem> items = model_settings::get_items();
+  std::sort(items.begin(), items.end(),
+            [](const model_settings::ToggleItem &a, const model_settings::ToggleItem &b) {
+              if (a.name != b.name) return a.name < b.name;
+              return a.modern < b.modern;  // stable order among same-named graphics
+            });
+  std::vector<int> rows;
+  std::vector<std::string> states;
+  rows.reserve(items.size());
+  states.reserve(items.size());
+  int on_count = 0;
+  for (const auto &it : items) {
+    rows.push_back(it.modern);
+    states.push_back(it.on ? "CLASSIC" : "MODERN");
+    if (it.on) ++on_count;
+  }
+
+  if (rows != model_rows_) {
+    // Structural build (first populate / catalog changed): name in col 0, state in col 1.
+    list_clear(list_model_);
+    for (size_t i = 0; i < items.size(); ++i) {
+      list_add_string(list_model_, items[i].name.c_str(), 0xFFFFFFFFu);
+      list_set_item_text(list_model_, static_cast<int>(i), states[i].c_str(), 1);
+    }
+    model_rows_ = rows;
+    model_row_texts_ = states;
+    list_set_cur_sel(list_model_, -1);
+    last_model_sel_row_ = -1;
+  } else {
+    // Same rows: repaint only the state cell (col 1) of rows whose state changed.
+    for (size_t i = 0; i < states.size(); ++i)
+      if (i >= model_row_texts_.size() || states[i] != model_row_texts_[i])
+        list_set_item_text(list_model_, static_cast<int>(i), states[i].c_str(), 1);
+    model_row_texts_ = states;
+  }
+
+  char cb[64];
+  std::snprintf(cb, sizeof(cb), "%d of %d set to classic", on_count, static_cast<int>(items.size()));
+  set_label_text(lbl_model_count_, cb);
+}
+
+// Same as refresh_model_list, for the creature (NPC) list: rows are creature names, col 1 the state.
+void RcpOptionsUI::refresh_npc_list() {
+  if (!list_npc_) return;
+  char *lw = reinterpret_cast<char *>(list_npc_);
+  *reinterpret_cast<uint32_t *>(lw + kListStyleOffset) &= ~kListStyle_ColumnHeader;
+  *reinterpret_cast<int *>(lw + kListHeaderHeightOffset) = 0;
+
+  std::vector<npc_model_settings::ToggleItem> items = npc_model_settings::get_items();
+  std::vector<std::string> rows;
+  std::vector<std::string> states;
+  rows.reserve(items.size());
+  states.reserve(items.size());
+  int on_count = 0;
+  for (const auto &it : items) {
+    rows.push_back(it.name);
+    states.push_back(it.on ? "CLASSIC" : "MODERN");
+    if (it.on) ++on_count;
+  }
+
+  if (rows != npc_rows_) {
+    list_clear(list_npc_);
+    for (size_t i = 0; i < items.size(); ++i) {
+      list_add_string(list_npc_, items[i].name.c_str(), 0xFFFFFFFFu);
+      list_set_item_text(list_npc_, static_cast<int>(i), states[i].c_str(), 1);
+    }
+    npc_rows_ = rows;
+    npc_row_texts_ = states;
+    list_set_cur_sel(list_npc_, -1);
+    last_npc_sel_row_ = -1;
+  } else {
+    for (size_t i = 0; i < states.size(); ++i)
+      if (i >= npc_row_texts_.size() || states[i] != npc_row_texts_[i])
+        list_set_item_text(list_npc_, static_cast<int>(i), states[i].c_str(), 1);
+    npc_row_texts_ = states;
+  }
+
+  char cb[64];
+  std::snprintf(cb, sizeof(cb), "%d of %d set to classic", on_count, static_cast<int>(items.size()));
+  set_label_text(lbl_npc_count_, cb);
+}
+
 // Push current settings into the controls (called when opening).
 void RcpOptionsUI::sync_controls() {
   checkbox_set(cb_enabled_, mouse_settings::get_enabled());
@@ -719,6 +838,8 @@ void RcpOptionsUI::sync_controls() {
   populate_graphic_combo();  // Refresh the dropdown choices + selection from disk/settings.
   populate_sound_add_combo();  // Refresh the "add sound" choices from the latest history.
   refresh_sound_list();        // Paint the tracked-sound rows + selection.
+  refresh_model_list();        // Paint the revamped-model rows + count.
+  refresh_npc_list();          // Paint the creature rows + count.
   refresh_role_tints();
   set_text_color(btn_ring_color_, target_ring_settings::get_color());
 }
@@ -777,6 +898,12 @@ void RcpOptionsUI::seed_last_values() {
   last_fcd_col_incoming_ = checkbox_get(btn_fcd_col_incoming_);
   last_fcd_col_other_ = checkbox_get(btn_fcd_col_other_);
   last_fcd_col_crit_ = checkbox_get(btn_fcd_col_crit_);
+  last_model_sel_row_ = list_get_cur_sel(list_model_);
+  last_model_all_classic_ = checkbox_get(btn_model_all_classic_);
+  last_model_all_new_ = checkbox_get(btn_model_all_new_);
+  last_npc_sel_row_ = list_get_cur_sel(list_npc_);
+  last_npc_all_classic_ = checkbox_get(btn_npc_all_classic_);
+  last_npc_all_new_ = checkbox_get(btn_npc_all_new_);
 }
 
 void RcpOptionsUI::update_labels() {
@@ -879,10 +1006,16 @@ void RcpOptionsUI::on_frame() {
     cb_fcd_enabled_ = cb_fcd_mine_ = cb_fcd_incoming_ = cb_fcd_others_ = cb_fcd_melee_ = cb_fcd_spells_ = nullptr;
     sl_fcd_big_ = lbl_fcd_big_hdr_ = lbl_fcd_big_ = nullptr;
     btn_fcd_col_mine_ = btn_fcd_col_incoming_ = btn_fcd_col_other_ = btn_fcd_col_crit_ = nullptr;
+    lbl_model_hint_ = list_model_ = btn_model_all_classic_ = btn_model_all_new_ = lbl_model_count_ = nullptr;
+    lbl_npc_hint_ = list_npc_ = btn_npc_all_classic_ = btn_npc_all_new_ = lbl_npc_count_ = nullptr;
     snd_row_stems_.clear();
     snd_row_texts_.clear();
     snd_add_choices_.clear();
     snd_selected_.clear();
+    model_rows_.clear();
+    model_row_texts_.clear();
+    npc_rows_.clear();
+    npc_row_texts_.clear();
     graphic_choices_.clear();
     last_ring_graphic_choice_ = -1;
     for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
@@ -1233,6 +1366,84 @@ void RcpOptionsUI::on_frame() {
       }
     }
     refresh_sound_list();  // repaint rows + selection + (when a selection changed) the slider
+  }
+
+  // Models tab: click a row to toggle that graphic classic<->modern; the two buttons flip them all.
+  if (active_tab_ == 8) {
+    // A row click changes GetCurSel. Toggle that model, then clear the selection so clicking the SAME
+    // row again re-fires (GetCurSel has to change). set_on persists + applies the swap live.
+    int sel_row = list_get_cur_sel(list_model_);
+    if (sel_row != last_model_sel_row_) {
+      last_model_sel_row_ = sel_row;
+      if (sel_row >= 0 && sel_row < static_cast<int>(model_rows_.size())) {
+        int modern = model_rows_[sel_row];
+        bool now_on = false;
+        for (const auto &it : model_settings::get_items())
+          if (it.modern == modern) {
+            now_on = it.on;
+            break;
+          }
+        model_settings::set_on(modern, !now_on);
+        list_set_cur_sel(list_model_, -1);
+        last_model_sel_row_ = -1;
+        refresh_model_list();
+      }
+    }
+    // "All classic" / "All modern" (momentary buttons; unlatch immediately).
+    bool allc = checkbox_get(btn_model_all_classic_);
+    if (allc != last_model_all_classic_) {
+      checkbox_set(btn_model_all_classic_, false);
+      last_model_all_classic_ = false;
+      if (allc) {
+        model_settings::set_all(true);
+        refresh_model_list();
+      }
+    }
+    bool alln = checkbox_get(btn_model_all_new_);
+    if (alln != last_model_all_new_) {
+      checkbox_set(btn_model_all_new_, false);
+      last_model_all_new_ = false;
+      if (alln) {
+        model_settings::set_all(false);
+        refresh_model_list();
+      }
+    }
+    // Creature (NPC) list: same click-a-row-to-toggle + the two All buttons.
+    int nsel = list_get_cur_sel(list_npc_);
+    if (nsel != last_npc_sel_row_) {
+      last_npc_sel_row_ = nsel;
+      if (nsel >= 0 && nsel < static_cast<int>(npc_rows_.size())) {
+        const std::string name = npc_rows_[nsel];
+        bool now_on = false;
+        for (const auto &it : npc_model_settings::get_items())
+          if (it.name == name) {
+            now_on = it.on;
+            break;
+          }
+        npc_model_settings::set_on(name, !now_on);
+        list_set_cur_sel(list_npc_, -1);
+        last_npc_sel_row_ = -1;
+        refresh_npc_list();
+      }
+    }
+    bool nallc = checkbox_get(btn_npc_all_classic_);
+    if (nallc != last_npc_all_classic_) {
+      checkbox_set(btn_npc_all_classic_, false);
+      last_npc_all_classic_ = false;
+      if (nallc) {
+        npc_model_settings::set_all(true);
+        refresh_npc_list();
+      }
+    }
+    bool nalln = checkbox_get(btn_npc_all_new_);
+    if (nalln != last_npc_all_new_) {
+      checkbox_set(btn_npc_all_new_, false);
+      last_npc_all_new_ = false;
+      if (nalln) {
+        npc_model_settings::set_all(false);
+        refresh_npc_list();
+      }
+    }
   }
 
   // Color-role buttons: a click (checked-state change) opens the stock color

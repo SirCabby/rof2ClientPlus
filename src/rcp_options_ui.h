@@ -1,7 +1,8 @@
 // rof2ClientPlus - options-window UI (stock RoF2 SIDL/EQUI port).
 //
 // A native SIDL options window, TABBED: General / Mouse / Nameplate / Colors /
-// Display (which now includes the chase-camera controls) / Ring / Sounds / Combat.
+// Display (which now includes the chase-camera controls) / Ring / Sounds / Combat
+// / Models.
 // The tab strip is a row of checkbox buttons + per-tab control groups whose
 // visibility this class toggles (a real SIDL TabBox renders but does not route
 // mouse input when the window is instantiated at runtime, so only proven
@@ -46,8 +47,10 @@ class RcpOptionsUI {
   void populate_graphic_combo();     // Fill the ring-graphic combobox from disk + select the current one.
   void populate_sound_add_combo();   // Fill the "add sound" combobox from recently-played untracked sounds.
   void refresh_sound_list();         // Repaint the tracked-sound rows + selection highlight + volume slider.
+  void refresh_model_list();         // Repaint the model rows (name + classic/modern state) + the count label.
+  void refresh_npc_list();           // Repaint the creature rows (name + classic/modern state) + the count.
 
-  static constexpr int kTabCount = 8;   // General / Mouse / Nameplate / Colors / Display / Ring / Sounds / Combat.
+  static constexpr int kTabCount = 9;   // + Models. General/Mouse/Nameplate/Colors/Display/Ring/Sounds/Combat/Models.
   static constexpr int kNpCount = 7;    // Nameplate toggle checkboxes (kNpChildNames).
   static constexpr int kRoleCount = 18; // Color roles; == nameplate_colors::count().
 
@@ -150,6 +153,18 @@ class RcpOptionsUI {
   void *btn_fcd_col_incoming_ = nullptr;
   void *btn_fcd_col_other_ = nullptr;
   void *btn_fcd_col_crit_ = nullptr;
+  // Models tab (classic vs modern item graphics; model_settings).
+  void *lbl_model_hint_ = nullptr;
+  void *list_model_ = nullptr;             // Scrollable revamp list (native CListWnd): rows show name + state.
+  void *btn_model_all_classic_ = nullptr;  // Momentary: set every listed graphic to classic.
+  void *btn_model_all_new_ = nullptr;      // Momentary: set every listed graphic back to modern.
+  void *lbl_model_count_ = nullptr;        // "N of M set to classic".
+  // Models tab, NPC/creature section (npc_model_settings).
+  void *lbl_npc_hint_ = nullptr;
+  void *list_npc_ = nullptr;             // Scrollable creature list (native CListWnd): rows show name + state.
+  void *btn_npc_all_classic_ = nullptr;  // Momentary: revert every listed creature to classic.
+  void *btn_npc_all_new_ = nullptr;      // Momentary: set every listed creature back to modern.
+  void *lbl_npc_count_ = nullptr;        // "N of M classic".
   bool create_attempted_ = false;
 
   // Tab state.
@@ -217,6 +232,18 @@ class RcpOptionsUI {
   bool last_fcd_col_incoming_ = false;
   bool last_fcd_col_other_ = false;
   bool last_fcd_col_crit_ = false;
+  // Models tab state.
+  std::vector<int> model_rows_;               // list row index -> modern IT (mirrors the CListWnd row order).
+  std::vector<std::string> model_row_texts_;  // list row index -> current row text (update in place, not rebuild).
+  int last_model_sel_row_ = -1;               // last CListWnd GetCurSel (a change == a user row click -> toggle it).
+  bool last_model_all_classic_ = false;       // momentary "All classic" latch.
+  bool last_model_all_new_ = false;           // momentary "All modern" latch.
+  // Models tab, NPC section state.
+  std::vector<std::string> npc_rows_;         // list row index -> creature name (mirrors the CListWnd order).
+  std::vector<std::string> npc_row_texts_;    // list row index -> current row text (update in place).
+  int last_npc_sel_row_ = -1;                 // last CListWnd GetCurSel (a change == a user row click).
+  bool last_npc_all_classic_ = false;
+  bool last_npc_all_new_ = false;
   // Ring-graphic combobox: the choice list (index -> name, "None" first) currently loaded into the
   // combo, and the last selected index we applied (so the poll only reacts to real user changes).
   std::vector<std::string> graphic_choices_;

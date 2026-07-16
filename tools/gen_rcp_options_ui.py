@@ -53,7 +53,7 @@ WHITE = (255, 255, 255)
 YELLOW = (255, 255, 0)
 
 # ---- window + layout ----
-WINDOW_CX = 624  # Wide enough for the 8-tab strip at the proven 64 px tab width (tab 7 right edge 545), with headroom.
+WINDOW_CX = 624  # Wide enough for the 9-tab strip at the proven 64 px tab width (tab 8 right edge 612), with headroom.
 WINDOW_CY = 424  # Nameplate tab needs ~356; the extra room lets the Ring-tab graphic combobox (pushed
                  # down a row by the melee-range checkbox) drop its list (bottom ~410) inside the window.
 TAB_Y = 6            # tab-strip row
@@ -154,6 +154,20 @@ def listbox(name, x, y, cx, cy, col_width):
     return out
 
 
+def listbox_cols(name, x, y, cx, cy, col_widths):
+    # Multi-column native Listbox: one <Columns> block per column (stock schema, e.g. GT_MemberList in
+    # EQUI_GuildManagementWnd.xml). The C++ fills col 0 via AddString and the rest via SetItemText(row,
+    # col, ...), clears the column-header row, and polls GetCurSel. Column N renders at a fixed x (sum
+    # of prior widths), which vertically aligns that column's text -- how we right-align the state.
+    out = [f'  <Listbox item="{name}">', f"    <ScreenID>{name}</ScreenID>",
+           "    <RelativePosition>true</RelativePosition>", "    <DrawTemplate>WDT_Inner</DrawTemplate>"]
+    out += loc_size(x, y, cx, cy)
+    for w in col_widths:
+        out += ["    <Columns>", f"      <Width>{w}</Width>", "    </Columns>"]
+    out += ["    <Style_Border>true</Style_Border>", "    <Style_VScroll>true</Style_VScroll>", "  </Listbox>"]
+    return out
+
+
 def build_controls():
     """Returns the control list; the order is also the <Pieces> order."""
     c = []
@@ -166,7 +180,8 @@ def build_controls():
             ("Rcp_TabDisplay", "Display", "Display, chase-camera, and world settings"),
             ("Rcp_TabRing", "Ring", "Target ring settings"),
             ("Rcp_TabSounds", "Sounds", "Sound toggles"),
-            ("Rcp_TabCombat", "Combat", "Floating combat damage")]
+            ("Rcp_TabCombat", "Combat", "Floating combat damage"),
+            ("Rcp_TabModels", "Models", "Classic vs modern item models")]
     for i, (name, text, tip) in enumerate(tabs):
         c.append((name, button, (name, COL_X + i * (TAB_W + 3), TAB_Y, TAB_W, TAB_H, text, tip)))
 
@@ -386,6 +401,33 @@ def build_controls():
     y += 22
     c.append(("Rcp_FcdColCrit", button, ("Rcp_FcdColCrit", COL_X, y, 200, 18, "Big-hit color",
                                          "Click to pick the color for hits at or above the big-hit threshold")))
+
+    # ---- Tab 8: Models (classic vs modern; weapons left, creatures right) ----
+    # Two side-by-side scrollable lists. Click a row to toggle it between classic and modern; the buttons
+    # flip them all. The C++ populates each native CListWnd (weapons from model_settings, creatures from
+    # npc_model_settings) and polls its selected row + the two buttons.
+    y = CONTENT_Y
+    NPC_X = 320
+    c.append(("Rcp_ModelHint", label, ("Rcp_ModelHint", COL_X, y, 300, 14,
+                                       "Items - click a row to toggle:")))
+    c.append(("Rcp_NpcHint", label, ("Rcp_NpcHint", NPC_X, y, 290, 14,
+                                     "Creatures - click a row to toggle:")))
+    y += 18
+    # Two columns each: name (left) + state (its own column, so CLASSIC/MODERN align on the right).
+    c.append(("Rcp_ModelList", listbox_cols, ("Rcp_ModelList", COL_X, y, 300, 300, [210, 72])))
+    c.append(("Rcp_NpcList", listbox_cols, ("Rcp_NpcList", NPC_X, y, 290, 300, [210, 62])))
+    y += 306
+    c.append(("Rcp_ModelAllClassic", button, ("Rcp_ModelAllClassic", COL_X, y, 140, 20, "All classic",
+                                              "Switch every listed weapon graphic to its classic version")))
+    c.append(("Rcp_ModelAllNew", button, ("Rcp_ModelAllNew", COL_X + 148, y, 140, 20, "All modern",
+                                          "Switch every listed weapon graphic back to its modern version")))
+    c.append(("Rcp_NpcAllClassic", button, ("Rcp_NpcAllClassic", NPC_X, y, 135, 20, "All classic",
+                                            "Switch every listed creature to its classic model")))
+    c.append(("Rcp_NpcAllNew", button, ("Rcp_NpcAllNew", NPC_X + 143, y, 135, 20, "All modern",
+                                        "Switch every listed creature back to its modern model")))
+    y += 24
+    c.append(("Rcp_ModelCount", label, ("Rcp_ModelCount", COL_X, y, 300, 16, "", YELLOW)))
+    c.append(("Rcp_NpcCount", label, ("Rcp_NpcCount", NPC_X, y, 290, 16, "", YELLOW)))
     return c
 
 

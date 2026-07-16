@@ -4747,6 +4747,34 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_TabModels">
+    <ScreenID>Rcp_TabModels</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>548</X>
+      <Y>6</Y>
+    </Location>
+    <Size>
+      <CX>64</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Classic vs modern item models</TooltipReference>
+    <Text>Models</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Button item="Rcp_Enabled">
     <ScreenID>Rcp_Enabled</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -7302,6 +7330,242 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Label item="Rcp_ModelHint">
+    <ScreenID>Rcp_ModelHint</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>300</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Items - click a row to toggle:</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Label item="Rcp_NpcHint">
+    <ScreenID>Rcp_NpcHint</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>320</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>290</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Creatures - click a row to toggle:</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Listbox item="Rcp_ModelList">
+    <ScreenID>Rcp_ModelList</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <Location>
+      <X>12</X>
+      <Y>52</Y>
+    </Location>
+    <Size>
+      <CX>300</CX>
+      <CY>300</CY>
+    </Size>
+    <Columns>
+      <Width>210</Width>
+    </Columns>
+    <Columns>
+      <Width>72</Width>
+    </Columns>
+    <Style_Border>true</Style_Border>
+    <Style_VScroll>true</Style_VScroll>
+  </Listbox>
+
+  <Listbox item="Rcp_NpcList">
+    <ScreenID>Rcp_NpcList</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <Location>
+      <X>320</X>
+      <Y>52</Y>
+    </Location>
+    <Size>
+      <CX>290</CX>
+      <CY>300</CY>
+    </Size>
+    <Columns>
+      <Width>210</Width>
+    </Columns>
+    <Columns>
+      <Width>62</Width>
+    </Columns>
+    <Style_Border>true</Style_Border>
+    <Style_VScroll>true</Style_VScroll>
+  </Listbox>
+
+  <Button item="Rcp_ModelAllClassic">
+    <ScreenID>Rcp_ModelAllClassic</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>358</Y>
+    </Location>
+    <Size>
+      <CX>140</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Switch every listed weapon graphic to its classic version</TooltipReference>
+    <Text>All classic</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_ModelAllNew">
+    <ScreenID>Rcp_ModelAllNew</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>160</X>
+      <Y>358</Y>
+    </Location>
+    <Size>
+      <CX>140</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Switch every listed weapon graphic back to its modern version</TooltipReference>
+    <Text>All modern</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_NpcAllClassic">
+    <ScreenID>Rcp_NpcAllClassic</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>320</X>
+      <Y>358</Y>
+    </Location>
+    <Size>
+      <CX>135</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Switch every listed creature to its classic model</TooltipReference>
+    <Text>All classic</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_NpcAllNew">
+    <ScreenID>Rcp_NpcAllNew</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>463</X>
+      <Y>358</Y>
+    </Location>
+    <Size>
+      <CX>135</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Switch every listed creature back to its modern model</TooltipReference>
+    <Text>All modern</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Label item="Rcp_ModelCount">
+    <ScreenID>Rcp_ModelCount</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>382</Y>
+    </Location>
+    <Size>
+      <CX>300</CX>
+      <CY>16</CY>
+    </Size>
+    <Text></Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Label item="Rcp_NpcCount">
+    <ScreenID>Rcp_NpcCount</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>320</X>
+      <Y>382</Y>
+    </Location>
+    <Size>
+      <CX>290</CX>
+      <CY>16</CY>
+    </Size>
+    <Text></Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
   <Screen item="RcpOptions">
     <ScreenID>RcpOptions</ScreenID>
     <RelativePosition>false</RelativePosition>
@@ -7332,6 +7596,7 @@
     <Pieces>Rcp_TabRing</Pieces>
     <Pieces>Rcp_TabSounds</Pieces>
     <Pieces>Rcp_TabCombat</Pieces>
+    <Pieces>Rcp_TabModels</Pieces>
     <Pieces>Rcp_Enabled</Pieces>
     <Pieces>Rcp_SensXLabel</Pieces>
     <Pieces>Rcp_SensX</Pieces>
@@ -7442,6 +7707,16 @@
     <Pieces>Rcp_FcdColIncoming</Pieces>
     <Pieces>Rcp_FcdColOther</Pieces>
     <Pieces>Rcp_FcdColCrit</Pieces>
+    <Pieces>Rcp_ModelHint</Pieces>
+    <Pieces>Rcp_NpcHint</Pieces>
+    <Pieces>Rcp_ModelList</Pieces>
+    <Pieces>Rcp_NpcList</Pieces>
+    <Pieces>Rcp_ModelAllClassic</Pieces>
+    <Pieces>Rcp_ModelAllNew</Pieces>
+    <Pieces>Rcp_NpcAllClassic</Pieces>
+    <Pieces>Rcp_NpcAllNew</Pieces>
+    <Pieces>Rcp_ModelCount</Pieces>
+    <Pieces>Rcp_NpcCount</Pieces>
   </Screen>
   <!-- RCP-OPTIONS-END -->
 
