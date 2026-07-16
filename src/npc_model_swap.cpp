@@ -15,6 +15,7 @@
 
 #include "commands.h"
 #include "crash_handler.h"
+#include "font_overlay.h"    // add_scene_draw (self-diag tick rides the proven pre-UI seam)
 #include "game_functions.h"  // Rcp::Game::print_chat
 #include "hook_wrapper.h"
 #include "io_ini.h"
@@ -87,6 +88,7 @@ const NpcRevamp kNpcRevamps[] = {
     // (The pc flag + release_actor destroy path stay wired for if that native approach is built later.)
 };
 
+RcpService *g_rcp_svc = nullptr;  // stored by the ctor for lazy hook registration
 std::mutex g_mu;
 std::map<std::string, std::string> g_redirect;  // active: "<code>_ACTORDEF" -> "<classic>_ACTORDEF"
 std::set<std::string> g_persistent_subs;        // redirect TARGETS that must STAY in spawn+0xEBA after the
@@ -95,6 +97,11 @@ std::set<std::string> g_persistent_subs;        // redirect TARGETS that must ST
                                                 // code T-poses a new-style alias body. Guarded by g_mu.
 int g_pc_log_count = 0;  // cap for PC-race diagnostics ([pcargs]/[pcmodel] lines)
 std::map<std::string, bool> g_on;               // catalog display name -> reverted to classic (persisted)
+// ELEMENTAL split (the native UseLuclinElementals equivalent, ini-independent). Typed Luclin elementals
+// (races 209-212 -> EEL/AEL/WEL/FEL in global5_chr) vs the classic generic ELE (global_chr, tint by body
+// texture: 0=earth 1=fire 2=water 3=air, DB-verified). classic: typed -> ELE + the matching texture byte;
+// modern: ELE -> typed by its texture byte. Persisted as [NpcModels] "Elemental".
+bool g_elem_classic = false;
 std::map<std::string, std::string> g_manual;    // /rcpbody discovery redirects (session only)
 std::set<int> g_spawn_ids;                      // spawn ids BuildActor has seen -> live-refresh targets
 bool g_log = false;
@@ -124,7 +131,16 @@ const NpcRevamp *find_revamp(const std::string &name) {
   return nullptr;
 }
 
-void add_pc_redirects();  // PC-race alias redirects (defined with the PC section below)
+void add_pc_redirects();    // PC-race alias redirects (defined with the PC section below)
+void ensure_dagreg_hook();  // lazy DLL attach-slot detour (defined with the PC section below)
+// Scoped model-table alias window (defined with the PC section). The table RESTS NATIVE -- leaving an
+// alias code (or even a changed flags dword) in a PC record freezes local-player input (probes 1+2,
+// 2026-07-16). Dress-time code that must build alias-keyed names (armor materials, face/hair pieces,
+// attach dags, def-create) runs between enter/leave, which swap the toggled-modern races' records to
+// their alias codes and restore native on exit. Nesting-safe; main-thread only.
+void enter_alias_window();
+void leave_alias_window();
+bool spawn_uses_alias(void *spawn);  // actordef @+0xEBA carries a PC alias prefix (HU7/HU6/...)
 
 // Rebuild the active redirect map from the catalog on-state + manual /rcpbody entries + PC-race aliases.
 // Caller holds g_mu.
@@ -152,8 +168,11 @@ void load_settings() {
   IO_ini ini(IO_ini::kRcpIniFilename);
   std::lock_guard<std::mutex> lk(g_mu);
   g_on.clear();
-  for (auto &kv : ini.getSection(kIniSection))  // key = creature name, value = 1
+  g_elem_classic = false;
+  for (auto &kv : ini.getSection(kIniSection)) {  // key = creature name, value = 1
     if (std::atoi(kv.second.c_str()) > 0 && find_revamp(kv.first)) g_on[kv.first] = true;
+    if (kv.first == "Elemental" && std::atoi(kv.second.c_str()) > 0) g_elem_classic = true;
+  }
   rebuild_redirect();
 }
 
@@ -217,6 +236,11 @@ void refresh_world() {
         if (r.pc) pc_codes.insert(code);
       }
     for (auto &kv : g_manual) managed.insert(kv.first);
+    for (const char *e : {"ELE", "AEL", "EEL", "FEL", "WEL"}) {  // elemental split targets (cheap rebuilds)
+      managed.insert(std::string(e) + "_ACTORDEF");
+      pc_codes.insert(std::string(e) + "_ACTORDEF");  // cross-code rebuild leaves an orphan actor (proven
+                                                      // in-game: elemental toggle ghosted) -> destroy it
+    }
   }
   std::vector<int> dead;
   for (int id : ids) {
@@ -279,6 +303,9 @@ void refresh_world() {
       // same-class actors). A freed/reused old actor won't match -> skip, avoiding use-after-free.
       if (old_vt && old_vt == new_vt) {
         rcp_guard::run("npcbody.destroy_leftover", [&] { release_actor(old_actor); });
+        rcp_guard::run("npcbody.retint", [&] {  // re-apply the fixed body texture (elemental tint etc.)
+          reinterpret_cast<void(__thiscall *)(void *)>(0x594ad0)(spawn);
+        });
         if (do_log)
           rcp_guard::run("npcbody.pcdump2", [&] {
             uint32_t *o = reinterpret_cast<uint32_t *>(old_actor);
@@ -308,12 +335,14 @@ int __fastcall BuildActor_hk(void *mgr, int edx, void *spawn, void *p2, int p3, 
       read_cstr(reinterpret_cast<char *>(spawn) + kEntName, ename, sizeof(ename));
       race = *reinterpret_cast<int *>(reinterpret_cast<char *>(spawn) + kEntRace);
       sid = *reinterpret_cast<int *>(reinterpret_cast<char *>(spawn) + kEntSpawnId);
-      is_local = spawn == *kLocalPlayer;  // never redirect the local player's own model: it builds
-                                          // naturally at login/zone and we can't yet live-rebuild it
-                                          // (camera), so a redirect would STICK until the map changes
+      ensure_dagreg_hook();  // early: DLL is loaded by the time any spawn builds -> catches NATURAL builds
+      is_local = spawn == *kLocalPlayer;  // diagnostic only now: with the resting-native table the alias
+                                          // redirect is SAFE for the local player's natural builds too
+                                          // (and pc_reapply live-rebuilds it with a camera re-acquire)
     });
-    if (name[0] && !is_local) {
+    if (name[0]) {
       std::string sub;
+      int elem_tex = -1;  // >=0: write spawn+0xEB9 (classic ELE tint) when applying an elemental redirect
       bool do_log = false;
       {
         std::lock_guard<std::mutex> lk(g_mu);
@@ -325,6 +354,24 @@ int __fastcall BuildActor_hk(void *mgr, int edx, void *spawn, void *p2, int p3, 
         }
         auto it = g_redirect.find(upper(name));
         if (it != g_redirect.end()) sub = it->second;
+        if (sub.empty()) {  // elemental split: conditional (texture-keyed) redirect, both directions
+          std::string u = upper(name);
+          if (g_elem_classic) {
+            static const struct { const char *from; int tex; } kElemToClassic[] = {
+                {"AEL_ACTORDEF", 3}, {"EEL_ACTORDEF", 0}, {"FEL_ACTORDEF", 1}, {"WEL_ACTORDEF", 2}};
+            for (const auto &m : kElemToClassic)
+              if (u == m.from) {
+                sub = "ELE_ACTORDEF";
+                elem_tex = m.tex;  // classic ELE tint for this type
+              }
+          } else if (u == "ELE_ACTORDEF") {
+            static const char *kElemByTex[4] = {"EEL_ACTORDEF", "FEL_ACTORDEF", "WEL_ACTORDEF",
+                                                "AEL_ACTORDEF"};
+            uint8_t bt = 0;
+            bt = *reinterpret_cast<uint8_t *>(reinterpret_cast<char *>(spawn) + 0xEB9);
+            if (bt < 4) sub = kElemByTex[bt];
+          }
+        }
       }
       if (do_log) {
         if (sub.empty())
@@ -347,10 +394,10 @@ int __fastcall BuildActor_hk(void *mgr, int edx, void *spawn, void *p2, int p3, 
             src[s] = *reinterpret_cast<uint32_t *>(base + 0x1da0 + s * 0x14);
             wrk[s] = *reinterpret_cast<uint32_t *>(base + 0xf30 + s * 0x14);
           }
-          logger::logf("[pcargs] BUILD-TIME id=%d race=%d bt=%d ea8=0x%02x ret=%p src=%u,%u,%u,%u,%u,%u,%u,%u,%u wrk=%u,%u,%u,%u,%u,%u,%u,%u,%u",
-                       sid, race, (int)bt, ea8, __builtin_return_address(0), src[0], src[1], src[2], src[3],
-                       src[4], src[5], src[6], src[7], src[8], wrk[0], wrk[1], wrk[2], wrk[3], wrk[4],
-                       wrk[5], wrk[6], wrk[7], wrk[8]);
+          logger::logf("[pcargs] BUILD-TIME id=%d race=%d local=%d bt=%d ea8=0x%02x ret=%p src=%u,%u,%u,%u,%u,%u,%u,%u,%u wrk=%u,%u,%u,%u,%u,%u,%u,%u,%u",
+                       sid, race, (int)is_local, (int)bt, ea8, __builtin_return_address(0), src[0], src[1],
+                       src[2], src[3], src[4], src[5], src[6], src[7], src[8], wrk[0], wrk[1], wrk[2],
+                       wrk[3], wrk[4], wrk[5], wrk[6], wrk[7], wrk[8]);
         });
       }
       if (!sub.empty() && sub.size() < static_cast<size_t>(kActorDefCap)) {
@@ -368,8 +415,12 @@ int __fastcall BuildActor_hk(void *mgr, int edx, void *spawn, void *p2, int p3, 
           char *def = reinterpret_cast<char *>(spawn) + kEntActorDef;
           std::snprintf(saved, sizeof(saved), "%s", def);
           std::snprintf(def, kActorDefCap, "%s", sub.c_str());
+          if (elem_tex >= 0)  // classic elemental: set the ELE tint for this type (persists -- it IS the tint)
+            *reinterpret_cast<uint8_t *>(reinterpret_cast<char *>(spawn) + 0xEB9) =
+                static_cast<uint8_t>(elem_tex);
           did = true;
         });
+        // Alias-keyed dress naming (armor/dag/def) is supplied by the resolver detour; no window here.
         int r = g_build_orig(mgr, edx, spawn, p2, p3, p4, p5, p6);
         if (did && !persist)
           rcp_guard::run("npcbody.restore", [&] {
@@ -389,23 +440,27 @@ int __fastcall BuildActor_hk(void *mgr, int edx, void *spawn, void *p2, int p3, 
 // produced native code (HUM/HUF/...) belongs to a PC race toggled MODERN, overwrite it IN PLACE with the
 // same-length alias (HU7/HU6/...) -- so armor materials resolve HU7CH..01_MDF (present in the alias
 // archives), hair resolves HU7HE.., etc. Classic-toggled races pass through untouched.
-// MODEL-TABLE ENTRY code swap. 0x50f070(buf, race, gender) builds a lookup KEY (returns an object, NOT a
-// code string -- learn log proved the returned bytes are binary); 0x50a2d0(this=key) resolves it to the
-// MODEL TABLE ENTRY registered at startup (0x50a440 run) -- the entry holds a POINTER to the code string
-// ("HUM" in .rdata). Every race-keyed name construction (armor materials, hair pieces, SetBodyTexture
-// handles, def-create) reads the code THROUGH this entry, so swapping that one pointer per toggle makes the
-// whole client alias-keyed for the race. The field offset is DISCOVERED at runtime: scan the entry's first
-// dwords for a pointer whose target string equals the native code (or a previously-swapped alias).
-typedef char *(__cdecl *CodeBuildFn2)(char *buf, int race, int gender);
-typedef void *(__thiscall *KeyLookupFn)(void *key);
-constexpr uintptr_t kKeyLookup = 0x50a2d0;
+// MODEL-TABLE record resolution (disasm-corrected 2026-07-15). 0x50f070 is a SINGLETON GETTER for the
+// model-table manager @0xDCFCE0 -- it IGNORES its stack args (the old "(buf, race, gender) key builder"
+// reading was wrong). 0x50a2d0 = __thiscall(mgr; char *out, int race, int gender): hash-walks the table
+// for the record whose +0x20/+0x24 == race/gender, STRCPYs its INLINE code (record+0x8 -- the field every
+// armor-material/hair/dag name construction reads) into `out`, and returns a pointer just past that
+// inline code's NUL *inside the record* (a miss writes the "HUM"/"HUF" default into `out` and returns an
+// unrelated bucket pointer -- the strncmp verify in swap_table_code rejects it). The previous zero-arg
+// call worked only off stack residue and ACCESS-VIOLATED when codegen shifted (24x per toggle in the
+// 2026-07-15 log), silently leaving the table unswapped.
+constexpr uintptr_t kResolveModelCode = 0x50a2d0;  // __thiscall(mgr; char* out, int race, int gender) ret4
 
-// Set the model-table code for (race, gender) to `to` ("HU7" literal from kPcRaces / native code). Returns
-// the offset used (for the log) or -1.
-int g_table_dumped = 0;
-std::map<void *, uint32_t> g_table_orig_flags;  // record base -> original +0x2C flags (restore on classic)
-// Registry unlink (re-added, proven-safe walk): free an actordef NAME so the next build re-creates its def
-// (needed when the record's new-style flag changes -- the def bakes the anim-bank choice at creation).
+int g_table_dumped = 0;  // (retained: referenced by the resolver log cap)
+// TEMP freeze-hunt probes (/rcppc probe <n>). The record is no longer mutated at all, so most are inert;
+// kept so the existing /rcppc probe handler still compiles.
+bool g_probe_skip_code = false;
+bool g_probe_skip_flags = false;
+bool g_probe_skip_unlink = false;  // don't unlink alias defs from the registry
+bool g_probe_skip_table = false;   // skip the toggle-time def invalidation
+bool g_probe_skip_storm = false;   // skip the per-spawn rebuild loop
+// Registry unlink (proven-safe walk): free an actordef NAME so the next build re-creates its def against
+// the current settings.
 void unlink_actordef_name(const std::string &full) {
   rcp_guard::run("pc.unlink", [&] {
     char **head = reinterpret_cast<char **>(0xDD260C);
@@ -424,70 +479,29 @@ void unlink_actordef_name(const std::string &full) {
     }
   });
 }
-int swap_table_code(int race, int gender, const char *from_a, const char *from_b, const char *to) {
-  int found = -1;
-  rcp_guard::run("pc.tableswap", [&] {
-    char keybuf[0x40] = {0};
-    char *key = reinterpret_cast<CodeBuildFn2>(0x50f070)(keybuf, race, gender);
-    void *entry = reinterpret_cast<KeyLookupFn>(kKeyLookup)(key);
-    if (g_table_dumped < 2) {  // one-shot layout dump so the field stops being a guess
-      ++g_table_dumped;
-      uint32_t *e = reinterpret_cast<uint32_t *>(entry);
-      if (entry)
-        logger::logf("[pcmodel] entry race=%d g=%d @%p: %08x %08x %08x %08x %08x %08x %08x %08x | %08x %08x "
-                     "%08x %08x %08x %08x %08x %08x",
-                     race, gender, entry, e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7], e[8], e[9], e[10],
-                     e[11], e[12], e[13], e[14], e[15]);
-      else
-        logger::logf("[pcmodel] entry race=%d g=%d LOOKUP RETURNED NULL (key=%p)", race, gender, key);
+
+// LEARN-HOOK #3 (temporary): sprintf@0x8dc12f tap, logging every material-name construction ("_MDF") with
+// its caller -- answers which code prefix the face/hair texture swap requests for alias actors. cdecl, so
+// forwarding a fixed arg window is safe (caller cleans its own pushes).
+typedef int(__cdecl *SprintfFn)(char *dst, const char *fmt, uint32_t a, uint32_t b, uint32_t c, uint32_t d);
+SprintfFn g_sprintf_orig = nullptr;
+int g_mdf_log = 0;
+int __cdecl Sprintf_hk(char *dst, const char *fmt, uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
+  int r = g_sprintf_orig(dst, fmt, a, b, c, d);
+  if (g_mdf_log < 400 && dst && fmt && dst[0] && dst[1] && dst[2]) {
+    // log ONLY alias-prefixed constructions (HU7/HU6/BA7/... = toggle-time activity; login noise excluded)
+    static const char *kAliases[] = {"HU7", "HU6", "BA7", "BA6", "ER7", "ER6", "EL7", "EL6",
+                                     "HI7", "HI6", "DA7", "DA6", "HA7", "HA6", "DW7", "DW6",
+                                     "TR7", "TR6", "OG7", "OG6", "HO7", "HO6", "GN7", "GN6"};
+    bool interesting = false;
+    for (const char *a : kAliases)
+      if (dst[0] == a[0] && dst[1] == a[1] && dst[2] == a[2]) interesting = true;
+    if (interesting) {
+      ++g_mdf_log;
+      logger::logf("[mdf] '%s' (fmt '%s') ret=%p", dst, fmt, __builtin_return_address(0));
     }
-    if (!entry) return;
-    char *base = reinterpret_cast<char *>(entry);
-    // The lookup returns record+0xC; the record's INLINE code lives at record+0x8 = entry-0x4 (dump-proven:
-    // "HUF" at the next record's +0x8). Scan a window starting BEFORE the returned pointer.
-    for (int off = -0x10; off <= 0x80; ++off) {  // byte-granular: catch INLINE codes too
-      // inline match: the 3-char code embedded directly in the entry
-      auto imatch = [&](const char *code) {
-        return code && base[off] == code[0] && base[off + 1] == code[1] && base[off + 2] == code[2] &&
-               base[off + 3] == '\0';
-      };
-      if (imatch(from_a) || imatch(from_b)) {
-        std::memcpy(base + off, to, 3);  // same-length inline swap
-        // The record starts 0x8 before its inline code; +0x2C holds the model flags. Bit0 = "new-style
-        // (Luclin) model" -- what IsActorUsingNewStyleModel/vt-flag getters read. Set it when switching to
-        // the alias (Luclin body: correct 122-anim bank + head attach), restore the original when
-        // switching back to the native code.
-        char *record = base + off - 0x8;
-        uint32_t *flags = reinterpret_cast<uint32_t *>(record + 0x2c);
-        bool to_alias = to == from_b;  // from_b = the alias code
-        if (!g_table_orig_flags.count(record)) g_table_orig_flags[record] = *flags;
-        *flags = to_alias ? (*flags | 1u) : g_table_orig_flags[record];
-        found = off;
-        return;
-      }
-      if (off >= 0 && off % 4 == 0) {  // pointer match on aligned dwords
-        char *s = *reinterpret_cast<char **>(base + off);
-        if (s && reinterpret_cast<uintptr_t>(s) >= 0x10000) {
-          char b4[4] = {0, 0, 0, 1};
-          rcp_guard::run("pc.tableread", [&] {
-            b4[0] = s[0];
-            b4[1] = s[1];
-            b4[2] = s[2];
-            b4[3] = s[3];
-          });
-          auto match = [&](const char *code) {
-            return code && b4[0] == code[0] && b4[1] == code[1] && b4[2] == code[2] && b4[3] == '\0';
-          };
-          if (match(from_a) || match(from_b)) {
-            *reinterpret_cast<char **>(base + off) = const_cast<char *>(to);
-            found = off;
-            return;
-          }
-        }
-      }
-    }
-  });
-  return found;
+  }
+  return r;
 }
 
 // LEARN-HOOKS #2 (temporary): which def-build path does an alias take? 0x407800 = classic build (0x18-anim
@@ -510,8 +524,18 @@ int __fastcall DefBuildClassic_hk(void *self, int edx, int a1, int a2) {
     ++g_defb_log;
     char nm[24] = {0};
     read_cstr(reinterpret_cast<void *>(a2), nm, sizeof(nm));
-    logger::logf("[defb] CLASSIC build def=%p a1=%x a2='%s' ret=%p", self, a1, nm,
-                 __builtin_return_address(0));
+    // hair lead: capture the source object's vtable + the attach-slot API impls (vt[0x19C]=register by dag
+    // name, vt[0x1A4]=slot valid?) WHILE a1 is alive -- these are the fns to detour to see why the alias
+    // TUNIC probe fails (def+0x34 stays 0 -> no head/hair). Do NOT call them post-build (object transient).
+    void *vt = nullptr, *f19c = nullptr, *f1a4 = nullptr;
+    rcp_guard::run("defb.vt", [&] {
+      void **v = *reinterpret_cast<void ***>(a1);
+      vt = v;
+      f19c = v[0x19c / 4];
+      f1a4 = v[0x1a4 / 4];
+    });
+    logger::logf("[defb] CLASSIC build def=%p a1=%x a2='%s' vt=%p reg19c=%p chk1a4=%p ret=%p", self, a1, nm,
+                 vt, f19c, f1a4, __builtin_return_address(0));
   }
   return g_defb_classic(self, edx, a1, a2);
 }
@@ -524,8 +548,9 @@ int __fastcall DefBuildNew_hk(void *self, int edx, int a1, int a2, int a3) {
   return g_defb_new(self, edx, a1, a2, a3);
 }
 
-// LEARN-HOOKS (temporary): passthrough detours on the dress chain, logging the client's OWN natural calls
-// (caller ret addr + args) so the re-dress after our rebuild can replicate them exactly. No behavior change.
+// DRESS-CHAIN detours: originally learn-hooks; now ALSO the alias-window carriers -- armor material
+// names are built from the model-table code at these entry points, so for alias-bodied spawns the call
+// runs inside enter/leave (table shows the alias code only for the duration).
 typedef void(__fastcall *Apply1Fn)(void *self, int edx, int slot);
 typedef int(__fastcall *Set6Fn)(void *self, int edx, int a1, int a2, int a3, int a4, int a5, int a6);
 typedef void(__fastcall *Slot1Fn)(void *self, int edx, int slot);
@@ -533,6 +558,8 @@ Apply1Fn g_apply_orig = nullptr;
 Set6Fn g_set6_orig = nullptr;
 Slot1Fn g_slotref_orig = nullptr;
 int g_learn_count = 0;
+// These dress-chain detours are now LOG-ONLY again: the resolver detour supplies alias names at the
+// resolver seam, so no per-call table window is needed here.
 void __fastcall ApplyArmor_hk(void *self, int edx, int slot) {
   if (g_learn_count < 300) {
     ++g_learn_count;
@@ -555,6 +582,10 @@ void __fastcall SlotRefresh_hk(void *self, int edx, int slot) {
   }
   g_slotref_orig(self, edx, slot);
 }
+// (The natural spawn-add / illusion visual-init tail @0x595ED0 was briefly detoured to open an alias
+//  window around its head/face/hair styling, but its arg count is ambiguous -- callers push 3 vs 4 -- so
+//  a fixed-signature detour crashed at char-select. The resolver detour covers its internal name
+//  construction, so no hook here is needed.)
 
 // Log-only detour on the read-side lookup: shows whether a name resolves in the registry, so we can
 // watch a freshly-redirected alias go MISSING (first build) -> resident (subsequent builds).
@@ -613,14 +644,97 @@ const PcRace kPcRaces[] = {
     {"Halfling", 11, {"HOM", "HOF"}, {"HO7", "HO6"}},
     {"Gnome", 12, {"GNM", "GNF"}, {"GN7", "GN6"}},
 };
-std::map<int, bool> g_pc_classic;  // race id -> force classic (true) / force Luclin (false). Persisted.
+// Per race AND GENDER (the client's own split: UseLuclin%sMale / UseLuclin%sFemale are the only per-race
+// ini literals). Key = (race<<1)|gender, gender 0=male 1=female (kPcRaces codes[] order).
+std::map<int, bool> g_pc_classic;  // pc_key -> force classic (true) / force Luclin (false). Persisted.
 constexpr char kPcIniSection[] = "PcModels";
+int pc_key(int race, int gender) { return (race << 1) | (gender & 1); }
+const char *kGenderName[2] = {"Male", "Female"};
 
 const PcRace *find_pc_by_name(const std::string &name) {
   for (const auto &r : kPcRaces)
     if (upper(name) == upper(r.name)) return &r;
   return nullptr;
 }
+// Parse "<Race>" (gender=-1 -> both) or "<Race> Male"/"<Race> Female".
+const PcRace *find_pc_gender(const std::string &name, int *gender) {
+  *gender = -1;
+  std::string u = upper(name);
+  for (const auto &r : kPcRaces) {
+    std::string base = upper(r.name);
+    if (u == base) return &r;
+    for (int g = 0; g < 2; ++g)
+      if (u == base + " " + upper(kGenderName[g])) {
+        *gender = g;
+        return &r;
+      }
+  }
+  return nullptr;
+}
+
+// DAG-REGISTER REPAIR SHIM. EQGraphicsDX9.dll RVA 0x41140 = CActor::RegisterAttachSlot(this; slot, dagname)
+// (__thiscall ret 8): dag = this->vt[0x1C0]->FindDagByName(name); if (dag) this->0x188[slot] = dag. The
+// head/hair attach dies here for alias models: some callers request the dag under the code the SKELETON
+// does NOT carry (native vs alias prefix). The shim retries a failed lookup with the 3-char code prefix
+// swapped through the PC alias maps (both directions) -- whichever prefix the skeleton actually has wins.
+// Registered lazily (the DLL isn't loaded when our ctor runs).
+typedef void(__fastcall *DagRegFn)(void *actor, int edx, int slot, char *name);
+DagRegFn g_dagreg_orig = nullptr;
+bool g_dagreg_hooked = false;
+int g_dagreg_log = 0;
+void __fastcall DagReg_hk(void *actor, int edx, int slot, char *name) {
+  g_dagreg_orig(actor, edx, slot, name);  // the ORIGINAL registration runs first
+  if (crash_handler::shutting_down() || !name || slot < 0 || slot > 30) return;
+  rcp_guard::run("pc.dagfix", [&] {
+    void **slots = reinterpret_cast<void **>(reinterpret_cast<char *>(actor) + 0x188);
+    bool orig_ok = slots[slot] != nullptr;  // did the client's own lookup resolve this dag?
+    char code[4] = {0};
+    for (int i = 0; i < 3 && name[i]; ++i) code[i] = static_cast<char>(std::toupper((unsigned char)name[i]));
+    // classify the REQUEST code as a modern-alias code (HU7/HU6/...) vs a native PC code (HUM/HUF/...)
+    bool req_alias = false, req_native = false;
+    const char *alt = nullptr;
+    {
+      std::lock_guard<std::mutex> lk(g_mu);
+      for (const auto &r : kPcRaces)
+        for (int g = 0; g < 2; ++g) {
+          if (r.alias[g] && std::strncmp(code, r.codes[g], 3) == 0) {
+            req_native = true;
+            alt = r.alias[g];
+          }
+          if (r.alias[g] && std::strncmp(code, r.alias[g], 3) == 0) {
+            req_alias = true;
+            alt = r.codes[g];
+          }
+        }
+    }
+    bool fixed_ok = false;
+    if (!orig_ok && alt) {  // retry under the sibling prefix
+      char fixed[96];
+      std::snprintf(fixed, sizeof(fixed), "%.3s%s", alt, name + 3);
+      g_dagreg_orig(actor, edx, slot, fixed);
+      fixed_ok = slots[slot] != nullptr;
+    }
+    // Log EVERY PC (alias OR native) attach request so we can diff modern-vs-classic natural builds. Tagging
+    // MODERN (alias code) vs CLASSIC (native code) is the whole point of this pass.
+    if ((req_alias || req_native) && g_dagreg_log < 600) {
+      ++g_dagreg_log;
+      logger::logf("[dagfix] %s actor=%p slot=%d '%s' orig=%s retry=%s", req_alias ? "MODERN" : "classic",
+                   actor, slot, name, orig_ok ? "OK" : "MISS",
+                   orig_ok ? "-" : (fixed_ok ? "FIXED" : "miss"));
+    }
+  });
+}
+void ensure_dagreg_hook() {
+  if (g_dagreg_hooked || !g_rcp_svc) return;
+  HMODULE dll = GetModuleHandleA("EQGraphicsDX9.dll");
+  if (!dll) return;
+  uintptr_t addr = reinterpret_cast<uintptr_t>(dll) + 0x41140;
+  g_rcp_svc->hooks->Add("rcp_dagreg", static_cast<int>(addr), DagReg_hk, hook_type_detour);
+  g_dagreg_orig = g_rcp_svc->hooks->hook_map["rcp_dagreg"]->original(DagReg_hk);
+  g_dagreg_hooked = true;
+  logger::logf("[dagfix] RegisterAttachSlot detour @%p (dll+0x41140)", (void *)addr);
+}
+
 
 int g_pc_hook_hits = 0;  // DIAGNOSTIC: count/log hook fires so we can see if the config re-runs on zone.
 int __fastcall ShouldUseLuclin_hk(void *mgr, int edx, int race, int gender) {
@@ -628,7 +742,7 @@ int __fastcall ShouldUseLuclin_hk(void *mgr, int edx, int race, int gender) {
     bool classic = false, have = false;
     rcp_guard::run("pcluclin.decide", [&] {
       std::lock_guard<std::mutex> lk(g_mu);
-      auto it = g_pc_classic.find(race);
+      auto it = g_pc_classic.find(pc_key(race, gender));
       if (it != g_pc_classic.end()) {
         classic = it->second;
         have = true;
@@ -644,12 +758,13 @@ int __fastcall ShouldUseLuclin_hk(void *mgr, int edx, int race, int gender) {
   return g_pc_orig(mgr, edx, race, gender);
 }
 
-void pc_persist(const std::string &name, bool classic) {
+void pc_persist(const std::string &race_name, int gender, bool classic) {
   IO_ini ini(IO_ini::kRcpIniFilename);
+  std::string key = race_name + " " + kGenderName[gender & 1];
   if (!classic)
-    ini.setValue<int>(kPcIniSection, name, 1);  // store only the non-default (modern/Luclin) overrides
+    ini.setValue<int>(kPcIniSection, key, 1);  // store only the non-default (modern/Luclin) overrides
   else
-    ini.deleteKey(kPcIniSection, name);
+    ini.deleteKey(kPcIniSection, key);
 }
 
 void pc_load() {
@@ -660,10 +775,15 @@ void pc_load() {
     rebuild_redirect();  // DEBUG native mode: empty map -> hook falls through to the eqclient.ini
     return;
   }
-  for (const auto &r : kPcRaces) g_pc_classic[r.race] = true;  // default: force classic (ignore the ini)
-  for (auto &kv : ini.getSection(kPcIniSection))
-    if (const auto *pr = find_pc_by_name(kv.first))
-      if (std::atoi(kv.second.c_str()) > 0) g_pc_classic[pr->race] = false;  // persisted modern/Luclin
+  for (const auto &r : kPcRaces)
+    for (int g = 0; g < 2; ++g) g_pc_classic[pc_key(r.race, g)] = true;  // default: force classic (ini ignored)
+  for (auto &kv : ini.getSection(kPcIniSection)) {
+    int g = -1;
+    if (const auto *pr = find_pc_gender(kv.first, &g))
+      if (std::atoi(kv.second.c_str()) > 0)
+        for (int gg = 0; gg < 2; ++gg)
+          if (g == -1 || g == gg) g_pc_classic[pc_key(pr->race, gg)] = false;  // persisted modern/Luclin
+  }
   rebuild_redirect();  // fold the PC alias redirects into the live map (g_mu held)
 }
 
@@ -673,16 +793,14 @@ void pc_load() {
 // without alias archives yet contribute nothing. Caller holds g_mu.
 void add_pc_redirects() {
   g_persistent_subs.clear();
-  for (const auto &r : kPcRaces) {
-    for (int g = 0; g < 2; ++g)  // every PC alias is a persistent sub whenever it is active
-      if (r.alias[g]) g_persistent_subs.insert(std::string(r.alias[g]) + "_ACTORDEF");
-    auto it = g_pc_classic.find(r.race);
-    if (it == g_pc_classic.end() || it->second) continue;  // native/classic -> no redirect
-    for (int g = 0; g < 2; ++g)
-      if (r.alias[g]) {
-        g_redirect[std::string(r.codes[g]) + "_ACTORDEF"] = std::string(r.alias[g]) + "_ACTORDEF";
-      }
-  }
+  for (const auto &r : kPcRaces)
+    for (int g = 0; g < 2; ++g) {
+      if (!r.alias[g]) continue;
+      g_persistent_subs.insert(std::string(r.alias[g]) + "_ACTORDEF");  // always a persistent sub when active
+      auto it = g_pc_classic.find(pc_key(r.race, g));
+      if (it == g_pc_classic.end() || it->second) continue;  // native/classic -> no redirect
+      g_redirect[std::string(r.codes[g]) + "_ACTORDEF"] = std::string(r.alias[g]) + "_ACTORDEF";
+    }
 }
 
 // DEAD ENDS, kept for the record (each was proven in-game 2026-07-14):
@@ -740,6 +858,50 @@ constexpr uintptr_t kSetRace = 0x59e440;
 // 0x40c160 / 0x40c1a0) -> F_48ff (our redirect detour applies) -> post-init (glow/scale). Natural builds
 // through it come out DRESSED, so detaching the actor and calling it replicates login exactly.
 constexpr uintptr_t kEnsureActor = 0x5a1a40;
+// ReleaseActor@0x59e3f0 = __thiscall(spawn; CActorInterface* newActor) -- thunks (add ecx,0xEA4;
+// jmp 0x40c000) to the ActorClient's SetAttachedActor, which PROPERLY releases the old actor (its own
+// vtable teardown, not our hide+scene hack) and writes newActor to ActorClient+0x178 == spawn+0x101C.
+// Call with newActor=null to detach+free the live actor and null the slot. This is what the client's own
+// illusion/appearance-change path does before a rebuild (site 0x59718b), so it leaves no ghost.
+constexpr uintptr_t kReleaseActor = 0x59e3f0;
+// PostBuildInit@0x5900e0 = __thiscall(spawn), no args: the world loop runs it right after EnsureActor
+// (0x51c772). For the LOCAL/CONTROLLED player (globals 0xDD2630 / 0xDD2644) it re-binds the camera/view to
+// the freshly built actor (actor vtable[0x1C](1) @0x590375) -- the exact step our out-of-band rebuild was
+// missing, which is why a raw local rebuild left the camera on the old actor. Harmless for other spawns
+// (early-returns at the local/controlled check).
+constexpr uintptr_t kPostBuildInit = 0x5900e0;
+// AttachPlayerCamera@0x507b30 = __thiscall(player), no args: reads the player's CURRENT actor (spawn+0x101C)
+// and (re)binds the camera/view to it. This is the per-player camera attach the world-entry local-view
+// setup (0x48c8d0) calls; 0x5900e0 only sets up the render anim/pose actor, NOT the camera target -- so
+// after an out-of-band rebuild the camera stays on the old actor until THIS runs on the new one.
+constexpr uintptr_t kAttachPlayerCamera = 0x507b30;
+// LocalViewSetup@0x48c8d0 = __thiscall(rendermgr), no args: the world-entry per-player VIEW/CAMERA setup.
+// Operates on BOTH pinstLocalPlayer(0xDD2630) and pinstControlledPlayer(0xDD2644) -- sets up bounding
+// (0x58ff80), view state (0x507230), and the camera attach (0x507b30) for each. This is what makes the
+// camera work after a zone; the Eye-of-Zomm control-switch reasoning confirms the camera follows the
+// CONTROLLED player, and this rebinds it. Call after an out-of-band local rebuild to re-point the camera
+// at the new actor.
+constexpr uintptr_t kLocalViewSetup = 0x48c8d0;
+constexpr int kEntDefCache = 0x1024;  // cached CActorDefinition* -- nulled on a name change so a fresh def
+                                      // is resolved for the new code (native path nulls it at 0x5971db)
+constexpr int kEntAnimActor = 0x1020;  // render anim/pose actor (from 0x48b270); the camera binds to THIS
+                                       // (0x5900e0 @0x590375), not spawn+0x101C
+// THE LIVE-SELF CAMERA FIX (2026-07-16). The camera's per-frame anchor is the global pinstViewActor
+// @0xD1FD88 (eqlib-named; it sits in the ZERO-INITIALIZED tail of .data, past the 0x401000-0xB78800 image
+// scans that "proved" no cached actor pointer existed -- it was there all along). Zone-in acquires it at
+// 0x51c829: after the world-entry build loop, the client calls
+//   CDisplay::SetViewActor(*(0xDD2660); localPlayer->spawn+0x101C)   [SetViewActor@0x48F030, eqlib-named]
+// An out-of-band local rebuild swaps +0x101C but leaves pinstViewActor on the RELEASED old actor, whose
+// position never updates again -> camera frozen in world space until a real zone re-runs the acquire
+// (exactly the observed symptom; toggling again can't recover because the global stays stale).
+// SetViewActor = __thiscall(CDisplay*; CActorInterface*): un-hides the outgoing view actor (vt+0x34
+// SetInvisible(false)), stores the new pointer, snaps the DLL camera (CDisplay+0x118) to the new actor's
+// position/orientation (vt+0x80/+0x84), and re-resolves the view spawn id. The client's own repair path
+// (actor-delete @0x490a10) does the same re-point -- our release_actor hide+unlink hack bypasses it, which
+// is why the native "delete" flows never rescued us. ORDER MATTERS: call SetViewActor BEFORE release_actor
+// hides the old actor (it would un-hide the ghost if run after).
+constexpr uintptr_t kSetViewActor = 0x48F030;
+void **const kViewActor = reinterpret_cast<void **>(0xD1FD88);  // pinstViewActor (eqlib)
 
 // DIAGNOSTIC: dump the appearance obj + material records (spawn+0xEA4..+0xFA4) so a before/after diff shows
 // exactly which fields F_48ff resets (the armor re-dress reads these).
@@ -764,6 +926,66 @@ void reapply_armor(void *spawn) {
   });
 }
 
+// MODEL-TABLE ALIAS via a RESOLVER-OUTPUT detour (2026-07-16 -- replaces the resting record swap AND the
+// scoped-window design). The client's dressing passes (armor materials, head/hair pieces, attach dags,
+// def-create names) all build their lookups from the table code by calling the RESOLVER 0x50a2d0, which
+// STRCPYs the record's inline code into a caller buffer. We detour that resolver and rewrite the OUTPUT
+// buffer's 3-char code to the alias for modern-toggled races -- the RECORD IS NEVER TOUCHED. That matters:
+// a resting record edit froze local-player input (probes 1+2), because a per-tick consumer reads the
+// record directly; the copied-out string it does NOT read, so rewriting only the copy dresses alias
+// bodies everywhere (build/armor/hair/metrics) with zero movement impact and no fragile per-call windows.
+// The old visual-init detour (0x595ED0) is GONE -- its arg count is ambiguous (callers push 3 vs 4), so a
+// fixed-signature detour stack-imbalanced and crashed at char-select; the resolver covers visual-init's
+// internal name construction anyway.
+typedef char *(__thiscall *ResolveModelCode2Fn)(void *mgr, char *out, int race, int gender);
+ResolveModelCode2Fn g_resolve_orig = nullptr;
+int g_resolve_log = 0;
+// Keyed off the RESOLVED string (ignore the race/gender args -- for NPCs the 2nd int is a texture, not
+// gender, so trusting it would mis-pick male/female). If `out` is a PC race's native code and that exact
+// race+gender is toggled modern, overwrite it in place with the same-length alias.
+char *__fastcall Resolve_hk(void *mgr, int edx, char *out, int race, int gender) {
+  char *r = g_resolve_orig(mgr, out, race, gender);
+  if (crash_handler::shutting_down() || !out || !out[0]) return r;
+  rcp_guard::run("pc.resolve", [&] {
+    if (out[1] == '\0' || out[2] == '\0' || out[3] != '\0') return;  // not a 3-char code
+    for (const auto &pr : kPcRaces)
+      for (int g = 0; g < 2; ++g) {
+        if (!pr.alias[g]) continue;
+        if (std::strncmp(out, pr.codes[g], 3) != 0) continue;  // out == this race+gender native code
+        bool modern;
+        {
+          std::lock_guard<std::mutex> lk(g_mu);
+          auto it = g_pc_classic.find(pc_key(pr.race, g));
+          modern = it != g_pc_classic.end() && !it->second;
+        }
+        if (modern) {
+          std::memcpy(out, pr.alias[g], 3);  // HUM->HU7 etc., same length
+          if (g_resolve_log < 30) {
+            ++g_resolve_log;
+            logger::logf("[resolve] %s -> %s (race=%d)", pr.codes[g], pr.alias[g], pr.race);
+          }
+        }
+        return;
+      }
+  });
+  return r;
+}
+// Kept as harmless no-ops so existing call sites need no churn (the resolver does the work now; the
+// RECORD is never mutated, so there is nothing to enter/leave).
+void enter_alias_window() {}
+void leave_alias_window() {}
+bool spawn_uses_alias(void *) { return false; }
+
+// Toggle-time def invalidation: unlink alias defs from the registry so the next in-window build creates
+// them fresh against the current settings (probe 3 proved the unlink itself is input-safe).
+void invalidate_alias_defs() {
+  for (const auto &r : kPcRaces)
+    for (int g = 0; g < 2; ++g) {
+      if (!r.alias[g]) continue;
+      if (!g_probe_skip_unlink) unlink_actordef_name(std::string(r.alias[g]) + "_ACTORDEF");
+    }
+}
+
 void pc_reapply() {
   void *mgr = nullptr, *local = nullptr;
   rcp_guard::run("pc.mgr", [&] {
@@ -771,46 +993,43 @@ void pc_reapply() {
     local = *kLocalPlayer;
   });
   if (!mgr) return;
-  // 1) Sync the alias redirects to the current per-race settings, and point each toggled race's MODEL-TABLE
-  //    entry code at the alias (or back at the native code) -- armor materials / hair pieces / texture
-  //    handles are all constructed from that entry's code string (see swap_table_code).
+  ensure_dagreg_hook();  // lazy: the graphics DLL exists by the time anyone toggles
+  // 1) Sync the alias redirects to current settings; invalidate stale alias defs. The model table itself
+  //    is NOT touched here -- it rests native and flips only inside dress windows (see enter_alias_window).
   {
     std::lock_guard<std::mutex> lk(g_mu);
     rebuild_redirect();
   }
-  for (const auto &r : kPcRaces) {
-    bool classic;
-    {
-      std::lock_guard<std::mutex> lk(g_mu);
-      classic = g_pc_classic[r.race];
-    }
-    for (int g = 0; g < 2; ++g) {
-      if (!r.alias[g]) continue;
-      const char *to = classic ? r.codes[g] : r.alias[g];
-      int off = swap_table_code(r.race, g, r.codes[g], r.alias[g], to);
-      unlink_actordef_name(std::string(r.alias[g]) + "_ACTORDEF");  // stale def baked the old anim bank
-      if (g_pc_log_count < 200) {
-        ++g_pc_log_count;
-        logger::logf("[pcmodel] table race=%d g=%d -> '%s' (field @+0x%x)", r.race, g, to, off);
-      }
-    }
-  }
+  if (!g_probe_skip_table) invalidate_alias_defs();
+  if (g_probe_skip_storm) return;  // probe: settings-only apply, leave every spawn's body as-is
   // 2) Rebuild visible PC-race spawns (BuildActor_hk applies/clears the alias per the map), passing the
   //    spawn's appearance object as p2 (the natural build's parameter). Destroy the leftover actor, then
   //    RE-DRESS the new one (ApplyArmorTexture) -- dressing is a separate pass the rebuild always strips.
-  std::map<std::string, const PcRace *> match;      // native AND alias actordef names -> race entry
+  struct PcMatch {
+    const PcRace *race;
+    int gender;
+  };
+  std::map<std::string, PcMatch> match;             // native AND alias actordef names -> race+gender
   std::map<std::string, std::string> alias_native;  // alias full name -> native full name (per gender)
   std::vector<int> ids;
   {
     std::lock_guard<std::mutex> lk(g_mu);
     ids.assign(g_spawn_ids.begin(), g_spawn_ids.end());
+    // Always visit the local player: its world-entry build can predate the hook's id capture, and the
+    // live-self flip must never depend on that bookkeeping.
+    if (local) {
+      int lid = 0;
+      rcp_guard::run("pc.selfid",
+                     [&] { lid = *reinterpret_cast<int *>(reinterpret_cast<char *>(local) + kEntSpawnId); });
+      if (lid && !g_spawn_ids.count(lid)) ids.push_back(lid);
+    }
     for (const auto &r : kPcRaces)
       for (int g = 0; g < 2; ++g) {
         std::string native = std::string(r.codes[g]) + "_ACTORDEF";
-        match[native] = &r;
+        match[native] = {&r, g};
         if (r.alias[g]) {
           std::string alias = std::string(r.alias[g]) + "_ACTORDEF";
-          match[alias] = &r;
+          match[alias] = {&r, g};
           alias_native[alias] = native;
         }
       }
@@ -824,9 +1043,13 @@ void pc_reapply() {
       dead.push_back(id);
       continue;
     }
-    if (spawn == local) continue;
+    // LIVE-SELF: the local player rebuilds in place too. The old "camera stays frozen" blocker is solved
+    // -- the camera anchors to pinstViewActor@0xD1FD88 (missed by the old pointer scans; see kSetViewActor
+    // above), and we re-run the client's own zone-in acquire on the rebuilt actor below.
+    const bool is_self = (spawn == local);
     bool mine = false;
     const PcRace *pr = nullptr;
+    int spawn_g = 0;
     std::string cur;
     rcp_guard::run("pc.match", [&] {
       char nm[kActorDefCap] = {0};
@@ -835,7 +1058,8 @@ void pc_reapply() {
       auto it = match.find(cur);
       if (it != match.end()) {
         mine = true;
-        pr = it->second;
+        pr = it->second.race;
+        spawn_g = it->second.gender;
       }
     });
     if (!mine) continue;
@@ -846,7 +1070,7 @@ void pc_reapply() {
     bool wanted_classic;
     {
       std::lock_guard<std::mutex> lk(g_mu);
-      wanted_classic = g_pc_classic[pr->race];
+      wanted_classic = g_pc_classic[pc_key(pr->race, spawn_g)];
     }
     auto an = alias_native.find(cur);
     if (wanted_classic && an != alias_native.end())
@@ -857,14 +1081,26 @@ void pc_reapply() {
     // Rebuild = replicate login exactly: detach the actor (EnsureActor only builds on a missing actor),
     // run the NATURAL build wrapper (full prelude + hooked F_48ff -> alias redirect applies + post-init,
     // i.e. everything a dressed login build gets), then destroy the detached orphan (vtable-match guard).
-    void *old_actor = nullptr;
+    void *old_actor = nullptr, *old_pose = nullptr;
     rcp_guard::run("pc.detach", [&] {
       char *base = reinterpret_cast<char *>(spawn);
       old_actor = *reinterpret_cast<void **>(base + kEntActor);
       *reinterpret_cast<void **>(base + kEntActor) = nullptr;
+      if (is_self) {
+        // Mirror the native illusion path (0x5971db): drop the cached def so the build re-resolves the
+        // name under the current redirect, and remember the pose actor -- PostBuildInit replaces it.
+        old_pose = *reinterpret_cast<void **>(base + kEntAnimActor);
+        *reinterpret_cast<void **>(base + kEntDefCache) = nullptr;
+      }
     });
     rcp_guard::run("pc.ensure",
                    [&] { reinterpret_cast<void(__thiscall *)(void *)>(kEnsureActor)(spawn); });
+    // The world-entry loop's build pair is EnsureActor + PostBuildInit (0x51c76b/0x51c772); the latter
+    // rebuilds the render anim/pose actor and runs the local/controlled special-casing. Self only -- the
+    // plain rebuild is long proven for everyone else, where PostBuildInit early-outs anyway.
+    if (is_self)
+      rcp_guard::run("pc.postbuild",
+                     [&] { reinterpret_cast<void(__thiscall *)(void *)>(kPostBuildInit)(spawn); });
     // Re-dress: the wear state arrives via server WearChange packets after spawn-add and persists in
     // Equipment@0x1DA0 / ActorEquipment@0xF30 (.type field = the wire material). Refresh the working copy
     // from the source, then run both native apply paths (each self-guarded).
@@ -888,21 +1124,9 @@ void pc_reapply() {
               spawn, slot, static_cast<int>(mat), 0, static_cast<int>(tint), 5, 0);
       }
       reinterpret_cast<void(__thiscall *)(void *)>(kApplyBodyTexture)(spawn);
-      // HEAD/HAIR -- three natural passes our redress was missing:
-      //  1. 0x40b7f0(ActorBase): registers the attach-point slots on the actor (sprintf "%sHAIR_POINT_DAG"
-      //     etc. from the ActorBase state -> pActor->vt[0x19C](slot, dagname)); natural site 0x5960a7.
-      //  2. 0x58de30(spawn; helm=-1): attaches the head/helm mesh (gates on def+0x34 and race).
-      //  3. ApplyFace@0x40ecf0(ActorBase; headStyle@spawn+0xEB8): hair/beard/face styling (site 0x4903db).
-      reinterpret_cast<void(__thiscall *)(void *)>(0x40b7f0)(base + kEntWearObj);
-      // The def's head-capable flag (+0x34) is set by a TUNIC_POINT_DAG probe during def-create that fails
-      // for alias rebuilds (wrapper quirk) -- but it is a DATA property and the alias archives carry the
-      // attach dags verbatim (offset-stable rename of the native Luclin data). Assert it ourselves so the
-      // head attach below can run.
-      void *cdef = *reinterpret_cast<void **>(base + 0x1024);
-      if (cdef) *reinterpret_cast<uint8_t *>(reinterpret_cast<char *>(cdef) + 0x34) = 1;
-      reinterpret_cast<void(__thiscall *)(void *, int)>(0x58de30)(spawn, -1);
-      uint8_t head = *reinterpret_cast<uint8_t *>(base + 0xEB8);
-      reinterpret_cast<void(__thiscall *)(void *, int)>(0x40ecf0)(base + kEntWearObj, head);
+      // (Head/hair attach for alias Luclin bodies is an UNSOLVED structural blocker -- see memory. Every
+      // live-poke of the head path either did nothing or corrupted classic head state. Removed so classic
+      // stays perfect and Luclin renders body+anim+armor. The separate hair MESH is the only gap.)
     });
     reapply_armor(spawn);
     rcp_guard::run("pc.post", [&] {
@@ -911,6 +1135,33 @@ void pc_reapply() {
     void *new_actor = nullptr;
     rcp_guard::run("pc.new",
                    [&] { new_actor = *reinterpret_cast<void **>(reinterpret_cast<char *>(spawn) + kEntActor); });
+    // Self rebuild produced nothing -> put the old actor back rather than leave a detached local player.
+    if (is_self && !new_actor && old_actor) {
+      rcp_guard::run("pc.selfrestore", [&] {
+        *reinterpret_cast<void **>(reinterpret_cast<char *>(spawn) + kEntActor) = old_actor;
+      });
+      logger::logf("[selfview] rebuild produced no actor -- restored old=%p", old_actor);
+      continue;
+    }
+    // CAMERA RE-ACQUIRE (the previously-missing half of the live-self flip): if the view is anchored to
+    // the actor we just replaced, re-run the client's zone-in acquire (0x51c829) on the new one. Must run
+    // BEFORE the destroy below -- SetViewActor un-hides the outgoing view actor, which would resurrect
+    // the ghost if it ran after release_actor. Gated on "view was ours" so an exotic view (Eye of Zomm
+    // style) is left alone, matching how the client only re-points the view it owns.
+    if (is_self && new_actor && new_actor != old_actor) {
+      rcp_guard::run("pc.viewactor", [&] {
+        void *view_before = *kViewActor;
+        if (view_before == old_actor || (old_pose && view_before == old_pose)) {
+          reinterpret_cast<void(__thiscall *)(void *, void *)>(kSetViewActor)(mgr, new_actor);
+          logger::logf("[selfview] view %p -> %p (old=%p pose=%p)", view_before, *kViewActor, old_actor,
+                       old_pose);
+        } else {
+          logger::logf("[selfview] view=%p not on old actor (old=%p pose=%p) -- left alone", view_before,
+                       old_actor, old_pose);
+        }
+      });
+    }
+    // Destroy the leftover OLD actor (proven hide+scene-unlink); vtable-match guards against UAF.
     if (old_actor && new_actor && new_actor != old_actor) {
       void *ov = nullptr, *nv = nullptr;
       rcp_guard::run("pc.vt", [&] {
@@ -918,6 +1169,18 @@ void pc_reapply() {
         nv = *reinterpret_cast<void **>(new_actor);
       });
       if (ov && ov == nv) rcp_guard::run("pc.destroy", [&] { release_actor(old_actor); });
+    }
+    // And the leftover old POSE actor (PostBuildInit built a fresh one for the local player); same guard.
+    if (is_self && old_pose) {
+      void *new_pose = nullptr, *ov = nullptr, *nv = nullptr;
+      rcp_guard::run("pc.posevt", [&] {
+        new_pose = *reinterpret_cast<void **>(reinterpret_cast<char *>(spawn) + kEntAnimActor);
+        if (new_pose && new_pose != old_pose) {
+          ov = *reinterpret_cast<void **>(old_pose);
+          nv = *reinterpret_cast<void **>(new_pose);
+        }
+      });
+      if (ov && ov == nv) rcp_guard::run("pc.posedestroy", [&] { release_actor(old_pose); });
     }
     if (reapply_logged < 40) {  // per-call cap (the shared g_pc_log_count gets eaten by login builds)
       ++reapply_logged;
@@ -943,6 +1206,76 @@ void pc_reapply() {
   }
 }
 
+// ---- TEMPORARY diagnostic (modern-self freeze hunt): log the LOCAL player's movement/model state
+// every 2s. A frozen-vs-working diff pins which layer dies: input (pos static, run>0, v==0), physics
+// (v nonzero or floor/coll odd while pos static), or camera-only (pos MOVES while the screen looks
+// frozen). Offsets are eqlib exact-build PlayerBase fields. Read-only; runs on the render thread via
+// the shared pre-UI seam (same proven pattern as nameplates). Strip with the other learn-hooks.
+void self_diag_tick() {
+  static DWORD s_last = 0;
+  DWORD now = GetTickCount();
+  if (now - s_last < 2000) return;
+  s_last = now;
+  if (crash_handler::shutting_down()) return;
+  rcp_guard::run("pc.selfdiag", [&] {
+    char *self = *reinterpret_cast<char **>(kLocalPlayer);
+    if (!self) return;
+    float py = *reinterpret_cast<float *>(self + 0x64);  // PlayerBase Y/X/Z
+    float px = *reinterpret_cast<float *>(self + 0x68);
+    float pz = *reinterpret_cast<float *>(self + 0x6c);
+    float vy = *reinterpret_cast<float *>(self + 0x70);  // SpeedY/X/Z
+    float vx = *reinterpret_cast<float *>(self + 0x74);
+    float vz = *reinterpret_cast<float *>(self + 0x78);
+    float run = *reinterpret_cast<float *>(self + 0x7c);    // SpeedRun
+    float mult = *reinterpret_cast<float *>(self + 0x18);   // SpeedMultiplier
+    float hd = *reinterpret_cast<float *>(self + 0x80);     // Heading
+    float floorh = *reinterpret_cast<float *>(self + 0x28);  // FloorHeight
+    int coll = *reinterpret_cast<int *>(self + 0x24);        // CollidingType
+    unsigned pstate = *reinterpret_cast<unsigned *>(self + 0x14c);  // PlayerState (0x20=stunned)
+    uint8_t stand = *reinterpret_cast<uint8_t *>(self + 0x35c);     // StandState
+    float avh = *reinterpret_cast<float *>(self + 0x138);           // AvatarHeight
+    char code[24] = {0};
+    read_cstr(self + kEntActorDef, code, sizeof(code));
+    void *def = *reinterpret_cast<void **>(self + 0x1024);
+    int d34 = def ? *reinterpret_cast<uint8_t *>(reinterpret_cast<char *>(def) + 0x34) : -1;
+    float fpc = def ? *reinterpret_cast<float *>(reinterpret_cast<char *>(def) + 0x40) : -99.f;  // FPCOffset
+    void *actor = *reinterpret_cast<void **>(self + kEntActor);
+    // The render actor's OWN world position (vtable[0x7c] GetPosition(CVector3*)). If the entity p=(...)
+    // moves with input but THIS stays frozen, the rebuilt actor is detached from the entity (not the
+    // camera); if both move together, the model follows and the camera reads something else.
+    float ax = -9999, ay = -9999, az = -9999;
+    if (actor) {
+      float v3[3] = {0, 0, 0};
+      void **avt = *reinterpret_cast<void ***>(actor);
+      reinterpret_cast<void(__thiscall *)(void *, float *)>(avt[0x7c / 4])(actor, v3);
+      ax = v3[0];
+      ay = v3[1];
+      az = v3[2];
+    }
+    void *anim = *reinterpret_cast<void **>(self + kEntAnimActor);
+    // pinstControlledPlayer (eqlib 0xDD2644): keyboard/mouse input drives THIS spawn. If it diverges
+    // from pinstLocalPlayer, input goes elsewhere = exactly a "can't move or turn" freeze.
+    void *controlled = *reinterpret_cast<void **>(0xDD2644);
+    float anim_walk = *reinterpret_cast<float *>(self + 0x330);  // walk/run anim speed thresholds (0x592xxx)
+    float anim_run = *reinterpret_cast<float *>(self + 0x350);
+    // Registry state for the local player's CURRENT actordef name: after a toggle's unlink, a by-name
+    // resolve can return a DIFFERENT def object than the spawn's cached one (or null) -- if the frozen
+    // state correlates with reg != def, the per-tick gate is a name-resolve identity check.
+    void *reg = nullptr;
+    if (g_find_orig && code[0]) {
+      char full[kActorDefCap];
+      std::snprintf(full, sizeof(full), "%s", code);
+      reg = g_find_orig(full);
+    }
+    logger::logf("[selfdiag] p=(%.1f,%.1f,%.1f) actorpos=(%.1f,%.1f,%.1f) hd=%.1f actor=%p anim=%p ctl=%p%s "
+                 "def=%p d34=%d code='%s'",
+                 px, py, pz, ax, ay, az, hd, actor, anim, controlled,
+                 controlled == self ? "(=self)" : "(!SELF)", def, d34, code);
+    (void)vx; (void)vy; (void)vz; (void)run; (void)mult; (void)floorh; (void)coll; (void)pstate;
+    (void)stand; (void)avh; (void)fpc; (void)anim_walk; (void)anim_run; (void)reg;
+  });
+}
+
 }  // namespace
 
 namespace npc_model_settings {
@@ -954,12 +1287,38 @@ std::vector<ToggleItem> get_items() {
     auto it = g_on.find(r.name);
     out.push_back({r.name, it != g_on.end() && it->second});
   }
+  out.push_back({"Elemental", g_elem_classic});
+  for (const auto &r : kPcRaces)
+    for (int g = 0; g < 2; ++g)
+      if (r.alias[g])
+        out.push_back({std::string(r.name) + " " + kGenderName[g], g_pc_classic[pc_key(r.race, g)]});
   return out;
 }
 
 // Toggle a creature to its classic model (on) / modern (off); persists + applies to future builds AND
 // live-refreshes every already-visible spawn immediately (no zone) via refresh_world().
 void set_on(const std::string &name, bool on) {
+  if (name == "Elemental") {
+    {
+      std::lock_guard<std::mutex> lk(g_mu);
+      g_elem_classic = on;
+    }
+    persist(name, on);
+    refresh_world();
+    return;
+  }
+  int g = -1;
+  if (const PcRace *pr = find_pc_gender(name, &g)) {  // "<Race> Male"/"<Race> Female" (UI) or "<Race>"
+    {
+      std::lock_guard<std::mutex> lk(g_mu);
+      for (int gg = 0; gg < 2; ++gg)
+        if (g == -1 || g == gg) g_pc_classic[pc_key(pr->race, gg)] = on;
+    }
+    for (int gg = 0; gg < 2; ++gg)
+      if (g == -1 || g == gg) pc_persist(pr->name, gg, on);
+    pc_reapply();
+    return;
+  }
   {
     std::lock_guard<std::mutex> lk(g_mu);
     if (!find_revamp(name)) return;
@@ -983,11 +1342,14 @@ void set_all(bool on) {
 }  // namespace npc_model_settings
 
 NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
+  g_rcp_svc = rcp;
   load_settings();  // auto-apply persisted classic-creature toggles ([NpcModels] ini)
   rcp->hooks->Add("rcp_npc_build", static_cast<int>(kBuildActor), BuildActor_hk, hook_type_detour);
   g_build_orig = rcp->hooks->hook_map["rcp_npc_build"]->original(BuildActor_hk);
   rcp->hooks->Add("rcp_npc_find", static_cast<int>(kFindActorDefByName), FindActorDef_hk, hook_type_detour);
   g_find_orig = rcp->hooks->hook_map["rcp_npc_find"]->original(FindActorDef_hk);
+  rcp->hooks->Add("rcp_mdf", static_cast<int>(0x8dc12f), Sprintf_hk, hook_type_detour);
+  g_sprintf_orig = rcp->hooks->hook_map["rcp_mdf"]->original(Sprintf_hk);
   rcp->hooks->Add("rcp_defb_c", static_cast<int>(0x407800), DefBuildClassic_hk, hook_type_detour);
   g_defb_classic = rcp->hooks->hook_map["rcp_defb_c"]->original(DefBuildClassic_hk);
   rcp->hooks->Add("rcp_defb_n", static_cast<int>(0x407dc0), DefBuildNew_hk, hook_type_detour);
@@ -999,12 +1361,19 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
   g_set6_orig = rcp->hooks->hook_map["rcp_learn_set6"]->original(Set6_hk);
   rcp->hooks->Add("rcp_learn_slotref", static_cast<int>(kRefreshEquipSlot), SlotRefresh_hk, hook_type_detour);
   g_slotref_orig = rcp->hooks->hook_map["rcp_learn_slotref"]->original(SlotRefresh_hk);
+  // Resolver detour: rewrites the model-table code STRING (not the record) to the alias for modern races,
+  // so all dress-time name construction (body/armor/hair/metrics) resolves alias-keyed with the record
+  // resting native (no movement freeze). Replaces the old table-record swap + the crashing visinit hook.
+  rcp->hooks->Add("rcp_resolve", static_cast<int>(kResolveModelCode), Resolve_hk, hook_type_detour);
+  g_resolve_orig = rcp->hooks->hook_map["rcp_resolve"]->original(Resolve_hk);
+  logger::logf("[pcmodel] resolver detour @0x%x", (unsigned)kResolveModelCode);
   logger::logf("[npcbody] BuildActor detour @0x%x + Find @0x%x", (unsigned)kBuildActor,
                (unsigned)kFindActorDefByName);
 
   // Player-race classic<->Luclin via the native ShouldUseLuclinModel decision (correct armor/face).
   rcp->hooks->Add("rcp_pc_luclin", static_cast<int>(kShouldUseLuclin), ShouldUseLuclin_hk, hook_type_detour);
   g_pc_orig = rcp->hooks->hook_map["rcp_pc_luclin"]->original(ShouldUseLuclin_hk);
+  font_overlay::add_scene_draw([](IDirect3DDevice9 *) { self_diag_tick(); });  // TEMP freeze-hunt diag
   pc_load();
   logger::logf("[pcmodel] ShouldUseLuclin detour @0x%x (%d PC races, ini-ignored)",
                (unsigned)kShouldUseLuclin, (int)(sizeof(kPcRaces) / sizeof(kPcRaces[0])));
@@ -1085,18 +1454,21 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
       });
   logger::log("[npcbody] /rcpbody registered");
 
-  // Player-race classic/Luclin control (native, via the ShouldUseLuclin hook). Applies on the next zone
-  // (the client's model config re-consults the hook then); instant re-apply is the follow-up.
+  // Player-race classic/Luclin control (native, via the ShouldUseLuclin hook). Applies INSTANTLY to every
+  // visible PC-race spawn including the local player (pc_reapply rebuild + SetViewActor camera re-acquire).
   rcp->commands_hook->Add(
       "/rcppc", {},
       "Player-race model: 'classic <race|all>' / 'modern <race|all>' forces the NATIVE classic/Luclin PC "
-      "model (armor+face intact), ignoring the eqclient.ini UseLuclin flags; 'list'. Applies on zone.",
+      "model (armor+face intact), ignoring the eqclient.ini UseLuclin flags; 'list'. Applies instantly.",
       [](std::vector<std::string> &args) {
         auto show = [] {
-          Rcp::Game::print_chat("rof2ClientPlus PC models (native; ini ignored; zone to apply):");
+          Rcp::Game::print_chat("rof2ClientPlus PC models (ours; ini ignored):");
           std::lock_guard<std::mutex> lk(g_mu);
           for (const auto &r : kPcRaces)
-            Rcp::Game::print_chat("  %-10s %s", r.name, g_pc_classic[r.race] ? "[CLASSIC]" : "modern");
+            Rcp::Game::print_chat("  %-10s M:%s F:%s", r.name,
+                                  g_pc_classic[pc_key(r.race, 0)] ? "[CLASSIC]" : "modern",
+                                  g_pc_classic[pc_key(r.race, 1)] ? "[CLASSIC]" : "modern");
+          Rcp::Game::print_chat("  %-10s %s", "Elemental", g_elem_classic ? "[CLASSIC]" : "modern");
         };
         if (args.size() < 2) {
           show();
@@ -1105,6 +1477,46 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
         const std::string sub = upper(args[1]);
         if (sub == "LIST") {
           show();
+          return true;
+        }
+        if (sub == "PROBE") {  // TEMP freeze bisection: self-resetting modern-human partial applies
+          int n = args.size() >= 3 ? std::atoi(args[2].c_str()) : 0;
+          auto set_human = [](bool classic) {
+            std::lock_guard<std::mutex> lk(g_mu);
+            g_pc_classic[pc_key(1, 0)] = classic;  // human m+f (not persisted)
+            g_pc_classic[pc_key(1, 1)] = classic;
+          };
+          // FULL classic reset first so each probe starts from the known-good state.
+          g_probe_skip_code = g_probe_skip_flags = g_probe_skip_unlink = false;
+          g_probe_skip_table = g_probe_skip_storm = false;
+          set_human(true);
+          pc_reapply();
+          // Then modern with the selected parts disabled.
+          const char *desc = "FULL modern (control)";
+          switch (n) {
+            case 1:  // table CODE swap only -- no flags, no unlink, no spawn rebuilds
+              g_probe_skip_flags = g_probe_skip_unlink = g_probe_skip_storm = true;
+              desc = "table CODE swap only (no flags/unlink/rebuilds)";
+              break;
+            case 2:  // table FLAGS only
+              g_probe_skip_code = g_probe_skip_unlink = g_probe_skip_storm = true;
+              desc = "table FLAGS only (no code/unlink/rebuilds)";
+              break;
+            case 3:  // registry UNLINK only
+              g_probe_skip_code = g_probe_skip_flags = g_probe_skip_storm = true;
+              desc = "registry UNLINK only (no code/flags/rebuilds)";
+              break;
+            case 4:  // spawn REBUILD STORM only (redirect active, table untouched)
+              g_probe_skip_table = true;
+              desc = "spawn REBUILDS only (table untouched)";
+              break;
+          }
+          set_human(false);
+          pc_reapply();
+          g_probe_skip_code = g_probe_skip_flags = g_probe_skip_unlink = false;
+          g_probe_skip_table = g_probe_skip_storm = false;  // one-shot
+          Rcp::Game::print_chat("rof2ClientPlus PC probe %d: classic reset, then %s", n, desc);
+          Rcp::Game::print_chat("  -> try to move now; run the next probe directly (no manual reset needed)");
           return true;
         }
         if (sub == "NATIVE") {  // DEBUG: disable our PC control entirely -> hook falls through to the ini
@@ -1118,31 +1530,52 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
         }
         if (sub == "CLASSIC" || sub == "MODERN") {
           const bool classic = (sub == "CLASSIC");
-          const std::string who = args.size() >= 3 ? upper(args[2]) : "";
-          if (who == "ALL") {
+          // optional trailing gender: "/rcppc modern human female"; race names may be two words ("Wood Elf")
+          int want_g = -1;
+          std::vector<std::string> rest(args.begin() + 2, args.end());
+          if (!rest.empty()) {
+            std::string last = upper(rest.back());
+            if (last == "MALE" || last == "FEMALE") {
+              want_g = (last == "FEMALE") ? 1 : 0;
+              rest.pop_back();
+            }
+          }
+          std::string who;
+          for (const auto &w : rest) who += (who.empty() ? "" : " ") + w;
+          who = upper(who);
+          auto apply_race = [&](const PcRace &r) {
             {
               std::lock_guard<std::mutex> lk(g_mu);
-              for (const auto &r : kPcRaces) g_pc_classic[r.race] = classic;
+              for (int g = 0; g < 2; ++g)
+                if (want_g == -1 || want_g == g) g_pc_classic[pc_key(r.race, g)] = classic;
             }
-            for (const auto &r : kPcRaces) pc_persist(r.name, classic);
-            pc_reapply();  // re-run the client's Luclin config with our hook -> (re)loads the right archives
-            Rcp::Game::print_chat("rof2ClientPlus PC: all races -> %s (config re-run; zone if not applied)",
+            for (int g = 0; g < 2; ++g)
+              if (want_g == -1 || want_g == g) pc_persist(r.name, g, classic);
+          };
+          if (who == "ALL") {
+            for (const auto &r : kPcRaces) apply_race(r);
+            pc_reapply();
+            Rcp::Game::print_chat("rof2ClientPlus PC: all races%s -> %s",
+                                  want_g == -1 ? "" : (want_g ? " (female)" : " (male)"),
                                   classic ? "CLASSIC" : "modern");
             return true;
           }
+          if (who == "ELEMENTAL") {
+            npc_model_settings::set_on("Elemental", classic);
+            Rcp::Game::print_chat("rof2ClientPlus PC: Elemental -> %s", classic ? "CLASSIC" : "modern");
+            return true;
+          }
           if (const PcRace *pr = find_pc_by_name(who)) {
-            {
-              std::lock_guard<std::mutex> lk(g_mu);
-              g_pc_classic[pr->race] = classic;
-            }
-            pc_persist(pr->name, classic);
+            apply_race(*pr);
             pc_reapply();
-            Rcp::Game::print_chat("rof2ClientPlus PC: %s -> %s (config re-run; zone if not applied)", pr->name,
+            Rcp::Game::print_chat("rof2ClientPlus PC: %s%s -> %s", pr->name,
+                                  want_g == -1 ? "" : (want_g ? " (female)" : " (male)"),
                                   classic ? "CLASSIC" : "modern");
             return true;
           }
           Rcp::Game::print_chat("rof2ClientPlus PC: races = Human, Barbarian, Erudite, Wood Elf, High Elf, "
-                                "Dark Elf, Half Elf, Dwarf, Troll, Ogre, Halfling, Gnome (or 'all')");
+                                "Dark Elf, Half Elf, Dwarf, Troll, Ogre, Halfling, Gnome, Elemental (or "
+                                "'all'), optionally + male/female");
           return true;
         }
         show();
