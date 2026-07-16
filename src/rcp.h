@@ -57,6 +57,7 @@ class RcpService {
   std::unique_ptr<class ChatShortcuts> chat_shortcuts; // The /rcpchat Zeal-style chat tokens (%n/%h/%loc/%thp).
   std::unique_ptr<class ChatTimestamp> chat_timestamp; // The /timestamp Zeal-style chat timestamps (dsp_chat detour).
   std::unique_ptr<class ChatClipboard> chat_clipboard; // Always-on Ctrl+C/X/V clipboard copy/paste in chat + edit boxes.
+  std::unique_ptr<class ChatStmlSelect> chat_stml_select; // Character-precise drag-select + copy in the chat history (CStmlWnd).
   std::unique_ptr<class SoundMods> sound_mods;        // The /rcpsound sound muting (Asset::Play detour; e.g. thunder).
   std::unique_ptr<class FloatingDamage> floating_damage; // The /rcpfcd floating combat damage (Zeal floating_damage port).
   std::unique_ptr<class HideCorpse> hide_corpse;      // Extra /hidecorpses options: always + showlast continuous NPC-corpse hiding.

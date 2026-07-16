@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 
+#include "chat_stml_select.h"
 #include "crash_handler.h"
 #include "hook_wrapper.h"
 #include "logger.h"
@@ -283,9 +284,17 @@ int __fastcall MouseMove_hk(void *wnd, int edx, void *pos, uint32_t flags) {
 // of A/C/X/V that lands on an actual edit window is ours to consume.
 int __fastcall HandleKeyboardMsg_hk(void *mgr, int edx, uint32_t dik, uint32_t down) {
   if (down && (dik == kDikA || dik == kDikC || dik == kDikV || dik == kDikX)) {
+    const bool ctrl = *reinterpret_cast<uint8_t *>(static_cast<char *>(mgr) + kMgrCtrl) != 0;
+
+    // A history (CStmlWnd) selection copies ahead of the input line: while you
+    // drag-select in the scrollback the focused edit is still the input box, so
+    // GetActiveEditWnd below would otherwise copy the wrong thing. No-op (returns
+    // false) when there's no history selection.
+    if (ctrl && (dik == kDikC || dik == kDikX) && chat_stml_copy_selection()) return 0;
+
     void *edit = nullptr;
     rcp_guard::run("chat_clipboard.focus", [&] {
-      if (*reinterpret_cast<uint8_t *>(static_cast<char *>(mgr) + kMgrCtrl) == 0) return;  // Ctrl not held.
+      if (!ctrl) return;  // Ctrl not held.
       void *focus = *reinterpret_cast<void **>(static_cast<char *>(mgr) + kMgrFocus);
       if (!focus) return;
       void **vtbl = *reinterpret_cast<void ***>(focus);

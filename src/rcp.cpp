@@ -12,6 +12,7 @@
 #include "chase_cam.h"
 #include "chat_clipboard.h"
 #include "chat_shortcuts.h"
+#include "chat_stml_select.h"
 #include "chat_timestamp.h"
 #include "commands.h"
 #include "entity_manager.h"
@@ -84,6 +85,8 @@ RcpService::RcpService() {
   chat_timestamp = std::make_unique<ChatTimestamp>(this);  // /timestamp: Zeal-style chat timestamps via dsp_chat detour.
   logger::log("  -> ChatClipboard");
   chat_clipboard = std::make_unique<ChatClipboard>(this);  // Always-on Ctrl+C/X/V clipboard copy/paste (CXWndManager::HandleKeyboardMsg detour).
+  logger::log("  -> ChatStmlSelect");
+  chat_stml_select = std::make_unique<ChatStmlSelect>(this);  // Character-precise drag-select + copy in chat history (lazy CStmlWnd hooks).
   logger::log("  -> SoundMods");
   sound_mods = std::make_unique<SoundMods>(this);  // /rcpsound: mute sounds by name (Asset::Play detour; thunder to start).
   logger::log("  -> FloatingDamage");
