@@ -14,6 +14,7 @@
 #include "chat_shortcuts.h"
 #include "chat_stml_select.h"
 #include "chat_timestamp.h"
+#include "faction_vision.h"
 #include "commands.h"
 #include "entity_manager.h"
 #include "equip_item.h"
@@ -83,6 +84,8 @@ RcpService::RcpService() {
   chat_shortcuts = std::make_unique<ChatShortcuts>(this);  // /rcpchat: Zeal-style chat tokens (%n/%h/%loc/%thp) via DoPercentConvert detour.
   logger::log("  -> ChatTimestamp");
   chat_timestamp = std::make_unique<ChatTimestamp>(this);  // /timestamp: Zeal-style chat timestamps via dsp_chat detour.
+  logger::log("  -> FactionVision");
+  faction_vision = std::make_unique<FactionVision>(this);  // /rcpfaction: rewrite server [RcpFac] faction id/value lines (chains dsp_chat outermost, after ChatTimestamp).
   logger::log("  -> ChatClipboard");
   chat_clipboard = std::make_unique<ChatClipboard>(this);  // Always-on Ctrl+C/X/V clipboard copy/paste (CXWndManager::HandleKeyboardMsg detour).
   logger::log("  -> ChatStmlSelect");
