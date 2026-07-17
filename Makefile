@@ -37,7 +37,7 @@ LDFLAGS  := -m32 -shared \
 # it matches the game's own d3dx9_30.dll (see PORTING_NOTES.md "N4").
 LDLIBS   := -luser32 -lgdi32 -lws2_32 -lpsapi -ldbghelp -ld3dx9_30
 
-.PHONY: all clean install
+.PHONY: all clean install models install-models dist
 all: $(TARGET)
 
 $(TARGET): $(OBJS) | $(BUILD)
@@ -89,11 +89,19 @@ install: $(TARGET)
 	@# crash. One shell so the acp() helper is shared across all the copies below.
 	@set -e; \
 	acp() { d="$$2"; t="$$d.rcp-new.$$$$"; cp -f "$$1" "$$t" && mv -f "$$t" "$$d"; }; \
+	bakstock() { d="$$1"; b="$$d.rcpbak"; \
+	  if [ -f "$$d" ] && [ ! -f "$$b" ]; then \
+	    if grep -q "rof2ClientPlus UI override" "$$d" 2>/dev/null; then \
+	      echo ">> NOTE: $$d is already our override and has no .rcpbak -> NOT backing up (refusing to clobber the stock original with our own file)"; \
+	    else cp -f "$$d" "$$b"; echo ">> Backed up stock $$d -> $$b"; fi; \
+	  fi; }; \
 	acp $(TARGET) "$(GAME_DIR)/$(NAME).asi"; \
 	echo ">> Installed (atomic) $(GAME_DIR)/$(NAME).asi"; \
-	mkdir -p "$(GAME_DIR)/uifiles/rcp"; \
-	for f in uifiles/rcp/*.xml; do [ -e "$$f" ] || continue; acp "$$f" "$(GAME_DIR)/uifiles/rcp/$${f##*/}"; done; \
-	echo ">> Installed (atomic) uifiles to $(GAME_DIR)/uifiles/rcp/"; \
+	mkdir -p "$(GAME_DIR)/uifiles/default"; \
+	for f in uifiles/default/*.xml; do [ -e "$$f" ] || continue; d="$(GAME_DIR)/uifiles/default/$${f##*/}"; bakstock "$$d"; acp "$$f" "$$d"; done; \
+	echo ">> Installed (atomic) option-window overrides to $(GAME_DIR)/uifiles/default/ (pristine stock saved ONCE as *.rcpbak)"; \
+	rm -f "$(GAME_DIR)/uifiles/rcp/EQUI_OptionsWindow.xml" "$(GAME_DIR)/uifiles/rcp/EQUI_AdvancedDisplayOptionsWnd.xml"; \
+	echo ">> Removed stale relocated overrides from $(GAME_DIR)/uifiles/rcp/ (now live in uifiles/default/)"; \
 	mkdir -p "$(GAME_DIR)/uifiles/rcp/fonts"; \
 	for f in uifiles/rcp/fonts/*.spritefont; do [ -e "$$f" ] || continue; acp "$$f" "$(GAME_DIR)/uifiles/rcp/fonts/$${f##*/}"; done; \
 	echo ">> Installed (atomic) fonts to $(GAME_DIR)/uifiles/rcp/fonts/"; \
@@ -102,5 +110,39 @@ install: $(TARGET)
 	echo ">> Installed (atomic) target-ring graphics to $(GAME_DIR)/uifiles/rcp/targetrings/"; \
 	if [ -f $(HOSTFIX) ]; then acp $(HOSTFIX) "$(GAME_DIR)/eq-window-fix"; echo ">> Installed (atomic) eq-window-fix (windowed-mode watcher)"; fi
 
+# --- Classic model archives (the model-swap feature's runtime data) ------------------
+# The 29 rcp*.s3d classic-model archives (59 MB) are NOT part of `make install`: they are
+# regenerated from source .s3d archives by tools/build_models.py, and the client is told to
+# load them by a separate edit to $GAME_DIR/Resources/GlobalLoad.txt (tools/patch_globalload.py).
+# `make models` rebuilds + verifies all 29 into build/ (no deploy). `make install-models` also
+# deploys them into $GAME_DIR (atomic) and patches GlobalLoad.txt. A full/fresh deploy is
+# therefore `make install && make install-models`. See docs/MODEL_ASSETS.md and CLAUDE.md.
+#
+# MODEL_SRC_DIR holds all 29 build inputs (classic global*_chr + Trilogy creature archives +
+# gequip.s3d); default is the local backup. Override on a fresh machine:
+#   make models MODEL_SRC_DIR=/path/to/model-inputs
+MODEL_SRC_DIR ?= /home/joshua/Games/RoF2-modelswap-backup/model-inputs
+MODEL_BACKUP  ?= /home/joshua/Games/RoF2-modelswap-backup
+
+models:
+	python3 tools/build_models.py --src-dir "$(MODEL_SRC_DIR)"
+
+install-models:
+	@if [ -z "$(GAME_DIR)" ]; then \
+	  echo "ERROR: GAME_DIR is not set (copy config.mk.example to config.mk)."; exit 1; fi
+	@if [ ! -d "$(GAME_DIR)" ]; then echo "ERROR: GAME_DIR '$(GAME_DIR)' does not exist."; exit 1; fi
+	python3 tools/build_models.py --src-dir "$(MODEL_SRC_DIR)" --game-dir "$(GAME_DIR)" --install
+
+# --- Distributable folder --------------------------------------------------------------
+# `make dist` assembles $(DIST)/ mirroring the client layout: the .asi, the 29 rcp*.s3d,
+# Resources/GlobalLoad.txt (stock + the mod's lines), uifiles/rcp/, and an INSTALL.txt.
+# Hand the folder to a user; copying its contents into the RoF2 dir is a complete install.
+# The .s3d are regenerated from $(MODEL_SRC_DIR) if present, else taken from build/ or the
+# backup's built-s3d/. See tools/build_dist.py and docs/MODEL_ASSETS.md.
+DIST ?= dist
+dist: all
+	python3 tools/build_dist.py --out "$(DIST)" --build-dir "$(BUILD)" \
+	  --src-dir "$(MODEL_SRC_DIR)" --fallback-s3d "$(MODEL_BACKUP)/built-s3d"
+
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) $(DIST)

@@ -33,8 +33,6 @@
 #include "sound_mods.h"
 #include "target_ring.h"
 #include "view_distance.h"
-#include "ui_manager.h"
-#include "ui_skin.h"
 #include "window_watch.h"
 
 RcpService *RcpService::ptr_service = nullptr;

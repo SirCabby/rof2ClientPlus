@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="us-ascii"?>
 <XML ID="EQInterfaceDefinitionLanguage">
 <!-- rof2ClientPlus UI override: copy of the stock EQUI_AdvancedDisplayOptionsWnd.xml with label
-     widths/positions adjusted so option text is not clipped. Loaded in
-     place of the default file via the uifiles/rcp redirect (see
-     src/ui_skin.cpp kRcpXmlOverrideUiFiles). Regenerated from the
-     client's uifiles/default by tools/gen_option_overrides.py; prefer
-     re-running that over hand-editing. -->
+     widths/positions adjusted so option text is not clipped. Installed into
+     the client's uifiles/default (base skin) by `make install`, so it loads
+     under every UI skin; the pristine stock is saved next to it as
+     EQUI_AdvancedDisplayOptionsWnd.xml.rcpbak. Regenerated from the vendored stock (tools/stock-uifiles)
+     by tools/gen_option_overrides.py; prefer re-running that over hand-editing. -->
 
   <Schema xmlns="EverQuestData" xmlns:dt="EverQuestDataTypes" />
   <Combobox item="ADOW_MemoryModeCombobox">

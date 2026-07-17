@@ -46,9 +46,10 @@ old red test bar.
 
 The camera feature hooks the client's mouse-look and `DoCamAI` routines to add
 mouse-delta smoothing and a replacement third-person chase camera. The options
-UI is delivered by hooking the client's `EQUI.xml` loader to merge in
-`uifiles/rcp/EQUI_RcpOptions.xml`, which is shown in sync with the stock Options
-window.
+window (`/rcpoptions`) is delivered by shipping an override of the stock
+`EQUI_OptionsWindow.xml` — with the mod's option UI defined inside it — into the
+client's `uifiles/default/` (base skin), so it loads under **any** UI skin. (The
+pristine stock file is saved once as `EQUI_OptionsWindow.xml.rcpbak`.)
 
 ## Build
 
@@ -69,16 +70,32 @@ make install                      # copies it into $GAME_DIR
 `config.mk` is gitignored, so your game path stays out of the repo. `make`
 (build only) works without it; `make install` needs `GAME_DIR` — set it in
 `config.mk`, or pass a one-off override: `make install GAME_DIR=/path/to/RoF2`.
-`make install` also copies `uifiles/rcp/` into `$GAME_DIR/uifiles/rcp/` (the
-options window needs these).
+`make install` also deploys the option-window overrides into
+`$GAME_DIR/uifiles/default/` (the base skin — backing up the stock files once as
+`*.rcpbak`) and the mod's fonts/target-rings into `$GAME_DIR/uifiles/rcp/`.
+
+The **model-swap** feature also needs 29 classic-model `.s3d` archives plus a
+`Resources/GlobalLoad.txt` edit, which `make install` does *not* ship —
+`make install-models` deploys those (see `docs/MODEL_ASSETS.md`). A full local
+deploy is `make install && make install-models`.
+
+### Distributable bundle (`make dist`)
+
+`make dist` assembles a `dist/` folder that mirrors the client layout — the `.asi`,
+all 29 `rcp*.s3d`, `Resources/GlobalLoad.txt`, `uifiles/**` (option windows in `default/`,
+fonts/rings in `rcp/`), and an `INSTALL.txt`. Hand the folder to a user; copying its
+contents into their RoF2 directory is a complete, drop-in install (no build toolchain
+required on their end).
 
 ### Windows (Visual Studio 2022)
 
 Open `rof2ClientPlus.sln` and build **Release / Win32 (x86)** →
 `build-msvc\Release\rof2ClientPlus.asi`. Needs only the Windows SDK. The CRT is
 statically linked (`/MT`), so the `.asi` needs no VC++ redistributable. Copy the
-built `.asi` into your RoF2 folder and copy `uifiles/rcp/` into
-`<RoF2>/uifiles/rcp/` (the `config.mk` / `make install` flow is Linux-only).
+built `.asi` into your RoF2 folder, copy `uifiles/default/*.xml` into
+`<RoF2>/uifiles/default/` (back up the two stock files first), and copy
+`uifiles/rcp/` into `<RoF2>/uifiles/rcp/` (the `config.mk` / `make install` flow is
+Linux-only). Simplest: use the `make dist` bundle instead.
 
 ## Run & verify
 
@@ -93,7 +110,10 @@ built `.asi` into your RoF2 folder and copy `uifiles/rcp/` into
    **Cam** tab adjusts the same settings. Relog and confirm the settings
    persisted in `rof2ClientPlus.ini`.
 
-Uninstall: delete `rof2ClientPlus.asi` and `uifiles/rcp/` from the game folder.
+Uninstall: delete `rof2ClientPlus.asi` and `uifiles/rcp/`, and restore the two stock
+option windows from `uifiles/default/*.rcpbak` (rename them back over the mod's copies).
+For the model-swap assets too, also delete the `rcp*.s3d` and run
+`tools/patch_globalload.py --revert`.
 
 ## Layout
 
@@ -107,7 +127,8 @@ Uninstall: delete `rof2ClientPlus.asi` and `uifiles/rcp/` from the game folder.
 | `src/hook_wrapper.* · instruction_length.h · memory.*` | inline detour hooking engine |
 | `src/game_*.h · game_functions.* · camera_math.* · vectors.*` | reverse-engineered client interface (`Rcp::`, adapted from Zeal) |
 | `src/directx.* · hooks.* · logger.*` | baseline D3D9 hook, vtable helper, file logger |
-| `uifiles/rcp/` | `EQUI_RcpOptions.xml` + `EQUI_Tab_Cam.xml` (our options UI); plus override copies of the stock `EQUI_OptionsWindow.xml` / `EQUI_AdvancedDisplayOptionsWnd.xml` with clipped option text widened (regenerate via `tools/gen_option_overrides.py`) |
+| `uifiles/default/` | override copies of stock `EQUI_OptionsWindow.xml` (with the `/rcpoptions` UI defined inside it) + `EQUI_AdvancedDisplayOptionsWnd.xml`, clipped text widened. Deploy into the client's base skin so the mod UI loads under any skin. Regenerate: `tools/gen_option_overrides.py` (from vendored `tools/stock-uifiles/`) then `tools/gen_rcp_options_ui.py` |
+| `uifiles/rcp/` | mod assets loaded by the DLL by path: `fonts/*.spritefont` (nameplates) + `targetrings/*.tga` (target ring). Not a UI skin |
 
 Structure mirrors Zeal so features slot in. See [`NOTICE`](NOTICE) for
 vendoring/attribution.

@@ -35,6 +35,12 @@ class RcpOptionsUI {
   // while the window is visible (cheap early-out otherwise).
   void on_frame();
 
+ public:
+  // Release all cached window/control handles (window rebuilds on next /rcpoptions).
+  // Public because it is wired to the client's game-UI teardown/init callbacks so an
+  // in-game skin swap (/loadskin) can't leave the poll dereferencing a freed window.
+  void drop_handles();
+
  private:
   void toggle_window();          // /rcpoptions
   void create_window();          // Lazy: build the window + bind its controls.

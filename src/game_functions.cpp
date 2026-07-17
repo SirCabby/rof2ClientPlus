@@ -12,14 +12,13 @@
 #include "game_addresses.h"
 #include "hook_wrapper.h"
 #include "memory.h"
-#include "ui_manager.h"
 #include "rcp.h"
 
 #include "compat.h"  // min()/max() macros; must be last.
 
 static DWORD get_color_index_option(int index, DWORD defacto) {
-  auto rcp = RcpService::get_instance();
-  if (rcp->ui && rcp->ui->options) return rcp->ui->options->GetColor(index);
+  // (Formerly consulted the mod's own options window for a live color override via
+  // rcp->ui->options->GetColor, but UIManager/ui_options were dead code and are removed.)
   if (defacto != 0) return defacto;
   return Rcp::Game::get_user_color(index);  // TODO: Verify index mapping.
 }

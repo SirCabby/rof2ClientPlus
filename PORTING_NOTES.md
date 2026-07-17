@@ -27,6 +27,44 @@ Reading raw floats/vtables straight from the PE in python:
 - Runtime log: `/home/joshua/Games/RoF2/rof2ClientPlus.log`. Wine log: `eq-last-run.log`.
 - The user launches via `/home/joshua/Games/RoF2/launch-eq.sh` (direct `wine eqgame.exe patchme`).
 
+## Out-of-band artifacts — what `make install` does NOT ship
+`make install` delivers the `.asi`, the option-window overrides (into `uifiles/default/` — see the
+UI note two paragraphs down), the mod fonts/target-rings (`uifiles/rcp/`), and `eq-window-fix`.
+The **model-swap feature** additionally needs runtime data that is neither in git nor installed by
+that target, and was for a while only reproducible from the built binaries themselves:
+- **29 `rcp*.s3d` classic-model archives** (~59 MB) in the game root, and
+- an edit to **`$GAME_DIR/Resources/GlobalLoad.txt`** (the archive-load manifest — the DLL never
+  writes it) so the client loads those archives.
+
+These are now automated and reproducible: **`make models`** regenerates all 29 from source archives
+(`tools/build_models.py`, the recipe of record — 25/29 rebuild byte-identical, verified 2026-07-17),
+and **`make install-models`** deploys them + patches GlobalLoad.txt (`tools/patch_globalload.py`,
+idempotent). A full deploy is `make install && make install-models`. Build sources + a verbatim copy
+of the outputs are kept in `~/Games/RoF2-modelswap-backup/`. Full detail: **`docs/MODEL_ASSETS.md`**;
+overview + the SAFE-vs-at-risk map: **`CLAUDE.md`**. Server-side faction-vision is a separate stack
+(`~/workspace/GitHub/akk-stack`, pushed to SirCabby GitHub forks).
+
+**UI overrides now live in the client's `uifiles/default/` (base skin), not `uifiles/rcp/` (2026-07-17).**
+`/rcpoptions` ships as a **standalone `EQUI_RcpOptions.xml`** in `$GAME_DIR/uifiles/default/`, pulled in by
+a one-line `<Include>` added to a copy of stock `EQUI.xml` (also in `default/`); `EQUI_OptionsWindow.xml` +
+`EQUI_AdvancedDisplayOptionsWnd.xml` are separate widened-text overrides. So `/rcpoptions` loads under ANY UI
+skin that inherits `default/EQUI.xml`, and users can run a custom skin on top. `make install` **overwrites 3
+stock files** (`EQUI.xml` + the 2 option windows), saving each pristine copy ONCE as `*.rcpbak`
+(`bakstock()` refuses to re-back-up over our own file, matched by the "rof2ClientPlus UI override" marker;
+`EQUI_RcpOptions.xml` carries that marker too so a pure mod file is never backed up). `uifiles/rcp/` is now
+only mod assets (fonts + target-rings); generators read vendored pristine stock (`tools/stock-uifiles/`) and
+write to repo `uifiles/default/`.
+
+**The "a standalone window file crashes the UI parse" belief was DISPROVEN 2026-07-17.** The real culprit
+was the mod's RUNTIME include-merge (the old `LoadSidlHk` wrote a temp `EQUI.xml` with the `<Include>` merged
+in and had the client re-parse it via `WriteTemporaryUI`). A STATIC on-disk `<Include>` in the skin's real
+`EQUI.xml`, parsed by the client's own native UI load, takes the full 129-control window fine (confirmed
+in-game). So the `XMLRead`/`WriteTemporaryUI` redirect is gone; `LoadSidl` (0x5992c0) stays hooked ONLY to
+drop `RcpOptionsUI`'s cached handles on any `EQUI.xml` (re)load — `/loadskin` rebuilds the UI in-game and
+frees our window, and the frame poll would otherwise deref a freed control (access-violation crash). **That
+hook must NOT use `rcp->callbacks`: `CallbackManager` is never instantiated in this build (null pointer) — a
+null-deref in the `RcpOptionsUI` ctor crashed char-select mid-session before this was caught.**
+
 ---
 
 ## Phase 1 — first-person mouse-look — DONE (confirmed by user)

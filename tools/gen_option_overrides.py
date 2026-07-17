@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Generate rof2ClientPlus override copies of the stock RoF2 option windows with
-text-clipping fixed. Reads the client's default uifiles, applies a deterministic
-layout transform, and writes the results into the repo's uifiles/rcp/ folder.
+text-clipping fixed. Reads the VENDORED pristine stock windows (tools/stock-uifiles/),
+applies a deterministic layout transform, and writes the results into the repo's
+uifiles/default/ folder -- these deploy into the client's uifiles/default skin so they
+load as the base for EVERY UI skin (the /rcpoptions window rides inside the Options one).
+Reading the vendored stock (not the deployed copy) keeps regeneration idempotent even
+after install has overwritten the client's default files.
 
 The stock Options window crams two columns into a 400px window with a font that
 runs ~8-9 px/char, so the trailing word of many checkbox labels clips
@@ -23,26 +27,19 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-OUT = REPO / "uifiles" / "rcp"
+OUT = REPO / "uifiles" / "default"   # override copies deploy into the client's default skin
 
 
-def _default_uifiles_dir():
-    """Locate the client's stock uifiles/default. Order: CLI arg, $GAME_DIR,
-    GAME_DIR from config.mk, then a last-ditch guess."""
+def _stock_uifiles_dir():
+    """Pristine stock Options windows to transform. Default: the vendored copies in
+    tools/stock-uifiles/ (so regeneration never reads our own deployed override). A CLI
+    arg can point at a fresh client's uifiles/default to re-vendor from a new client."""
     if len(sys.argv) > 1:
         return Path(sys.argv[1])
-    import os
-    if os.environ.get("GAME_DIR"):
-        return Path(os.environ["GAME_DIR"]) / "uifiles" / "default"
-    cfg = REPO / "config.mk"
-    if cfg.exists():
-        m = re.search(r'(?m)^\s*GAME_DIR\s*[:?]?=\s*(.+?)\s*$', cfg.read_text())
-        if m:
-            return Path(m.group(1)) / "uifiles" / "default"
-    return Path.home() / "Games" / "RoF2" / "uifiles" / "default"
+    return REPO / "tools" / "stock-uifiles"
 
 
-DEFAULT = _default_uifiles_dir()
+DEFAULT = _stock_uifiles_dir()
 
 SHIFT = 50           # right-column horizontal shift
 RIGHT_THRESHOLD = 186  # original X at/above this = right column
@@ -63,12 +60,14 @@ MAIN_PAGES = {
     "OptionsMailPage", "OptionsVoicePage", "OptionsSharePage",
 }
 
+# The leading marker string "rof2ClientPlus UI override" also lets `make install`
+# recognize an already-modified file and refuse to back it up over the pristine stock.
 BANNER = ("<!-- rof2ClientPlus UI override: copy of the stock {name} with label\n"
-          "     widths/positions adjusted so option text is not clipped. Loaded in\n"
-          "     place of the default file via the uifiles/rcp redirect (see\n"
-          "     src/ui_skin.cpp kRcpXmlOverrideUiFiles). Regenerated from the\n"
-          "     client's uifiles/default by tools/gen_option_overrides.py; prefer\n"
-          "     re-running that over hand-editing. -->\n")
+          "     widths/positions adjusted so option text is not clipped. Installed into\n"
+          "     the client's uifiles/default (base skin) by `make install`, so it loads\n"
+          "     under every UI skin; the pristine stock is saved next to it as\n"
+          "     {name}.rcpbak. Regenerated from the vendored stock (tools/stock-uifiles)\n"
+          "     by tools/gen_option_overrides.py; prefer re-running that over hand-editing. -->\n")
 
 CTRL_RE = re.compile(r'(<(\w+) item="([^"]+)">)(.*?)(</\2>)', re.S)
 LOC_X_RE = re.compile(r'(<Location>\s*<X>)(-?\d+)(</X>)', re.S)

@@ -1,28 +1,25 @@
 #!/usr/bin/env python3
-"""Inject the rof2ClientPlus options-window UI into the EQUI_OptionsWindow.xml
-override (the custom-UI-skin delivery channel).
+"""Generate the rof2ClientPlus options window as a STANDALONE skin file,
+uifiles/default/EQUI_RcpOptions.xml, and add an <Include> for it to a copy of the stock
+EQUI.xml (also written to uifiles/default). Both deploy into the client's uifiles/default
+(base skin), so /rcpoptions loads under EVERY UI skin that inherits default's EQUI.xml --
+a user can run their own custom skin on top. This replaces the earlier delivery (the
+window rode inside the EQUI_OptionsWindow.xml override, force-loaded from uifiles/rcp by a
+runtime redirect that hijacked the Options window and blocked custom skins).
 
-WHY THIS SHAPE - a day of world-entry crashes taught us how this client loads UI:
-
-1. Adding our window as a SEPARATE INCLUDED FILE crashes the client. Every
-   delivery of a standalone EQUI_RcpOptions.xml (nested <Composite> include,
-   or an <Include> merged into EQUI.xml at the world-entry LoadSidl) died with
-   an illegal-instruction jump into .rsrc during "Parsing UI XML" (dbg.txt
-   fatal c000001d, UIErrors.txt empty) once the window grew past ~a dozen
-   controls - it worked at 11 controls, so it smells like a latent client bug
-   in the include-merge path whose corruption scales with parse churn. The
-   same file PARSED FINE standalone, so the content is valid.
-2. Calling CSidlManagerBase::LoadSidl(0x870C60) at runtime is DESTRUCTIVE, not
-   additive: it clears the manager (0x86d7a0) and rebuilds the whole template
-   set from the given file as composite root - doing it in-game orphaned every
-   live window's templates (visually broke the UI) and is not a usable route.
-3. What IS proven, both by us and by every community custom UI skin on this
-   client: shipping a MODIFIED COPY OF A STOCK FILE in the skin folder. Our
-   uifiles/rcp/EQUI_OptionsWindow.xml override loaded through every crash run
-   without complaint. So the RcpOptions window rides in THAT file: its control
-   defs + Screen are appended between marker comments, the client parses them
-   as part of its normal per-file skin fallback, and /rcpoptions merely
-   instantiates the already-registered template.
+WHY A STANDALONE FILE IS FINE (it was long believed to crash -- it does NOT):
+A Jul-2026 "day of world-entry crashes" concluded a separate included window crashes the
+client (illegal-instruction jump into .rsrc during "Parsing UI XML", c000001d, once past
+~a dozen controls). CONFIRMED 2026-07-17 the real culprit was the RUNTIME include-merge:
+the mod's OLD LoadSidl hook wrote a temp EQUI.xml with the <Include> merged in and had the
+client RE-PARSE it (WriteTemporaryUI). A STATIC on-disk <Include> in the skin's real
+EQUI.xml, parsed by the client's OWN normal UI load (how every community skin adds a
+window), loads the full 129-control window fine -- confirmed in-game. So: no runtime EQUI
+merge, no XMLRead redirect; ship the file and edit EQUI.xml on disk.
+(Separately, a /loadskin rebuild frees our live window -- CSidlManagerBase::LoadSidl
+0x870C60 is destructive -- so src/ui_manager.cpp's LoadSidl hook drops RcpOptionsUI's
+cached handles on any EQUI.xml (re)load to stay crash-safe. That hook must NOT use
+rcp->callbacks: CallbackManager is not instantiated in this build.)
 
 LAYOUT: a TABBED window. The "tabs" are a strip of checkbox buttons + per-tab
 control groups that the C++ shows/hides (a real SIDL TabBox/Page renders but
@@ -39,9 +36,10 @@ src/nameplate.cpp, and control ScreenIDs must match src/rcp_options_ui.cpp.
 Also: ONE ELEMENT PER LINE (no stock file ever inlines
 `<Location><X>..</X>..`), no `--` inside XML comments, plain-ASCII Text.
 
-This script REQUIRES uifiles/rcp/EQUI_OptionsWindow.xml to exist (generate it
-first with tools/gen_option_overrides.py) and is idempotent: it replaces any
-previous marker block. Run order: gen_option_overrides.py, then this.
+This reads the VENDORED stock EQUI.xml (tools/stock-uifiles/EQUI.xml) to add the Include,
+and expects uifiles/default/EQUI_OptionsWindow.xml to exist (run gen_option_overrides.py
+first) only so it can strip any stale RcpOptions block out of it. Idempotent. Run order:
+gen_option_overrides.py, then this.
 
 Usage:  python3 tools/gen_rcp_options_ui.py
 """
@@ -440,12 +438,12 @@ MARK_END = "  <!-- RCP-OPTIONS-END -->"
 def gen_rcp_block():
     """The marker-delimited block: all control defs, then the RcpOptions Screen."""
     lines = [MARK_BEGIN,
-             "  <!-- The rof2ClientPlus options window rides inside this stock-file override",
-             "       (the custom-UI-skin channel) because every standalone-file delivery",
-             "       crashed the client's UI parse; see tools/gen_rcp_options_ui.py. The",
-             "       window is TABBED: the Rcp_Tab* buttons + per-tab control groups whose",
-             "       visibility the mod toggles (a real TabBox does not route input when the",
-             "       window is created at runtime). Groups overlap in the same region. -->", ""]
+             "  <!-- The rof2ClientPlus options window. Shipped as a standalone skin window",
+             "       file (EQUI_RcpOptions.xml) in uifiles/default and pulled in by an Include",
+             "       added to that skin's EQUI.xml, the way a UI skin normally adds a window.",
+             "       TABBED: the Rcp_Tab* buttons + per-tab control groups whose visibility the",
+             "       mod toggles (a real TabBox does not route input when the window is created",
+             "       at runtime). Groups overlap in the same region. -->", ""]
     for _name, fn, args in CONTROLS:
         lines += fn(*args)
         lines.append("")
@@ -464,35 +462,51 @@ def gen_rcp_block():
     return "\n".join(lines)
 
 
+RCP_INCLUDE = "<Include>EQUI_RcpOptions.xml</Include>"
+EQUI_MARKER = "<!-- rof2ClientPlus UI override: load the /rcpoptions window (standalone file) -->"
+
+
 def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    out_dir = os.path.join(root, "uifiles", "rcp")
+    out_dir = os.path.join(root, "uifiles", "default")
+    stock_dir = os.path.join(root, "tools", "stock-uifiles")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # 1. Standalone window file EQUI_RcpOptions.xml -- its OWN composite member, exactly
+    #    how any UI skin adds a window. (The prior "standalone crashes" were the mod's
+    #    RUNTIME include-merge via WriteTemporaryUI, not this static on-disk delivery.)
+    # The "rof2ClientPlus UI override" marker also flags this as OUR file so
+    # `make install`'s bakstock() never backs it up (there is no stock original).
+    header = ('<?xml version="1.0" encoding="us-ascii"?>\n'
+              '<XML ID="EQInterfaceDefinitionLanguage">\n'
+              '\t<!-- rof2ClientPlus UI override: the /rcpoptions window, a standalone skin file '
+              '(no stock original, so never backed up). -->\n'
+              '\t<Schema xmlns="EverQuestData" xmlns:dt="EverQuestDataTypes" />\n\n')
+    standalone = header + gen_rcp_block() + "\n</XML>\n"
+    with open(os.path.join(out_dir, "EQUI_RcpOptions.xml"), "w", encoding="ascii") as f:
+        f.write(standalone)
+
+    # 2. Composite EQUI.xml with our <Include> added (from the VENDORED stock; idempotent).
+    equi = open(os.path.join(stock_dir, "EQUI.xml"), encoding="latin-1").read()
+    if RCP_INCLUDE not in equi:
+        equi = equi.replace("\t</Composite>", f"\t\t{EQUI_MARKER}\n\t\t{RCP_INCLUDE}\n\t</Composite>", 1)
+    with open(os.path.join(out_dir, "EQUI.xml"), "w", encoding="latin-1") as f:
+        f.write(equi)
+
+    # 3. The Options-window override must NOT also carry the RcpOptions block now that it
+    #    lives in its own file (a duplicate ScreenID would collide). gen_option_overrides.py
+    #    regenerates it fresh (no block); strip a stale block here defensively.
     host = os.path.join(out_dir, "EQUI_OptionsWindow.xml")
-    if not os.path.exists(host):
-        raise SystemExit("uifiles/rcp/EQUI_OptionsWindow.xml missing; run tools/gen_option_overrides.py first")
-    text = open(host, encoding="ascii").read()
+    if os.path.exists(host):
+        t = open(host, encoding="ascii").read()
+        if MARK_BEGIN in t:
+            pre, rest = t.split(MARK_BEGIN, 1)
+            _, post = rest.split(MARK_END, 1)
+            with open(host, "w", encoding="ascii") as f:
+                f.write(pre + post.lstrip("\n"))
 
-    # Idempotency: strip any previous injected block.
-    if MARK_BEGIN in text:
-        pre, rest = text.split(MARK_BEGIN, 1)
-        _, post = rest.split(MARK_END, 1)
-        text = pre + post.lstrip("\n")
-
-    # Insert the block just before the closing </XML> tag.
-    close = text.rfind("</XML>")
-    if close < 0:
-        raise SystemExit("no </XML> in EQUI_OptionsWindow.xml override?")
-    text = text[:close].rstrip("\n") + "\n\n" + gen_rcp_block() + "\n\n" + text[close:]
-    with open(host, "w", encoding="ascii") as f:
-        f.write(text)
-
-    # Earlier deliveries shipped standalone files; make sure they can't linger.
-    for stale in ("EQUI_RcpOptions.xml", "EQUI_Tab_Cam.xml"):
-        p = os.path.join(out_dir, stale)
-        if os.path.exists(p):
-            os.remove(p)
-            print(f"removed stale {stale}")
-    print(f"injected {len(CONTROLS)} controls + Screen into EQUI_OptionsWindow.xml override (tabbed)")
+    print(f"wrote standalone EQUI_RcpOptions.xml ({len(CONTROLS)} controls + Screen) "
+          f"and EQUI.xml (+1 Include)")
 
 
 if __name__ == "__main__":

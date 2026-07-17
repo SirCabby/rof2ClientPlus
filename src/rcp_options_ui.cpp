@@ -18,6 +18,7 @@
 #include "floating_damage.h"
 #include "font_overlay.h"
 #include "game_functions.h"
+#include "hook_wrapper.h"  // hook_type_detour for the LoadSidl handle-drop install
 #include "logger.h"
 #include "model_swap.h"
 #include "npc_model_swap.h"
@@ -329,9 +330,10 @@ static const char *const kTabChildNames[] = {"Rcp_TabGeneral", "Rcp_TabMouse",  
 // ---- Window-template delivery (no code in the load path at all) ----
 //
 // The RcpOptions Screen + control defs live INSIDE the shipped
-// uifiles/rcp/EQUI_OptionsWindow.xml override (the custom-UI-skin channel), so
-// the client's own per-file skin fallback parses and registers them during its
-// normal UI load. Nothing here hooks or re-runs any load. Two dead ends, for
+// uifiles/default/EQUI_OptionsWindow.xml override (installed into the client's base
+// skin as of 2026-07-17, so it loads under EVERY UI skin), so the client parses and
+// registers them during its normal UI load. Nothing here hooks or re-runs any load.
+// Two dead ends, for
 // the record: (1) delivering the window as a separate included file (nested
 // include or an EQUI.xml merge) crashed the client's world-entry UI parse once
 // the window grew past ~a dozen controls (illegal-instruction into .rsrc,
@@ -980,49 +982,60 @@ void RcpOptionsUI::toggle_window() {
   show_window(wnd_, make_visible);
 }
 
+// Release every cached window/control handle; the window rebuilds lazily on the next
+// /rcpoptions (toggle_window). MUST run whenever the client tears down OR rebuilds the
+// game UI: not just on leaving the game (login/char-select/zone) but ALSO on an in-game
+// skin swap (/loadskin), which frees our window while gamestate stays "in game". Wired to
+// the CleanUI + InitUI callbacks (client game-UI teardown/init) in the ctor, so the
+// on_frame poll below can never dereference a freed control -- that was the /loadskin
+// access-violation crash (calling a vtable method through a dangling btn_tab_[] pointer).
+void RcpOptionsUI::drop_handles() {
+  wnd_ = cb_enabled_ = cb_lockmouse_ = cb_equip_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
+  lbl_sensx_hdr_ = lbl_sensy_hdr_ = lbl_smooth_hdr_ = lbl_sensx_ = lbl_sensy_ = lbl_smooth_ = nullptr;
+  lbl_cam_hdr_ = cb_chase_enabled_ = cb_chase_collision_ = sl_chase_dist_ = lbl_chase_dist_hdr_ = lbl_chase_dist_ = nullptr;
+  sl_blink_ = lbl_blink_hdr_ = lbl_blink_ = nullptr;
+  cb_np_billboard_ = cb_np_hp_ = cb_np_mana_ = cb_np_stam_ = nullptr;
+  sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
+  cb_nofog_ = nullptr;
+  sl_far_ = lbl_far_hdr_ = lbl_far_ = sl_actor_ = lbl_actor_hdr_ = lbl_actor_ = nullptr;
+  cb_ring_enabled_ = cb_ring_hideself_ = cb_ring_concolor_ = btn_ring_color_ = nullptr;
+  sl_ring_outer_ = lbl_ring_outer_hdr_ = lbl_ring_outer_ = nullptr;
+  sl_ring_inner_ = lbl_ring_inner_hdr_ = lbl_ring_inner_ = nullptr;
+  sl_ring_opacity_ = lbl_ring_opacity_hdr_ = lbl_ring_opacity_ = nullptr;
+  lbl_ring_graphic_hdr_ = combo_ring_graphic_ = cb_ring_spin_ = cb_ring_melee_ = nullptr;
+  lbl_snd_add_ = combo_snd_add_ = lbl_snd_list_ = list_snd_ = nullptr;
+  lbl_snd_vol_hdr_ = sl_snd_vol_ = lbl_snd_vol_ = btn_snd_reset_ = nullptr;
+  cb_windowtitle_ = cb_timestamp_ = lbl_timestamp_hint_ = nullptr;
+  lbl_aa_hdr_ = cb_aa_enabled_ = lbl_aa_thresh_hdr_ = sl_aa_thresh_ = lbl_aa_thresh_ = nullptr;
+  lbl_aa_active_hdr_ = sl_aa_active_ = lbl_aa_active_ = lbl_aa_status_ = nullptr;
+  cb_fcd_enabled_ = cb_fcd_mine_ = cb_fcd_incoming_ = cb_fcd_others_ = cb_fcd_melee_ = cb_fcd_spells_ = nullptr;
+  sl_fcd_big_ = lbl_fcd_big_hdr_ = lbl_fcd_big_ = nullptr;
+  btn_fcd_col_mine_ = btn_fcd_col_incoming_ = btn_fcd_col_other_ = btn_fcd_col_crit_ = nullptr;
+  lbl_model_hint_ = list_model_ = btn_model_all_classic_ = btn_model_all_new_ = lbl_model_count_ = nullptr;
+  lbl_npc_hint_ = list_npc_ = btn_npc_all_classic_ = btn_npc_all_new_ = lbl_npc_count_ = nullptr;
+  snd_row_stems_.clear();
+  snd_row_texts_.clear();
+  snd_add_choices_.clear();
+  snd_selected_.clear();
+  model_rows_.clear();
+  model_row_texts_.clear();
+  npc_rows_.clear();
+  npc_row_texts_.clear();
+  graphic_choices_.clear();
+  last_ring_graphic_choice_ = -1;
+  for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
+  for (int i = 0; i < kNpCount; ++i) cb_np_[i] = nullptr;
+  for (int i = 0; i < kRoleCount; ++i) btn_role_[i] = nullptr;
+  picker_role_ = -1;
+  create_attempted_ = false;
+}
+
 void RcpOptionsUI::on_frame() {
-  // Only ever touch the window while in-game. When not in-game (login, char
-  // select, zoning) the client tears its UI down, so drop our handles to avoid
-  // ever dereferencing a destroyed window; they are rebuilt on next /rcpoptions.
+  // The client frees our window on any game-UI teardown/rebuild; drop_handles() (also
+  // run from the CleanUI/InitUI callbacks) makes the poll below safe. This not-in-game
+  // guard covers login/char-select/zone, where the window must not be touched.
   if (!Rcp::Game::is_in_game()) {
-    wnd_ = cb_enabled_ = cb_lockmouse_ = cb_equip_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
-    lbl_sensx_hdr_ = lbl_sensy_hdr_ = lbl_smooth_hdr_ = lbl_sensx_ = lbl_sensy_ = lbl_smooth_ = nullptr;
-    lbl_cam_hdr_ = cb_chase_enabled_ = cb_chase_collision_ = sl_chase_dist_ = lbl_chase_dist_hdr_ = lbl_chase_dist_ = nullptr;
-    sl_blink_ = lbl_blink_hdr_ = lbl_blink_ = nullptr;
-    cb_np_billboard_ = cb_np_hp_ = cb_np_mana_ = cb_np_stam_ = nullptr;
-    sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
-    cb_nofog_ = nullptr;
-    sl_far_ = lbl_far_hdr_ = lbl_far_ = sl_actor_ = lbl_actor_hdr_ = lbl_actor_ = nullptr;
-    cb_ring_enabled_ = cb_ring_hideself_ = cb_ring_concolor_ = btn_ring_color_ = nullptr;
-    sl_ring_outer_ = lbl_ring_outer_hdr_ = lbl_ring_outer_ = nullptr;
-    sl_ring_inner_ = lbl_ring_inner_hdr_ = lbl_ring_inner_ = nullptr;
-    sl_ring_opacity_ = lbl_ring_opacity_hdr_ = lbl_ring_opacity_ = nullptr;
-    lbl_ring_graphic_hdr_ = combo_ring_graphic_ = cb_ring_spin_ = cb_ring_melee_ = nullptr;
-    lbl_snd_add_ = combo_snd_add_ = lbl_snd_list_ = list_snd_ = nullptr;
-    lbl_snd_vol_hdr_ = sl_snd_vol_ = lbl_snd_vol_ = btn_snd_reset_ = nullptr;
-    cb_windowtitle_ = cb_timestamp_ = lbl_timestamp_hint_ = nullptr;
-    lbl_aa_hdr_ = cb_aa_enabled_ = lbl_aa_thresh_hdr_ = sl_aa_thresh_ = lbl_aa_thresh_ = nullptr;
-    lbl_aa_active_hdr_ = sl_aa_active_ = lbl_aa_active_ = lbl_aa_status_ = nullptr;
-    cb_fcd_enabled_ = cb_fcd_mine_ = cb_fcd_incoming_ = cb_fcd_others_ = cb_fcd_melee_ = cb_fcd_spells_ = nullptr;
-    sl_fcd_big_ = lbl_fcd_big_hdr_ = lbl_fcd_big_ = nullptr;
-    btn_fcd_col_mine_ = btn_fcd_col_incoming_ = btn_fcd_col_other_ = btn_fcd_col_crit_ = nullptr;
-    lbl_model_hint_ = list_model_ = btn_model_all_classic_ = btn_model_all_new_ = lbl_model_count_ = nullptr;
-    lbl_npc_hint_ = list_npc_ = btn_npc_all_classic_ = btn_npc_all_new_ = lbl_npc_count_ = nullptr;
-    snd_row_stems_.clear();
-    snd_row_texts_.clear();
-    snd_add_choices_.clear();
-    snd_selected_.clear();
-    model_rows_.clear();
-    model_row_texts_.clear();
-    npc_rows_.clear();
-    npc_row_texts_.clear();
-    graphic_choices_.clear();
-    last_ring_graphic_choice_ = -1;
-    for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
-    for (int i = 0; i < kNpCount; ++i) cb_np_[i] = nullptr;
-    for (int i = 0; i < kRoleCount; ++i) btn_role_[i] = nullptr;
-    picker_role_ = -1;
-    create_attempted_ = false;
+    drop_handles();
     return;
   }
   // Poll whenever the window handle exists (in-game already gated above). We do
@@ -1503,15 +1516,34 @@ void RcpOptionsUI::on_frame() {
   }
 }
 
+// The client rebuilds the entire UI -- freeing our RcpOptions window -- on any
+// LoadSidl("EQUI.xml"): the initial UI load AND an in-game skin swap (/loadskin). We drop
+// the cached window/control handles here so the on_frame poll can't dereference a freed
+// control (that was the /loadskin access-violation crash); the window rebuilds lazily on
+// the next /rcpoptions. This detour ONLY drops handles -- no UI-file merge or redirect.
+static void __fastcall LoadSidl_dropwnd_hk(void *t, int edx, Rcp::GameUI::CXSTR path1,
+                                           Rcp::GameUI::CXSTR path2, Rcp::GameUI::CXSTR filename) {
+  if (std::string(filename) == "EQUI.xml") {
+    RcpService *svc = RcpService::get_instance();
+    if (svc && svc->options_ui) svc->options_ui->drop_handles();
+  }
+  RcpService::get_instance()->hooks->hook_map["LoadSidl"]->original(LoadSidl_dropwnd_hk)(t, edx, path1, path2,
+                                                                                        filename);
+}
+
 RcpOptionsUI::RcpOptionsUI(RcpService *rcp) {
-  // No hooks: the window's SIDL templates arrive via the EQUI_OptionsWindow.xml
-  // override during the client's own UI load, and the stock color picker is
-  // driven by polling. This module never touches any load path.
+  // The window's SIDL template arrives via the shipped EQUI_RcpOptions.xml (loaded by the
+  // client's own UI parse) and the stock color picker is polled, so there is no UI load-path
+  // hook for delivery. We DO install the LoadSidl detour above -- from HERE, a LIVE path (the
+  // old UIManager that used to host it is never instantiated) -- so drop_handles() runs on any
+  // UI (re)load incl. /loadskin. NOTE: do NOT use rcp->callbacks: CallbackManager is not
+  // instantiated in this build (rcp->callbacks is null; dereferencing it crashed char-select).
+  rcp->hooks->Add("LoadSidl", 0x5992c0, LoadSidl_dropwnd_hk, hook_type_detour);
   rcp->commands_hook->Add("/rcpoptions", {"/rcpo"}, "Opens or closes the rof2ClientPlus options window.",
                           [this](std::vector<std::string> &args) {
                             (void)args;
                             toggle_window();
                             return true;
                           });
-  logger::log("[ui] /rcpoptions registered");
+  logger::log("[ui] /rcpoptions + LoadSidl handle-drop installed");
 }
