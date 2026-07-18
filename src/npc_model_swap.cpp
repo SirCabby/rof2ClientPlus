@@ -1416,13 +1416,25 @@ void set_on(const std::string &name, bool on) {
 }
 
 void set_all(bool on) {
+  // Must cover EVERY row get_items() shows, or the "all classic/new" buttons silently skip
+  // some of the list: creatures (kNpcRevamps) + the Elemental split + all PC races/genders.
+  // (Bug 2026-07-17: this looped only kNpcRevamps, so the buttons ignored the playable races.)
   {
     std::lock_guard<std::mutex> lk(g_mu);
     for (const auto &r : kNpcRevamps) g_on[r.name] = on;
+    g_elem_classic = on;
+    for (const auto &r : kPcRaces)
+      for (int g = 0; g < 2; ++g)
+        if (r.alias[g]) g_pc_classic[pc_key(r.race, g)] = on;
     rebuild_redirect();
   }
   for (const auto &r : kNpcRevamps) persist(r.name, on);
-  refresh_world();
+  persist("Elemental", on);
+  for (const auto &r : kPcRaces)
+    for (int g = 0; g < 2; ++g)
+      if (r.alias[g]) pc_persist(r.name, g, on);
+  refresh_world();  // creatures + elemental: live-rebuild visible spawns (no zone)
+  pc_reapply();     // PC races: rebuild self (camera handoff) + other players
 }
 
 }  // namespace npc_model_settings

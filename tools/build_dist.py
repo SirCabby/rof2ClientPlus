@@ -9,6 +9,7 @@ Produces (default ./dist):
     rcp*.s3d  (29 archives)       -> <RoF2>/                 (classic model archives)
     Resources/GlobalLoad.txt      -> <RoF2>/Resources/       (manifest, stock + the mod's lines)
     uifiles/rcp/**                -> <RoF2>/uifiles/rcp/      (options UI, fonts, target-rings)
+    maps/*_classic.txt            -> <RoF2>/maps/             (classic pre-revamp zone maps)
     INSTALL.txt                                              (how to copy it in)
 
 So `cp -r dist/* /path/to/RoF2/` (Linux) or xcopy (Windows) is a complete install.
@@ -52,6 +53,9 @@ What lands where:
   uifiles/default/*.xml      -> <RoF2>/uifiles/default/  option-window overrides incl. the /rcpoptions
                                                          window; load under ANY skin (see NOTE below)
   uifiles/rcp/               -> <RoF2>/uifiles/rcp/      mod fonts + target-ring graphics (not a skin)
+  maps/*_classic.txt         -> <RoF2>/maps/            in-game maps for the pre-revamp *_classic
+                                                        zones (bazaar/lavastorm/nektulos); the stock
+                                                        maps are the revamped layouts and do not fit
   eq-window-fix              -> <RoF2>/                 OPTIONAL, Linux/Wine windowed-mode helper only
 
 Requirements:
@@ -78,9 +82,10 @@ IMPORTANT - Resources/GlobalLoad.txt:
       python3 tools/patch_globalload.py --file <RoF2>/Resources/GlobalLoad.txt
   (idempotent; it only adds the rcp lines and backs up your file first).
 
-Uninstall: delete rof2ClientPlus.asi, the rcp*.s3d, and uifiles/rcp/ from the client dir,
-and restore Resources/GlobalLoad.txt (its stock form is Resources/GlobalLoad.txt.rcpbak, or
-run patch_globalload.py --revert).
+Uninstall: delete rof2ClientPlus.asi, the rcp*.s3d, uifiles/rcp/, and maps/*_classic.txt from
+the client dir (the maps use new *_classic filenames, so they never touched a stock map), and
+restore Resources/GlobalLoad.txt (its stock form is Resources/GlobalLoad.txt.rcpbak, or run
+patch_globalload.py --revert).
 """
 
 
@@ -138,6 +143,7 @@ def main():
     fallback = opt("--fallback-s3d", "/home/joshua/Games/RoF2-modelswap-backup/built-s3d")
     asi = opt("--asi", os.path.join(build_dir, "rof2ClientPlus.asi"))
     uifiles = opt("--uifiles", os.path.join(REPO, "uifiles"))
+    maps = opt("--maps", os.path.join(REPO, "maps"))
     eqwf = opt("--eq-window-fix", os.path.join(build_dir, "eq-window-fix"))
     stock = opt("--stock", os.path.join(HERE, "GlobalLoad.stock.txt"))
 
@@ -158,6 +164,8 @@ def main():
     #    load under every skin) + rcp/{fonts,targetrings} (mod assets loaded by path).
     ui_n = copy_tree_files(uifiles, os.path.join(out, "uifiles"),
                            (".xml", ".spritefont", ".tga"))
+    # 3b. classic pre-revamp zone maps (the stock maps are the revamped layouts)
+    maps_n = copy_tree_files(maps, os.path.join(out, "maps"), (".txt",)) if os.path.isdir(maps) else 0
     # 4. the 29 model archives
     s3d_dir, how = resolve_s3d(build_dir, src_dir, fallback)
     for n in S3D_NAMES:
@@ -181,7 +189,7 @@ def main():
     total = sum(os.path.getsize(os.path.join(r, f)) for r, _d, fs in os.walk(out) for f in fs)
     print(f">> dist assembled at {out}")
     print(f"   .asi + {'eq-window-fix + ' if os.path.isfile(os.path.join(out,'eq-window-fix')) else ''}"
-          f"{len(S3D_NAMES)} .s3d ({how}) + {ui_n} uifiles + Resources/GlobalLoad.txt + Resources/moddat.ini + INSTALL.txt")
+          f"{len(S3D_NAMES)} .s3d ({how}) + {ui_n} uifiles + {maps_n} maps + Resources/GlobalLoad.txt + Resources/moddat.ini + INSTALL.txt")
     print(f"   total {total/1e6:.1f} MB. Install: copy the contents of {out}/ into <RoF2>/")
 
 

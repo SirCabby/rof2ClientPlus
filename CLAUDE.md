@@ -9,7 +9,7 @@ delivered** — read the next section before assuming `make install` ships every
 
 ```sh
 make                 # -> build/rof2ClientPlus.asi   (config.mk sets GAME_DIR; gitignored)
-make install         # deploy .asi + option-window overrides (->uifiles/default) + fonts/rings (->uifiles/rcp) + eq-window-fix
+make install         # deploy .asi + option-window overrides (->uifiles/default) + fonts/rings (->uifiles/rcp) + classic maps (->maps/) + eq-window-fix
 make install-models  # deploy the 29 classic-model .s3d + patch Resources/GlobalLoad.txt
 make dist            # assemble dist/ (gitignored): a drop-in bundle to hand to a user
 ```
@@ -19,7 +19,8 @@ NOT deliver the model-swap feature's runtime data (see below).
 
 **`make dist`** builds a self-contained `dist/` folder mirroring the client layout (the `.asi`,
 the 29 `rcp*.s3d`, `Resources/GlobalLoad.txt` = stock + the mod's lines, `uifiles/**` — option
-windows in `default/`, fonts/rings in `rcp/` — and an `INSTALL.txt`). Copying its contents into a
+windows in `default/`, fonts/rings in `rcp/` — the classic pre-revamp `maps/*_classic.txt`, and an
+`INSTALL.txt`). Copying its contents into a
 RoF2 dir is a complete install — every file lands where it belongs. This is the artifact to distribute; it does not require the recipient to have the build
 toolchain or the model sources. (`tools/build_dist.py`; the vendored stock manifest is
 `tools/GlobalLoad.stock.txt`.)
@@ -28,7 +29,8 @@ toolchain or the model sources. (`tools/build_dist.py`; the vendored stock manif
 
 `make install` copies: `rof2ClientPlus.asi`; the option-window overrides
 `uifiles/default/*.xml` (into the client's **default skin** — see UI note below);
-`uifiles/rcp/fonts/*.spritefont`, `uifiles/rcp/targetrings/*.tga`; and `eq-window-fix`.
+`uifiles/rcp/fonts/*.spritefont`, `uifiles/rcp/targetrings/*.tga`; the classic pre-revamp zone
+maps `maps/*_classic.txt` (into the client's `maps/`); and `eq-window-fix`.
 Everything else the mod touches is delivered by a **separate** mechanism. Do not assume a
 clean `git clone` + `make install` reconstitutes a working setup — it does not include the
 model-swap assets or the server-side changes. The complete map:
@@ -37,7 +39,7 @@ model-swap assets or the server-side changes. The complete map:
 |---|---|---|---|---|
 | The `.asi` + fonts/target-rings | repo `src/`, `uifiles/rcp/{fonts,targetrings}` | ✅ yes | `make install` | `make && make install` |
 | **Option-window overrides** (`EQUI_OptionsWindow.xml` carrying `/rcpoptions` + `EQUI_AdvancedDisplayOptionsWnd.xml`) | repo `uifiles/default/` → client `uifiles/default/` (**overwrites 2 stock files**) | ✅ yes | `make install` (backs stock up ONCE as `.rcpbak`) | regenerate: `gen_option_overrides.py` (from vendored `tools/stock-uifiles/`) + `gen_rcp_options_ui.py` |
-| **29 `rcp*.s3d` classic-model archives** (59 MB) — model-swap | `$GAME_DIR/*.s3d` only | ❌ no | `make install-models` | `make models` regenerates all 29 from source (see below) |
+| **Classic pre-revamp zone maps** (`maps/*_classic.txt` — bazaar/lavastorm/nektulos) | repo `maps/` → client `maps/` (new `*_classic` filenames; never touches a stock map) | ✅ yes | `make install` | in git; re-sourced from Brewall `_original` maps — see `maps/README.md` |
 | **29 `rcp*.s3d` classic-model archives** (59 MB) — model-swap | `$GAME_DIR/*.s3d` only | ❌ no | `make install-models` | `make models` regenerates all 29 from source (see below) |
 | **`$GAME_DIR/Resources/GlobalLoad.txt`** edit (loads the rcp archives) | game dir only | ❌ no | `make install-models` | `tools/patch_globalload.py` (idempotent; stock saved as `.rcpbak`) |
 | **`$GAME_DIR/Resources/moddat.ini`** edit (first-person camera offsets for the 23 alias models) | game dir only | ❌ no | `make install-models` | `tools/patch_moddat.py` (idempotent; vendored `tools/moddat.stock.ini` + `.rcpbak`) |
