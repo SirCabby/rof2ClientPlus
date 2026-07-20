@@ -109,6 +109,9 @@ bool g_show_stam = true;
 // draws a custom-font plate (name + colored HP bar; +mana/stamina for self) per visible PC/NPC.
 bool g_np_enabled = false;
 std::unique_ptr<SpriteFont> g_np_font;
+// Throttle for retrying SpriteFont creation after a failure (GetTickCount deadline; 0 = try now).
+// While the font is unavailable, native names are UN-suppressed so the user still has nameplates.
+DWORD g_np_font_retry_at = 0;
 
 // Clamps a current/max pair to 0..100. NPCs carry the percent directly in "current" with max == 0,
 // so fall back to clamping current in that case.
@@ -170,6 +173,7 @@ void save_settings() {
 // Applies the on/off state to native-nameplate suppression and persists the settings.
 void apply_and_save() {
   nameplate::set_suppress_native(g_np_enabled);
+  g_np_font_retry_at = 0;  // A manual toggle retries font creation immediately.
   save_settings();
 }
 
@@ -248,16 +252,25 @@ void on_render_nameplates(IDirect3DDevice9 *device) {
   // select models (and self is bogus), so plates would wrongly render there.
   if (!Rcp::Game::is_in_game()) return;
 
+  if (g_np_font && !g_np_font->is_valid()) g_np_font.reset();  // Texture died: rebuild from scratch.
   if (!g_np_font) {
+    const DWORD now = GetTickCount();
+    if (g_np_font_retry_at && static_cast<int>(now - g_np_font_retry_at) < 0) return;
     g_np_font = SpriteFont::create_sprite_font(*device, "arial_bold_24");
     if (!g_np_font) {
-      logger::log("[font] nameplates: failed to create SpriteFont; disabling");
-      g_np_enabled = false;
+      // Transient (device churn at zone-in) or a missing font file. Do NOT latch the feature off:
+      // that left native names suppressed with no billboards drawing - i.e. NO nameplates at all
+      // until a manual off/on toggle. Fall back to native plates and retry every 2s.
+      g_np_font_retry_at = now + 2000;
+      nameplate::set_suppress_native(false);
+      logger::log("[font] nameplates: SpriteFont creation failed; native plates restored, retrying");
       return;
     }
+    g_np_font_retry_at = 0;
     g_np_font->set_drop_shadow(true);
     g_np_font->set_align_bottom(true);  // Grow the plate UPWARD from the anchor so adding bars
                                         // never pushes the name down onto the head.
+    nameplate::set_suppress_native(true);  // Billboards are drawing (again); blank the native names.
     logger::log("[font] nameplates: SpriteFont created");
   }
   // Normal world-scaled billboard: it sizes dynamically with distance (native does the same, with
@@ -330,17 +343,25 @@ void on_render_nameplates(IDirect3DDevice9 *device) {
       continue;                                                          // Off the screen edges.
 
     // Head anchor: the model's HEAD_NAME point (native's own anchor; scales per model), read live
-    // off the name sprite. Fall back to feet+AvatarHeight if the sprite doesn't exist yet.
-    float h0, h1, h2;
+    // off the name sprite - but only while it AGREES with the entity's live position. The sprite's
+    // world pos freezes when the actor stops being drawn/animated (player looked away), so once
+    // the NPC moves on, the cached anchor points at the last-seen spot - drawing there left a
+    // detached "ghost" plate hanging in view until the NPC re-rendered or left the frustum. When
+    // the anchor has drifted from the live position, anchor at live feet+AvatarHeight instead so
+    // the plate always tracks (and culls/occludes at) the spawn's true location.
+    float h0 = p0, h1 = p1, h2 = p2 + height;
     void *ss = *reinterpret_cast<void **>(static_cast<char *>(actor) + kActorStringSprite);
     if (ss) {
-      h0 = *reinterpret_cast<float *>(static_cast<char *>(ss) + kSsWorldPos + 0);
-      h1 = *reinterpret_cast<float *>(static_cast<char *>(ss) + kSsWorldPos + 4);
-      h2 = *reinterpret_cast<float *>(static_cast<char *>(ss) + kSsWorldPos + 8);
-    } else {
-      h0 = p0;
-      h1 = p1;
-      h2 = p2 + height;
+      const float a0 = *reinterpret_cast<float *>(static_cast<char *>(ss) + kSsWorldPos + 0);
+      const float a1 = *reinterpret_cast<float *>(static_cast<char *>(ss) + kSsWorldPos + 4);
+      const float a2 = *reinterpret_cast<float *>(static_cast<char *>(ss) + kSsWorldPos + 8);
+      const float dx = a0 - h0, dy = a1 - h1, dz = a2 - h2;
+      const float thr = 15.f + height;  // Legit HEAD_NAME-vs-feet offset scales with model size.
+      if (dx * dx + dy * dy + dz * dz <= thr * thr) {
+        h0 = a0;
+        h1 = a1;
+        h2 = a2;
+      }
     }
 
     std::string text = nameplate::billboard_text(e);
@@ -446,27 +467,40 @@ int __fastcall Render2D_hk(void *self, int edx, int a1, int a2) {
   return g_orig_render2d(self, edx, a1, a2);
 }
 
-// Registers the frame-marker callback + the pre-UI-raster draw detour once, lazily, as soon as the
-// render interface exists. Driven from the EndScene callback (per frame) until it takes. Safe to
-// patch here: C2DPrimitiveManager::Render is never on the stack while device EndScene runs.
+// Registers the pre-UI-raster draw detour once, and (re)asserts the frame-marker callback EVERY
+// frame, as soon as the render interface exists. Driven from the EndScene callback (per frame).
+// The per-frame re-assert matters: the client re-registers its own callback on some graphics/zone
+// re-inits, silently dropping ours - billboards then stopped drawing while native names stayed
+// suppressed (no nameplates at all until an off/on toggle). Re-asserting is one vtable call plus
+// a pointer store, and never chains to itself, so repeating it is safe. Safe to patch here:
+// C2DPrimitiveManager::Render is never on the stack while device EndScene runs.
+int g_cb_reassert_log = 4;  // Log the first few (re)registrations for diagnosis.
+
 void ensure_render_callback(IDirect3DDevice9 * /*unused*/) {
-  if (g_render_cb_registered) return;
   void *pRender = *kRenderInterface;
   if (!pRender) return;
   void **vtbl = *reinterpret_cast<void ***>(pRender);
   if (!vtbl) return;
-  auto rcp = RcpService::get_instance();
-  if (!rcp || !rcp->hooks) return;
-  HMODULE gfx = GetModuleHandleA("EQGraphicsDX9.dll");
-  if (!gfx) return;
+  if (!g_render_cb_registered) {
+    auto rcp = RcpService::get_instance();
+    if (!rcp || !rcp->hooks) return;
+    HMODULE gfx = GetModuleHandleA("EQGraphicsDX9.dll");
+    if (!gfx) return;
+    const uintptr_t render2d = reinterpret_cast<uintptr_t>(gfx) + (kRender2DAddr - kGfxPreferredBase);
+    rcp->hooks->Add("font_render2d", static_cast<int>(render2d), Render2D_hk, hook_type_detour);
+    g_orig_render2d = rcp->hooks->hook_map["font_render2d"]->original(Render2D_hk);
+    g_render_cb_registered = true;
+    logger::logf("[font] nameplate seam installed: pre-UI raster detour @%08X", static_cast<unsigned>(render2d));
+  }
   auto set_cb = reinterpret_cast<SetRenderCallbackFn>(vtbl[kSetRenderCallbackVtblIndex]);
-  g_prev_render_cb = set_cb(pRender, &scene_render_cb);
-  const uintptr_t render2d = reinterpret_cast<uintptr_t>(gfx) + (kRender2DAddr - kGfxPreferredBase);
-  rcp->hooks->Add("font_render2d", static_cast<int>(render2d), Render2D_hk, hook_type_detour);
-  g_orig_render2d = rcp->hooks->hook_map["font_render2d"]->original(Render2D_hk);
-  g_render_cb_registered = true;
-  logger::logf("[font] nameplate seam installed: frame-marker cb + pre-UI raster detour @%08X",
-               static_cast<unsigned>(render2d));
+  RenderCallbackPtr prev = set_cb(pRender, &scene_render_cb);
+  if (prev != &scene_render_cb) {  // First frame, or the client replaced our registration.
+    g_prev_render_cb = prev;       // Chain whatever was there (never ourselves - no self-loop).
+    if (g_cb_reassert_log > 0) {
+      --g_cb_reassert_log;
+      logger::logf("[font] frame-marker render callback registered (chained prev=%p)", prev);
+    }
+  }
 }
 
 }  // namespace

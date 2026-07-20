@@ -210,6 +210,11 @@ class BitmapFontBase {
   RECT create_texture(uint32_t width, uint32_t height, D3DFORMAT format, uint32_t stride, uint32_t rows,
                       const uint8_t *data);
   bool create_index_buffer();
+  // Drops only the (D3DPOOL_DEFAULT) vertex/index buffers so the next flush lazily recreates them
+  // against the live device; the managed-pool texture stays valid. Lets a font self-heal after a
+  // device reset instead of dying invisibly for the rest of the session.
+  void release_buffers();
+  void log_gpu_fail(const char *what);  // Throttled logging for transient GPU failures.
 
   virtual DWORD get_fvf_code() const = 0;
   virtual DWORD get_vertex_size() const = 0;
@@ -243,6 +248,7 @@ class BitmapFontBase {
   IDirect3DVertexBuffer9 *vertex_buffer = nullptr;
   IDirect3DIndexBuffer9 *index_buffer = nullptr;
   int vertex_buffer_wr_index = 0;
+  int gpu_fail_log_budget = 6;  // First few transient GPU failures get logged; the rest stay quiet.
 };
 
 // 2-D pre-transformed (screen-space) text rendering without the z-buffer.

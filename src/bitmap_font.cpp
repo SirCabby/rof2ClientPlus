@@ -273,11 +273,27 @@ BitmapFontBase::~BitmapFontBase() { release(); }
 void BitmapFontBase::release() {
   if (texture) texture->Release();
   texture = nullptr;
+  release_buffers();
+  glyph_queue.clear();
+}
+
+// The vertex/index buffers live in D3DPOOL_DEFAULT, so a device reset invalidates them (the
+// managed-pool texture survives). Dropping just the buffers lets the next flush recreate them
+// against the live device and keep drawing.
+void BitmapFontBase::release_buffers() {
   if (vertex_buffer) vertex_buffer->Release();
   vertex_buffer = nullptr;
   if (index_buffer) index_buffer->Release();
   index_buffer = nullptr;
-  glyph_queue.clear();
+  vertex_buffer_wr_index = 0;
+}
+
+// Transient GPU failures drop the frame's text and retry next flush; log only the first few so
+// a bad streak is diagnosable without flooding the log.
+void BitmapFontBase::log_gpu_fail(const char *what) {
+  if (gpu_fail_log_budget <= 0) return;
+  --gpu_fail_log_budget;
+  logger::logf("[font] %s failed; dropping this frame's text and retrying", what);
 }
 
 // DirectX resources need to be manually released.
@@ -527,19 +543,24 @@ void BitmapFontBase::flush_queue_to_screen() {
 
   if (glyph_queue.empty()) return;
 
+  // Buffer-create failures are transient (device churn at zone-in / around a reset): drop this
+  // frame's text and retry next flush. Permanently release()-ing here left the font object alive
+  // but forever invisible - with native names suppressed, that meant NO nameplates at all.
   if (!vertex_buffer) {
     // D3D9: CreateVertexBuffer takes a trailing pSharedHandle (NULL).
     if (FAILED(device.CreateVertexBuffer(kVertexBufferMaxBatchCount * kNumGlyphVertices * get_vertex_size(),
                                          D3DUSAGE_WRITEONLY | D3DUSAGE_DYNAMIC, get_fvf_code(), D3DPOOL_DEFAULT,
                                          &vertex_buffer, NULL))) {
       vertex_buffer = nullptr;  // Ensure nullptr.
-      release();                // Disable future attempts.
+      log_gpu_fail("CreateVertexBuffer");
+      glyph_queue.clear();
       return;
     }
   }
 
   if (!index_buffer && !create_index_buffer()) {
-    release();  // Disable future attempts.
+    log_gpu_fail("CreateIndexBuffer");
+    glyph_queue.clear();
     return;
   }
 
@@ -619,8 +640,9 @@ void BitmapFont::render_queue() {
     const int copy_size = num_batch_vertices * sizeof(GlyphVertex);
     void *buffer = nullptr;  // D3D9: Lock ppbData is void**.
     if (FAILED(vertex_buffer->Lock(start_offset_bytes, copy_size, &buffer, lock_type))) {
-      release();
-      return;
+      log_gpu_fail("vertex Lock (2D)");
+      release_buffers();  // Stale post-reset buffer; recreated on the next flush.
+      break;              // Fall through to the state restore below.
     }
     memcpy(buffer, vertices.get(), copy_size);
     vertex_buffer->Unlock();
@@ -863,6 +885,7 @@ void SpriteFont::render_queue() {
   D3DXMatrixIdentity(&rotationMatrix);
   for (int row = 0; row < 3; row++)  // Transpose rotation components of camera view matrix.
     for (int col = 0; col < 3; col++) rotationMatrix(col, row) = viewMatrix(row, col);
+  bool buffers_dead = false;  // Set on a Lock failure so both loops exit into the state restore.
   for (const auto &entry : glyph_string_queue) {
     if (entry.stop_index > (int)glyph_queue.size()) break;
 
@@ -897,8 +920,10 @@ void SpriteFont::render_queue() {
       const int copy_size = num_batch_vertices * sizeof(Glyph3DVertex);
       void *buffer = nullptr;  // D3D9: Lock ppbData is void**.
       if (FAILED(vertex_buffer->Lock(start_offset_bytes, copy_size, &buffer, lock_type))) {
-        release();
-        return;
+        log_gpu_fail("vertex Lock (3D)");
+        release_buffers();  // Stale post-reset buffer; recreated on the next flush.
+        buffers_dead = true;
+        break;  // Fall through to the state restore below.
       }
       memcpy(buffer, vertices.get(), copy_size);
       vertex_buffer->Unlock();
@@ -910,6 +935,7 @@ void SpriteFont::render_queue() {
       read_index += batch_count;
       vertex_buffer_wr_index += batch_count;
     }
+    if (buffers_dead) break;
   }
 
   // Restore D3D state.
