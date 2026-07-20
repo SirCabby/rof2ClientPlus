@@ -7,6 +7,7 @@
 #include "model_swap.h"
 #include "npc_model_swap.h"
 #include "binds.h"
+#include "boat_draft.h"
 #include "callbacks.h"
 #include "camera_mods.h"
 #include "chase_cam.h"
@@ -100,6 +101,8 @@ RcpService::RcpService() {
   model_swap = std::make_unique<ModelSwap>(this);  // Phase-0 probe for the live classic/new model toggle (/rcpmodellog).
   logger::log("  -> NpcModelSwap");
   npc_model_swap = std::make_unique<NpcModelSwap>(this);  // Phase 2: NPC body-model /rcpbody probe + redirect.
+  logger::log("  -> BoatDraft");
+  boat_draft = std::make_unique<BoatDraft>(this);  // /rcpboat: lower client-floated boats by a draft offset (+probes).
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

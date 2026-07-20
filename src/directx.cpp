@@ -8,20 +8,25 @@
 
 #include <vector>
 
-// IDirect3DDevice9 vtable index for EndScene (IUnknown = 0..2, then the
-// IDirect3DDevice9 methods; EndScene lands at 42, Clear at 43).
+// IDirect3DDevice9 vtable indices (IUnknown = 0..2, then the IDirect3DDevice9
+// methods; BeginScene lands at 41, EndScene at 42, Clear at 43).
+static const int VTBL_BEGINSCENE = 41;
 static const int VTBL_ENDSCENE = 42;
 
 typedef HRESULT(WINAPI* EndScene_t)(IDirect3DDevice9*);
+typedef HRESULT(WINAPI* BeginScene_t)(IDirect3DDevice9*);
 static EndScene_t   g_original_endscene = nullptr;
+static BeginScene_t g_original_beginscene = nullptr;
 static volatile LONG g_frame = 0;
 
 // The live device from the most recent EndScene, and the render callbacks that draw
-// into each frame. The callback list is only mutated at load (single-threaded) via
-// add_render_callback and read on the render thread, so no lock is needed.
+// into each frame. The callback lists are only mutated at load (single-threaded) via
+// add_render_callback / add_prerender_callback and read on the render thread, so no
+// lock is needed.
 static IDirect3DDevice9* g_device = nullptr;
 static HWND g_focus_hwnd = nullptr;  // The game's main render window (see get_focus_window).
 static std::vector<std::function<void(IDirect3DDevice9*)>>* g_callbacks = nullptr;
+static std::vector<std::function<void(IDirect3DDevice9*)>>* g_pre_callbacks = nullptr;
 
 IDirect3DDevice9* directx::get_device() { return g_device; }
 void* directx::get_focus_window() { return g_focus_hwnd; }
@@ -45,6 +50,22 @@ static HWND query_focus_window(IDirect3DDevice9* dev) {
 void directx::add_render_callback(std::function<void(IDirect3DDevice9*)> callback) {
     if (!g_callbacks) g_callbacks = new std::vector<std::function<void(IDirect3DDevice9*)>>();
     g_callbacks->push_back(std::move(callback));
+}
+
+void directx::add_prerender_callback(std::function<void(IDirect3DDevice9*)> callback) {
+    if (!g_pre_callbacks) g_pre_callbacks = new std::vector<std::function<void(IDirect3DDevice9*)>>();
+    g_pre_callbacks->push_back(std::move(callback));
+}
+
+// Our replacement BeginScene: run the pre-render callbacks (post-sim, pre-draw
+// state fixups), then chain. Same guard rules as hkEndScene.
+static HRESULT WINAPI hkBeginScene(IDirect3DDevice9* dev) {
+    if (crash_handler::shutting_down()) return g_original_beginscene(dev);
+    if (g_pre_callbacks) {
+        for (auto& cb : *g_pre_callbacks)
+            rcp_guard::run("directx.prerender_cb", [&] { cb(dev); });
+    }
+    return g_original_beginscene(dev);
 }
 
 // Our replacement EndScene: capture the live device, run any registered render
@@ -116,14 +137,20 @@ bool directx::install() {
         // First member of a COM object is its vtable pointer.
         void** vtable = *reinterpret_cast<void***>(dev);
         g_original_endscene = reinterpret_cast<EndScene_t>(vtable[VTBL_ENDSCENE]);
-        logger::logf("directx: device=%p vtable=%p original EndScene=%p",
-                     (void*)dev, (void*)vtable, (void*)g_original_endscene);
+        g_original_beginscene = reinterpret_cast<BeginScene_t>(vtable[VTBL_BEGINSCENE]);
+        logger::logf("directx: device=%p vtable=%p original EndScene=%p BeginScene=%p",
+                     (void*)dev, (void*)vtable, (void*)g_original_endscene,
+                     (void*)g_original_beginscene);
 
         void* prev = hooks::swap_vtable_entry(vtable, VTBL_ENDSCENE,
                                               reinterpret_cast<void*>(&hkEndScene));
         ok = (prev != nullptr);
         logger::logf("directx: EndScene vtable swap %s", ok ? "OK" : "FAILED");
         if (!ok) g_original_endscene = nullptr;  // allow retry
+        void* prev_bs = hooks::swap_vtable_entry(vtable, VTBL_BEGINSCENE,
+                                                 reinterpret_cast<void*>(&hkBeginScene));
+        logger::logf("directx: BeginScene vtable swap %s", prev_bs ? "OK" : "FAILED");
+        if (!prev_bs) g_original_beginscene = nullptr;
         dev->Release();
     }
 

@@ -31,4 +31,12 @@ void *get_focus_window();
 // thread, with the live device. Each call is wrapped in rcp_guard so a fault in one
 // callback is contained rather than crashing the client.
 void add_render_callback(std::function<void(IDirect3DDevice9 *)> callback);
+
+// Register a callback invoked every BeginScene (before the original), i.e. AFTER
+// the game sim wrote entity state for this frame but BEFORE anything is drawn.
+// This is the seam for state that must be in place when the world renders (e.g.
+// the boat-draft z re-assert - the sim re-floats boats every tick, so an
+// EndScene write only ever shows for the tail of a frame). Same guard rules as
+// add_render_callback.
+void add_prerender_callback(std::function<void(IDirect3DDevice9 *)> callback);
 }  // namespace directx
