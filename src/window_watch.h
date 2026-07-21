@@ -20,6 +20,14 @@
 // + foreground. Off by default. NOTE: this only helps if the client reached its main
 // loop - a launch that hangs earlier (before our .asi loads) is beyond its reach; for
 // that case rely on the crash handler + clearing the leftover process.
+//
+// Multibox rect dedup ([Window] MultiboxDedup, /rcpwindow dedup, ON by default): boxed
+// clients share eqclient.ini, so they all spawn at the SAME wineserver-side rect, and
+// wine routes mouse input by hit-testing those rects across every client in the
+// session - clicks on one client land in the other ("clickthrough" / focus snapping
+// back; KWin never resyncs its placement into wine, so the collision persists even
+// when the windows LOOK separated). During its first ~30s the newer client detects the
+// identical rect and moves itself to a free monitor. See dedup_pass in the .cpp.
 #pragma once
 
 class RcpService;
@@ -38,12 +46,15 @@ bool get_self_heal();
 bool get_verbose();
 bool get_guard();  // Detour fault-net (rcp_guard) - owned here so it persists.
 bool get_char_title();  // /rcpwindow title - show the logged-in character's name in the window title.
+bool get_dedup();       // /rcpwindow dedup - multibox rect dedup (see file comment).
 void set_self_heal(bool on);
 void set_verbose(bool on);
 void set_guard(bool on);
 void set_char_title(bool on);
-void force_heal_now();  // /rcpwindow heal - apply one corrective pass immediately.
-void log_info();        // /rcpwindow info - dump current window state + sibling scan.
+void set_dedup(bool on);
+void force_heal_now();   // /rcpwindow heal - apply one corrective pass immediately.
+void force_dedup_now();  // /rcpwindow dedup now - run one dedup decision pass immediately.
+void log_info();         // /rcpwindow info - dump current window state + sibling scan.
 }  // namespace window_watch
 
 // Registers the /rcpwindow command. Constructed by RcpService like the other modules;

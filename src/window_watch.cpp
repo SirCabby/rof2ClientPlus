@@ -25,12 +25,16 @@ bool g_self_heal = false;  // Force the window visible/foreground on a broken wi
 bool g_verbose = false;    // Log the chatty window messages (pos-changing, focus) too.
 bool g_guard = true;       // Wrap our detour bodies in the fault net (crash containment). Default on.
 bool g_char_title = true;  // Put the logged-in character's name in the window title. On by default (see sync_title).
+bool g_dedup = true;       // Multibox rect dedup: move our window off a sibling client's identical rect. See dedup_pass.
 
 constexpr char kIni[] = "Window";
 constexpr DWORD kHealWindowMs = 8000;  // Only self-heal during the window's first few seconds.
 constexpr DWORD kHealMinGapMs = 250;   // Don't fight the client every frame.
 constexpr DWORD kHealthDenseMs = 20000;  // Dense per-frame health trace for the first ~20s.
 constexpr DWORD kHealthGapMs = 500;
+constexpr DWORD kDedupWindowMs = 30000;  // Auto-dedup only during our first ~30s (the spawn collision); never fight the user later.
+constexpr DWORD kDedupGapMs = 2000;      // Re-check cadence inside that window (also lets simultaneous launches converge).
+constexpr int kDedupEdgeTolPx = 16;      // Rects within this per-edge = "the same rect" (spawn collisions are byte-identical).
 
 // ---- Runtime state. ----
 HWND g_hwnd = nullptr;
@@ -39,8 +43,17 @@ std::string g_orig_title;     // The client's own window caption, captured at su
 std::string g_pending_title;  // Title the wndproc should apply (see WM_SETTITLE handling); render-thread-only, no lock.
 std::string g_posted_title;   // Last title we asked for, so on_frame only re-posts on an actual change.
 UINT g_wm_settitle = 0;       // RegisterWindowMessage id: "apply g_pending_title" - handled in wndproc, off the ProcessGameEvents stack.
+UINT g_wm_dedup = 0;          // RegisterWindowMessage id: "apply the pending dedup move" - same pattern as g_wm_settitle.
+RECT g_dedup_target = {};     // Normal-position rect for the pending move; render-thread-only, no lock.
+bool g_dedup_maximize = false;  // Re-maximize (onto the target's monitor) after the move.
+int g_dedup_attempts = 0;       // Posted moves this session; caps the runtime loop (KWin can revert our move).
+bool g_dedup_gave_up = false;   // Runtime dedup exhausted its attempts; logged once.
+bool g_spawn_checked = false;   // CreateWindowExA hook: the main window was already seen (one-shot).
+int g_spawn_seen = 0;           // Top-level creations logged so far (learning instrument; first few only).
 DWORD g_first_seen = 0;
 DWORD g_last_heal = 0;
+DWORD g_last_dedup = 0;
+DWORD g_dedup_first_delay = 0;  // Per-process jitter so simultaneously-launched boxes don't decide at the same instant.
 DWORD g_last_health = 0;
 unsigned long g_loop = 0;  // Main-loop iteration count (proxy for "the client is alive").
 int g_last_vis = -1, g_last_icon = -1, g_last_fg = -1;
@@ -51,6 +64,7 @@ void load_settings() {
   if (ini.exists(kIni, "VerboseLog")) g_verbose = ini.getValue<bool>(kIni, "VerboseLog");
   if (ini.exists(kIni, "GuardDetours")) g_guard = ini.getValue<bool>(kIni, "GuardDetours");
   if (ini.exists(kIni, "CharTitle")) g_char_title = ini.getValue<bool>(kIni, "CharTitle");
+  if (ini.exists(kIni, "MultiboxDedup")) g_dedup = ini.getValue<bool>(kIni, "MultiboxDedup");
   rcp_guard::set_enabled(g_guard);
 }
 
@@ -60,6 +74,7 @@ void save_settings() {
   ini.setValue<bool>(kIni, "VerboseLog", g_verbose);
   ini.setValue<bool>(kIni, "GuardDetours", g_guard);
   ini.setValue<bool>(kIni, "CharTitle", g_char_title);
+  ini.setValue<bool>(kIni, "MultiboxDedup", g_dedup);
 }
 
 bool belongs_to_us(HWND h) {
@@ -147,6 +162,277 @@ HWND find_main_window() {
   return ctx.best;
 }
 
+// ---- Multibox rect dedup.
+//
+// All boxed clients share one eqclient.ini, so every client creates its window at the
+// SAME saved rect and maximizes onto the SAME monitor - and under KWin/XWayland the
+// window manager's real placement is never reflected back into wine's Win32 rect. The
+// wineserver session (shared by all clients) then holds two windows at an identical
+// rect, and since mouse input is routed by hit-testing those rects across ALL
+// processes, clicks on one client land in the other ("clickthrough", focus snapping
+// back). Verified live 2026-07-21: both clients logged rect=(2556,5)-(5124,1404) while
+// X11 showed them on different monitors, and clicks activated the wrong client.
+//
+// Fix: when our wineserver-side rect (near-)equals a sibling client's, the NEWER
+// process moves itself to the first monitor no client occupies (or cascades if all are
+// taken). Distinct rects are all that input routing needs; whether KWin honors the
+// visual move is irrelevant. Auto-runs only during our first ~30s - the collision is a
+// spawn artifact, and rects the user deliberately arranged later differ (any real
+// move/resize resyncs wine) so they never trip the near-equal test. ----
+
+#ifndef PROCESS_QUERY_LIMITED_INFORMATION
+#define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
+#endif
+
+struct SiblingWnd {
+  HWND h;
+  DWORD pid;
+  RECT r;
+};
+
+BOOL CALLBACK enum_siblings(HWND h, LPARAM lp) {
+  auto *out = reinterpret_cast<std::vector<SiblingWnd> *>(lp);
+  char cls[64] = {0};
+  GetClassNameA(h, cls, sizeof(cls));
+  if (strcmp(cls, "_EverQuestwndclass") != 0) return TRUE;  // The client's wndclass (verified live in this build).
+  DWORD pid = 0;
+  GetWindowThreadProcessId(h, &pid);
+  if (pid == GetCurrentProcessId()) return TRUE;
+  if (!IsWindowVisible(h) || IsIconic(h)) return TRUE;  // Minimized windows park at bogus rects.
+  RECT r;
+  if (!GetWindowRect(h, &r)) return TRUE;
+  out->push_back({h, pid, r});
+  return TRUE;
+}
+
+// Process creation time as a sortable value; 0 if unknown (treated as older than us,
+// so on doubt WE move - staying collided is the worse failure).
+ULONGLONG process_start_time(DWORD pid) {
+  ULONGLONG t = 0;
+  const bool self = (pid == GetCurrentProcessId());
+  HANDLE p = self ? GetCurrentProcess() : OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (p) {
+    FILETIME c, e, k, u;
+    if (GetProcessTimes(p, &c, &e, &k, &u)) t = (ULONGLONG(c.dwHighDateTime) << 32) | c.dwLowDateTime;
+    if (!self) CloseHandle(p);
+  }
+  return t;
+}
+
+bool rects_near_equal(const RECT &a, const RECT &b, int tol) {
+  return abs(a.left - b.left) <= tol && abs(a.top - b.top) <= tol && abs(a.right - b.right) <= tol &&
+         abs(a.bottom - b.bottom) <= tol;
+}
+
+BOOL CALLBACK enum_monitors(HMONITOR mon, HDC, LPRECT, LPARAM lp) {
+  auto *out = reinterpret_cast<std::vector<RECT> *>(lp);
+  MONITORINFO mi = {};
+  mi.cbSize = sizeof(mi);
+  if (GetMonitorInfoA(mon, &mi)) out->push_back(mi.rcWork);
+  return TRUE;
+}
+
+// Monitors with no sibling client on them, preferred order: same row as the primary
+// (primary sits at y=0 in Windows coords) before other rows, then left to right - so
+// box #2 lands beside box #1, not above it.
+std::vector<RECT> free_monitors(const std::vector<SiblingWnd> &sibs) {
+  std::vector<RECT> mons;
+  EnumDisplayMonitors(nullptr, nullptr, enum_monitors, reinterpret_cast<LPARAM>(&mons));
+  std::vector<RECT> out;
+  for (const auto &m : mons) {
+    bool taken = false;
+    for (const auto &s : sibs) {
+      const POINT c = {(s.r.left + s.r.right) / 2, (s.r.top + s.r.bottom) / 2};
+      if (PtInRect(&m, c)) {
+        taken = true;
+        break;
+      }
+    }
+    if (!taken) out.push_back(m);
+  }
+  for (size_t i = 0; i + 1 < out.size(); i++)  // Tiny N; simple selection sort.
+    for (size_t j = i + 1; j < out.size(); j++)
+      if (labs(out[j].top) < labs(out[i].top) || (labs(out[j].top) == labs(out[i].top) && out[j].left < out[i].left)) {
+        RECT t = out[i];
+        out[i] = out[j];
+        out[j] = t;
+      }
+  return out;
+}
+
+// ---- Spawn-position offset (the strongest dedup: prevent the collision at birth).
+//
+// The runtime move below can be undone by KWin: a maximized window's geometry belongs
+// to the compositor, and KWin re-maximizes onto the monitor IT has the window on, so a
+// wineserver-side move "sticks" for under 2s (observed live). At creation time we hold
+// the real lever: the game passes the shared eqclient.ini position to CreateWindowExA,
+// and window managers honor an app's initial placement - so shifting x/y here puts the
+// window (and the game's own follow-up maximize) on a free monitor in BOTH worlds.
+// Delivered as an IAT patch on eqgame.exe's user32!CreateWindowExA import: no code
+// bytes touched, only the game's own calls re-routed. ----
+
+using CreateWindowExA_t = HWND(WINAPI *)(DWORD, LPCSTR, LPCSTR, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE,
+                                         LPVOID);
+CreateWindowExA_t g_real_cwexa = nullptr;
+
+HWND WINAPI CreateWindowExA_hk(DWORD ex, LPCSTR cls, LPCSTR title, DWORD style, int x, int y, int w, int h,
+                               HWND parent, HMENU menu, HINSTANCE inst, LPVOID param) {
+  const bool cls_is_atom = (reinterpret_cast<ULONG_PTR>(cls) >> 16) == 0;
+  const bool top_level = !parent && !(style & WS_CHILD);
+  if (top_level && g_spawn_seen < 8) {
+    // Learning instrument: only the game's OWN creations flow through the exe IAT
+    // (system-made helpers like the IME windows don't), so this is a handful of lines
+    // that show exactly what the main-window creation call looks like.
+    ++g_spawn_seen;
+    if (cls_is_atom)
+      logger::logf("[win] dedup: CreateWindowExA cls=#%04x '%s' xy=(%d,%d) wh=(%d,%d) style=0x%lx",
+                   (unsigned)reinterpret_cast<ULONG_PTR>(cls), title ? title : "", x, y, w, h, (unsigned long)style);
+    else
+      logger::logf("[win] dedup: CreateWindowExA cls='%s' '%s' xy=(%d,%d) wh=(%d,%d) style=0x%lx", cls,
+                   title ? title : "", x, y, w, h, (unsigned long)style);
+  }
+  // The main game window: first top-level with the client's class (an ATOM class is
+  // accepted too - nothing else top-level comes through this IAT).
+  if (g_dedup && !g_spawn_checked && top_level && (cls_is_atom || strstr(cls, "EverQuest"))) {
+    g_spawn_checked = true;
+    std::vector<SiblingWnd> sibs;
+    EnumWindows(enum_siblings, reinterpret_cast<LPARAM>(&sibs));
+    if (!sibs.empty()) {
+      const std::vector<RECT> free_m = free_monitors(sibs);
+      const int ox = x, oy = y;
+      if (!free_m.empty()) {
+        x = free_m[0].left + 16;
+        y = free_m[0].top + 16;
+      } else if (x != CW_USEDEFAULT) {  // Every monitor taken: at least make the rect distinct (cascade).
+        x += 48 * (int)sibs.size();
+        y += 48 * (int)sibs.size();
+      }
+      logger::logf("[win] dedup: spawn shifted (%d,%d) -> (%d,%d) (%zu sibling client(s)%s)", ox, oy, x, y,
+                   sibs.size(), free_m.empty() ? ", no free monitor - cascade" : "");
+    } else {
+      logger::log("[win] dedup: first client - spawn position untouched");
+    }
+  }
+  return g_real_cwexa(ex, cls, title, style, x, y, w, h, parent, menu, inst, param);
+}
+
+// Swap eqgame.exe's user32!CreateWindowExA import pointer (calls from other modules -
+// dxvk, dinput proxies, MQ - keep their own resolution and are unaffected).
+void install_spawn_hook() {
+  BYTE *base = reinterpret_cast<BYTE *>(GetModuleHandleA(nullptr));
+  auto *dos = reinterpret_cast<IMAGE_DOS_HEADER *>(base);
+  auto *nt = reinterpret_cast<IMAGE_NT_HEADERS *>(base + dos->e_lfanew);
+  const IMAGE_DATA_DIRECTORY &dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+  if (!dir.VirtualAddress) {
+    logger::log("[win] dedup: exe has no import directory?! spawn hook not installed");
+    return;
+  }
+  for (auto *imp = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR *>(base + dir.VirtualAddress); imp->Name; ++imp) {
+    if (_stricmp(reinterpret_cast<const char *>(base + imp->Name), "user32.dll") != 0) continue;
+    auto *oft = reinterpret_cast<IMAGE_THUNK_DATA *>(base + imp->OriginalFirstThunk);
+    auto *ft = reinterpret_cast<IMAGE_THUNK_DATA *>(base + imp->FirstThunk);
+    for (; oft->u1.AddressOfData; ++oft, ++ft) {
+      if (oft->u1.Ordinal & IMAGE_ORDINAL_FLAG) continue;
+      auto *ibn = reinterpret_cast<IMAGE_IMPORT_BY_NAME *>(base + oft->u1.AddressOfData);
+      if (strcmp(reinterpret_cast<const char *>(ibn->Name), "CreateWindowExA") != 0) continue;
+      DWORD old = 0;
+      VirtualProtect(&ft->u1.Function, sizeof(ft->u1.Function), PAGE_READWRITE, &old);
+      g_real_cwexa = reinterpret_cast<CreateWindowExA_t>(ft->u1.Function);
+      ft->u1.Function = reinterpret_cast<DWORD>(&CreateWindowExA_hk);
+      VirtualProtect(&ft->u1.Function, sizeof(ft->u1.Function), old, &old);
+      logger::logf("[win] dedup: spawn hook installed (IAT user32!CreateWindowExA, real=%p)", (void *)g_real_cwexa);
+      return;
+    }
+  }
+  logger::log("[win] dedup: CreateWindowExA not found in exe IAT - spawn hook not installed");
+}
+
+// One decision pass (cheap; a handful of win32 queries). Runs on the ProcessGameEvents
+// stack, so it never touches the window itself - it posts g_wm_dedup and wndproc_hk
+// does the surgery (same constraint as sync_title; see that comment).
+void dedup_pass(bool manual) {
+  if (!g_hwnd) return;
+  RECT mine;
+  if (!GetWindowRect(g_hwnd, &mine)) return;
+
+  std::vector<SiblingWnd> sibs;
+  EnumWindows(enum_siblings, reinterpret_cast<LPARAM>(&sibs));
+
+  std::vector<const SiblingWnd *> colliders;
+  for (const auto &s : sibs)
+    if (rects_near_equal(mine, s.r, kDedupEdgeTolPx)) colliders.push_back(&s);
+  if (colliders.empty()) {
+    g_dedup_attempts = 0;  // Clean state: a later collision starts a fresh attempt budget.
+    g_dedup_gave_up = false;
+    if (manual) logger::logf("[win] dedup: no collision (%zu sibling client window(s))", sibs.size());
+    return;
+  }
+
+  // Only the newest process of the colliding set moves - the older client is where the
+  // user is already playing. Each client decides independently with the same rule, so
+  // exactly the right ones move even on simultaneous launches.
+  const ULONGLONG my_start = process_start_time(GetCurrentProcessId());
+  const DWORD my_pid = GetCurrentProcessId();
+  bool i_move = false;
+  for (const SiblingWnd *c : colliders) {
+    const ULONGLONG their_start = process_start_time(c->pid);
+    if (their_start < my_start || (their_start == my_start && c->pid < my_pid)) {
+      i_move = true;
+      break;
+    }
+  }
+  if (!i_move) {
+    logger::logf("[win] dedup: rect collides with %zu newer sibling(s) - they move, we stay", colliders.size());
+    return;
+  }
+
+  // The runtime move is best-effort: KWin owns a maximized window's geometry and can
+  // snap our rect right back (observed live - each move held <2s). Two attempts at the
+  // clean fix (maximize onto a free monitor), two at the fallback (un-maximized
+  // cascade: a restored window's rect the compositor has no reason to re-assert), then
+  // stop rather than flap. The spawn hook is the reliable fix on the next launch.
+  if (g_dedup_attempts >= 4) {
+    if (!g_dedup_gave_up) {
+      g_dedup_gave_up = true;
+      logger::log(
+          "[win] dedup: giving up - the compositor keeps re-asserting the colliding rect. Un-maximize or drag "
+          "this client, or relaunch (the spawn hook then separates the clients at creation).");
+    }
+    return;
+  }
+
+  int rank = 0;  // How many siblings are older than us - used to spread cascade slots.
+  for (const auto &s : sibs) {
+    const ULONGLONG ts = process_start_time(s.pid);
+    if (ts < my_start || (ts == my_start && s.pid < my_pid)) ++rank;
+  }
+  const std::vector<RECT> free_m = free_monitors(sibs);
+  const bool try_monitor = g_dedup_attempts < 2 && !free_m.empty();
+  if (try_monitor) {
+    // Park the normal rect inside the free monitor (margin keeps it clearly inside);
+    // the wndproc re-maximizes there if we were maximized.
+    const RECT &m = free_m[0];
+    g_dedup_target = {m.left + 32, m.top + 32, m.right - 32, m.bottom - 32};
+    g_dedup_maximize = IsZoomed(g_hwnd);
+  } else {
+    const RECT a = monitor_work(g_hwnd);
+    const int off = 48 * (rank > 0 ? rank : 1);
+    const int w = (a.right - a.left) * 9 / 10, h = (a.bottom - a.top) * 9 / 10;
+    g_dedup_target = {a.left + off, a.top + off, a.left + off + w, a.top + off + h};
+    if (g_dedup_target.right > a.right) OffsetRect(&g_dedup_target, a.right - g_dedup_target.right, 0);
+    if (g_dedup_target.bottom > a.bottom) OffsetRect(&g_dedup_target, 0, a.bottom - g_dedup_target.bottom);
+    g_dedup_maximize = false;  // Same monitor as the collider: staying maximized would recreate the collision.
+  }
+  ++g_dedup_attempts;
+  logger::logf(
+      "[win] dedup: rect (%ld,%ld)-(%ld,%ld) collides with %zu sibling(s); attempt %d: moving to (%ld,%ld)-(%ld,%ld)%s%s",
+      mine.left, mine.top, mine.right, mine.bottom, colliders.size(), g_dedup_attempts, g_dedup_target.left,
+      g_dedup_target.top, g_dedup_target.right, g_dedup_target.bottom, g_dedup_maximize ? " +maximize" : "",
+      try_monitor ? "" : " (cascade)");
+  if (!g_wm_dedup) g_wm_dedup = RegisterWindowMessageA("RofClientPlus_DedupMove");
+  PostMessageA(g_hwnd, g_wm_dedup, 0, 0);  // Non-blocking; applied in wndproc_hk.
+}
+
 // ---- Subclass: log the lifecycle messages that reveal WHY the window vanishes. ----
 LRESULT CALLBACK wndproc_hk(HWND h, UINT msg, WPARAM w, LPARAM l) {
   // Apply the character-name title here, NOT from sync_title: this fires during the
@@ -157,12 +443,36 @@ LRESULT CALLBACK wndproc_hk(HWND h, UINT msg, WPARAM w, LPARAM l) {
     logger::logf("[win] window title -> '%s'", g_pending_title.c_str());
     return 0;
   }
+  if (msg == g_wm_dedup && g_wm_dedup) {
+    // The classic cross-monitor move: restore -> place the normal rect on the target
+    // -> re-maximize there. Runs at the top of the game's message loop (safe context).
+    ShowWindow(h, SW_RESTORE);
+    SetWindowPos(h, nullptr, g_dedup_target.left, g_dedup_target.top, g_dedup_target.right - g_dedup_target.left,
+                 g_dedup_target.bottom - g_dedup_target.top, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (g_dedup_maximize) ShowWindow(h, SW_MAXIMIZE);
+    RECT after = {};
+    GetWindowRect(h, &after);
+    logger::logf("[win] dedup: moved; wineserver rect now (%ld,%ld)-(%ld,%ld)%s", after.left, after.top, after.right,
+                 after.bottom, g_dedup_maximize ? " (maximized)" : "");
+    return 0;
+  }
   switch (msg) {
     case WM_ACTIVATEAPP:
       logger::logf("[win] WM_ACTIVATEAPP active=%d", (int)w);
       break;
     case WM_ACTIVATE:
-      logger::logf("[win] WM_ACTIVATE %s", LOWORD(w) == WA_INACTIVE ? "INACTIVE" : "ACTIVE");
+      // Multibox: mirror the activation into wineserver's z-order. KWin raises the
+      // window it activates VISUALLY, but nothing raises it on the wine side - and
+      // wineserver routes mouse input by hit-testing ITS z-order, so with overlapping
+      // clients every click in the shared region went to the stale-topmost ("original")
+      // client forever, and alt-tab/taskbar switching couldn't fix it. Raising here
+      // keeps input-topmost == visually-topmost after any activation, exactly the
+      // native Windows contract (activated window comes to top). NOACTIVATE avoids
+      // re-entry; the losing client only sees INACTIVE and does nothing.
+      if (LOWORD(w) != WA_INACTIVE && g_dedup)
+        SetWindowPos(h, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+      logger::logf("[win] WM_ACTIVATE %s%s", LOWORD(w) == WA_INACTIVE ? "INACTIVE" : "ACTIVE",
+                   (LOWORD(w) != WA_INACTIVE && g_dedup) ? " (raised to wineserver top)" : "");
       break;
     case WM_KILLFOCUS:
       logger::log("[win] WM_KILLFOCUS");
@@ -297,6 +607,11 @@ void install_early() {
 
   const int siblings = scan_siblings(true);
   logger::logf("[win] sibling eqgame.exe scan: %d other instance(s)", siblings);
+
+  // Multibox rect dedup, creation-time half: runs at attach, BEFORE the game creates
+  // its window, so the shifted position is what the window (and the game's own
+  // maximize) is born with. See the comment block at install_spawn_hook.
+  if (g_dedup) install_spawn_hook();
 }
 
 void on_frame() {
@@ -345,6 +660,17 @@ void on_frame() {
     }
   }
 
+  // Multibox rect dedup, startup-window only. First pass is jittered per-process so
+  // simultaneously-launched boxes decide in sequence, then re-checks let the set
+  // converge (a mover that picked a just-taken monitor re-detects and moves on).
+  if (g_dedup && (now - g_first_seen) < kDedupWindowMs) {
+    if (!g_dedup_first_delay) g_dedup_first_delay = 2000 + (GetCurrentProcessId() % 5) * 400;
+    if ((now - g_first_seen) >= g_dedup_first_delay && (now - g_last_dedup) >= kDedupGapMs) {
+      g_last_dedup = now;
+      dedup_pass(false);
+    }
+  }
+
   sync_title(g_hwnd);  // Put the logged-in character's name in the window title (restored on camp).
 }
 
@@ -371,6 +697,11 @@ void set_char_title(bool on) {
   g_posted_title.clear();  // On enable, makes sync_title post the current title next frame. (Off = inert.)
   save_settings();
 }
+bool get_dedup() { return g_dedup; }
+void set_dedup(bool on) {
+  g_dedup = on;
+  save_settings();
+}
 
 // The game window, preferring the D3D device's exact handle over the enum heuristic.
 HWND resolve_window() {
@@ -385,6 +716,17 @@ void force_heal_now() {
     return;
   }
   heal(g_hwnd, IsWindowVisible(g_hwnd), IsIconic(g_hwnd), belongs_to_us(GetForegroundWindow()));
+}
+
+void force_dedup_now() {
+  if (!g_hwnd) g_hwnd = resolve_window();
+  if (!g_hwnd) {
+    logger::log("[win] dedup: no window found");
+    return;
+  }
+  g_dedup_attempts = 0;  // A manual run gets a fresh attempt budget.
+  g_dedup_gave_up = false;
+  dedup_pass(true);
 }
 
 void log_info() {
@@ -404,9 +746,11 @@ void log_info() {
 static void print_status() {
   char msg[256];
   std::snprintf(msg, sizeof(msg),
-                "rof2ClientPlus window: self-heal=%s | guard-detours=%s | verbose=%s | char-title=%s (see rof2ClientPlus.log)",
+                "rof2ClientPlus window: self-heal=%s | guard-detours=%s | verbose=%s | char-title=%s | multibox-dedup=%s "
+                "(see rof2ClientPlus.log)",
                 window_watch::get_self_heal() ? "ON" : "OFF", rcp_guard::enabled() ? "ON" : "OFF",
-                window_watch::get_verbose() ? "ON" : "OFF", window_watch::get_char_title() ? "ON" : "OFF");
+                window_watch::get_verbose() ? "ON" : "OFF", window_watch::get_char_title() ? "ON" : "OFF",
+                window_watch::get_dedup() ? "ON" : "OFF");
   Rcp::Game::print_chat(msg);
 }
 
@@ -417,7 +761,8 @@ WindowWatch::WindowWatch(RcpService *rcp) : rcp_(rcp) {
       "/rcpwindow", {"/rcpwin"},
       "Windowed-startup diagnostics + self-heal. '/rcpwindow on|off' (self-heal), "
       "'/rcpwindow guard on|off', '/rcpwindow verbose on|off', '/rcpwindow title on|off' (character name in "
-      "window title), '/rcpwindow heal', '/rcpwindow info'.",
+      "window title), '/rcpwindow dedup on|off|now' (multibox: move off a sibling client's identical window "
+      "rect), '/rcpwindow heal', '/rcpwindow info'.",
       [](std::vector<std::string> &args) {
         auto onoff = [&](size_t i, bool cur) -> bool {
           if (args.size() > i && (args[i] == "on" || args[i] == "1")) return true;
@@ -430,6 +775,13 @@ WindowWatch::WindowWatch(RcpService *rcp) : rcp_(rcp) {
           window_watch::set_verbose(onoff(2, window_watch::get_verbose()));
         } else if (args.size() >= 2 && args[1] == "title") {
           window_watch::set_char_title(onoff(2, window_watch::get_char_title()));
+        } else if (args.size() >= 2 && args[1] == "dedup") {
+          if (args.size() > 2 && args[2] == "now") {
+            window_watch::force_dedup_now();
+            Rcp::Game::print_chat("rof2ClientPlus: ran a dedup pass (see log).");
+            return true;
+          }
+          window_watch::set_dedup(onoff(2, window_watch::get_dedup()));
         } else if (args.size() >= 2 && args[1] == "heal") {
           window_watch::force_heal_now();
           Rcp::Game::print_chat("rof2ClientPlus: forced a window heal (see log).");
