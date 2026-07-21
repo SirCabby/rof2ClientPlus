@@ -253,6 +253,10 @@ def build_controls():
     y = CONTENT_Y
     c.append(("Rcp_NoFog", button, ("Rcp_NoFog", COL_X, y, 250, 20, "Remove distance fog",
                                     "Remove the client's distance fog haze in every zone, day and night (/rcpfog)")))
+    y += 26
+    c.append(("Rcp_ClassicSpellIcons", button, ("Rcp_ClassicSpellIcons", COL_X, y, 250, 20, "Classic spell icons",
+                                                "Show the original pre-2013 spell book / gem / buff icon art instead "
+                                                "of the revamped icons, swapped live (/rcpspellicons)")))
     y += 30
     c.append(("Rcp_FarClipLabel", label, ("Rcp_FarClipLabel", COL_X, y, 190, 14, "Terrain distance (0 = off)")))
     c.append(("Rcp_FarClip", slider, ("Rcp_FarClip", COL_X, y + 16, SLIDER_W, 16)))

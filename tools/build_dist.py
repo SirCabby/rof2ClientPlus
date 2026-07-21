@@ -8,7 +8,7 @@ Produces (default ./dist):
     eq-window-fix                 -> <RoF2>/                 (optional Linux windowed-mode helper)
     rcp*.s3d  (29 archives)       -> <RoF2>/                 (classic model archives)
     Resources/GlobalLoad.txt      -> <RoF2>/Resources/       (manifest, stock + the mod's lines)
-    uifiles/rcp/**                -> <RoF2>/uifiles/rcp/      (options UI, fonts, target-rings)
+    uifiles/rcp/**                -> <RoF2>/uifiles/rcp/      (fonts, target-rings, classic spell icons)
     maps/*_classic.txt            -> <RoF2>/maps/             (classic pre-revamp zone maps)
     INSTALL.txt                                              (how to copy it in)
 
@@ -52,7 +52,8 @@ What lands where:
   Resources/moddat.ini       -> <RoF2>/Resources/       first-person camera offsets for the swap models
   uifiles/default/*.xml      -> <RoF2>/uifiles/default/  option-window overrides incl. the /rcpoptions
                                                          window; load under ANY skin (see NOTE below)
-  uifiles/rcp/               -> <RoF2>/uifiles/rcp/      mod fonts + target-ring graphics (not a skin)
+  uifiles/rcp/               -> <RoF2>/uifiles/rcp/      mod fonts + target-ring graphics + classic
+                                                        spell-icon sheets (assets, not a skin)
   maps/*_classic.txt         -> <RoF2>/maps/            in-game maps for the pre-revamp *_classic
                                                         zones (bazaar/lavastorm/nektulos); the stock
                                                         maps are the revamped layouts and do not fit
@@ -161,7 +162,7 @@ def main():
     if os.path.isfile(eqwf):
         shutil.copyfile(eqwf, os.path.join(out, "eq-window-fix"))
     # 3. uifiles tree, preserving structure: default/*.xml (option-window overrides that
-    #    load under every skin) + rcp/{fonts,targetrings} (mod assets loaded by path).
+    #    load under every skin) + rcp/{fonts,targetrings,spellicons} (mod assets loaded by path).
     ui_n = copy_tree_files(uifiles, os.path.join(out, "uifiles"),
                            (".xml", ".spritefont", ".tga"))
     # 3b. classic pre-revamp zone maps (the stock maps are the revamped layouts)

@@ -32,6 +32,7 @@
 #include "no_fog.h"
 #include "rcp_options_ui.h"
 #include "sound_mods.h"
+#include "spell_icons.h"
 #include "target_ring.h"
 #include "view_distance.h"
 #include "window_watch.h"
@@ -103,6 +104,8 @@ RcpService::RcpService() {
   npc_model_swap = std::make_unique<NpcModelSwap>(this);  // Phase 2: NPC body-model /rcpbody probe + redirect.
   logger::log("  -> BoatDraft");
   boat_draft = std::make_unique<BoatDraft>(this);  // /rcpboat: lower client-floated boats by a draft offset (+probes).
+  logger::log("  -> SpellIcons");
+  spell_icons = std::make_unique<SpellIcons>(this);  // /rcpspellicons: live classic/revamped spell-icon texture swap.
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

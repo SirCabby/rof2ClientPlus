@@ -9,14 +9,17 @@
 #include <vector>
 
 // IDirect3DDevice9 vtable indices (IUnknown = 0..2, then the IDirect3DDevice9
-// methods; BeginScene lands at 41, EndScene at 42, Clear at 43).
+// methods; Reset lands at 16, BeginScene at 41, EndScene at 42, Clear at 43).
+static const int VTBL_RESET = 16;
 static const int VTBL_BEGINSCENE = 41;
 static const int VTBL_ENDSCENE = 42;
 
 typedef HRESULT(WINAPI* EndScene_t)(IDirect3DDevice9*);
 typedef HRESULT(WINAPI* BeginScene_t)(IDirect3DDevice9*);
+typedef HRESULT(WINAPI* Reset_t)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
 static EndScene_t   g_original_endscene = nullptr;
 static BeginScene_t g_original_beginscene = nullptr;
+static Reset_t      g_original_reset = nullptr;
 static volatile LONG g_frame = 0;
 
 // The live device from the most recent EndScene, and the render callbacks that draw
@@ -27,6 +30,7 @@ static IDirect3DDevice9* g_device = nullptr;
 static HWND g_focus_hwnd = nullptr;  // The game's main render window (see get_focus_window).
 static std::vector<std::function<void(IDirect3DDevice9*)>>* g_callbacks = nullptr;
 static std::vector<std::function<void(IDirect3DDevice9*)>>* g_pre_callbacks = nullptr;
+static std::vector<std::function<void(IDirect3DDevice9*)>>* g_reset_callbacks = nullptr;
 
 IDirect3DDevice9* directx::get_device() { return g_device; }
 void* directx::get_focus_window() { return g_focus_hwnd; }
@@ -55,6 +59,31 @@ void directx::add_render_callback(std::function<void(IDirect3DDevice9*)> callbac
 void directx::add_prerender_callback(std::function<void(IDirect3DDevice9*)> callback) {
     if (!g_pre_callbacks) g_pre_callbacks = new std::vector<std::function<void(IDirect3DDevice9*)>>();
     g_pre_callbacks->push_back(std::move(callback));
+}
+
+void directx::add_reset_callback(std::function<void(IDirect3DDevice9*)> callback) {
+    if (!g_reset_callbacks) g_reset_callbacks = new std::vector<std::function<void(IDirect3DDevice9*)>>();
+    g_reset_callbacks->push_back(std::move(callback));
+}
+
+// Our replacement Reset: the client resets the device on window resize / display-mode
+// change. D3D9 fails Reset while ANY D3DPOOL_DEFAULT resource is alive (DXVK enforces
+// this), and EQGraphicsDX9's CRender::ResetDevice treats a failed Reset as fatal
+// ("ResetDevice() failed!"). So first give every registered holder the chance to
+// release its default-pool resources, then chain. Runs on the render thread; the
+// device interface pointer survives Reset, so callers recreate lazily on later draws.
+static HRESULT WINAPI hkReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp) {
+    if (crash_handler::shutting_down()) return g_original_reset(dev, pp);
+    logger::logf("directx: device Reset (backbuffer %ux%u), releasing default-pool resources",
+                 pp ? (unsigned)pp->BackBufferWidth : 0, pp ? (unsigned)pp->BackBufferHeight : 0);
+    if (g_reset_callbacks) {
+        for (auto& cb : *g_reset_callbacks)
+            rcp_guard::run("directx.reset_cb", [&] { cb(dev); });
+    }
+    HRESULT hr = g_original_reset(dev, pp);
+    logger::logf("directx: device Reset -> 0x%08lX%s", (unsigned long)hr,
+                 SUCCEEDED(hr) ? "" : " (FAILED - client will likely abort)");
+    return hr;
 }
 
 // Our replacement BeginScene: run the pre-render callbacks (post-sim, pre-draw
@@ -151,6 +180,11 @@ bool directx::install() {
                                                  reinterpret_cast<void*>(&hkBeginScene));
         logger::logf("directx: BeginScene vtable swap %s", prev_bs ? "OK" : "FAILED");
         if (!prev_bs) g_original_beginscene = nullptr;
+        g_original_reset = reinterpret_cast<Reset_t>(vtable[VTBL_RESET]);
+        void* prev_rs = hooks::swap_vtable_entry(vtable, VTBL_RESET,
+                                                 reinterpret_cast<void*>(&hkReset));
+        logger::logf("directx: Reset vtable swap %s", prev_rs ? "OK" : "FAILED");
+        if (!prev_rs) g_original_reset = nullptr;
         dev->Release();
     }
 

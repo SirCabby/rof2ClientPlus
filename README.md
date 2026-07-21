@@ -21,6 +21,12 @@ A client-side mod for the EverQuest **Rain of Fear 2** client, in the spirit of
   **Alt+right-click** to equip a clicky. Ships off; toggle with `/rcpequip
   on|off` or the **Right-click to equip** checkbox on the `/rcpoptions` Mouse
   tab. A RoF2-native port of Zeal's `equip_item`.
+- **`/rcpspellicons`** (alias `/rcpicons`) — swap the spell book / gem / buff
+  icons between the **original pre-2013 art** and the revamped client default,
+  **live** (no relog, no `/loadskin`, no file swapping — the swap happens on
+  the loaded textures in memory). The classic sheets ship in
+  `uifiles/rcp/spellicons/` (see its README for provenance); also a **Classic
+  spell icons** checkbox on the `/rcpoptions` Display tab.
 - `/rcp` lists all commands. `/uierrors on|off` toggles UI skin error reporting.
 
 > **Attribution:** large portions of this project are adapted from Zeal

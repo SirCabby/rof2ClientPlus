@@ -108,6 +108,9 @@ install: $(TARGET)
 	mkdir -p "$(GAME_DIR)/uifiles/rcp/targetrings"; \
 	for f in uifiles/rcp/targetrings/*.tga; do [ -e "$$f" ] || continue; acp "$$f" "$(GAME_DIR)/uifiles/rcp/targetrings/$${f##*/}"; done; \
 	echo ">> Installed (atomic) target-ring graphics to $(GAME_DIR)/uifiles/rcp/targetrings/"; \
+	mkdir -p "$(GAME_DIR)/uifiles/rcp/spellicons"; \
+	for f in uifiles/rcp/spellicons/*.tga; do [ -e "$$f" ] || continue; acp "$$f" "$(GAME_DIR)/uifiles/rcp/spellicons/$${f##*/}"; done; \
+	echo ">> Installed (atomic) classic spell-icon sheets to $(GAME_DIR)/uifiles/rcp/spellicons/"; \
 	mkdir -p "$(GAME_DIR)/maps"; \
 	for f in maps/*.txt; do [ -e "$$f" ] || continue; acp "$$f" "$(GAME_DIR)/maps/$${f##*/}"; done; \
 	echo ">> Installed (atomic) classic zone maps to $(GAME_DIR)/maps/ (bazaar/lavastorm/nektulos _classic)"; \

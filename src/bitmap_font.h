@@ -177,6 +177,13 @@ class BitmapFontBase {
   // Releases resources including DirectX. Must call on a DirectX reset / lost device.
   virtual void release();  // Note: No longer usable after this call (delete).
 
+  // Drops the D3DPOOL_DEFAULT vertex/index buffers of EVERY live font (instances
+  // register/unregister themselves in ctor/dtor). Wired to directx's device-Reset
+  // hook: Reset fails while any default-pool resource is alive, and the client
+  // treats a failed Reset as fatal ("reset device failed" on window resize).
+  // The managed-pool textures survive Reset; buffers recreate on the next flush.
+  static void on_device_reset();
+
  protected:
   // Strings are split into multiple lines.
   struct Lines {

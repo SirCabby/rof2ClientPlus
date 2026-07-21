@@ -29,11 +29,34 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <vector>
 
 #include "default_spritefont.h"
+#include "directx.h"
 #include "logger.h"
 
 namespace {
+
+// Live-font registry for the device-Reset seam (see BitmapFontBase::on_device_reset).
+// Fonts are created/destroyed on the render thread today; the mutex keeps the list
+// safe if a main-thread owner ever drops one.
+std::mutex g_font_registry_mu;
+std::vector<BitmapFontBase *> g_font_registry;
+
+void register_font(BitmapFontBase *font) {
+  // First font arms the directx reset callback (directx::install ran at DLL attach).
+  static bool armed =
+      (directx::add_reset_callback([](IDirect3DDevice9 *) { BitmapFontBase::on_device_reset(); }), true);
+  (void)armed;
+  std::lock_guard<std::mutex> lock(g_font_registry_mu);
+  g_font_registry.push_back(font);
+}
+
+void unregister_font(BitmapFontBase *font) {
+  std::lock_guard<std::mutex> lock(g_font_registry_mu);
+  std::erase(g_font_registry, font);
+}
 
 // Simple hack to identify queued glyphs for drop shadows using a very close to black color.
 static constexpr D3DCOLOR kDropShadowColor = D3DCOLOR_XRGB(0x01, 0x01, 0x01);
@@ -183,6 +206,7 @@ BitmapFontBase::BitmapFontBase(IDirect3DDevice9 &device_in, const char *filename
 
 // Parse the binary MakeSpriteFont blob, initialize the glyphs table, and create the D3D texture.
 BitmapFontBase::BitmapFontBase(IDirect3DDevice9 &device, std::span<const uint8_t> data_span) : device(device) {
+  register_font(this);  // Tracked for the device-Reset buffer release (see on_device_reset).
   BinaryReader reader(data_span.data(), data_span.size());
 
   // Validate the binary blob header matches.
@@ -267,7 +291,20 @@ BitmapFontBase::BitmapFontBase(IDirect3DDevice9 &device, std::span<const uint8_t
 }
 
 // Ensure all resources are released in the destructor.
-BitmapFontBase::~BitmapFontBase() { release(); }
+BitmapFontBase::~BitmapFontBase() {
+  unregister_font(this);
+  release();
+}
+
+// The client is about to Reset the device (window resize): drop every live font's
+// D3DPOOL_DEFAULT vertex/index buffers so Reset can succeed. Runs on the render
+// thread from directx's Reset hook. The next flush recreates the buffers.
+void BitmapFontBase::on_device_reset() {
+  std::lock_guard<std::mutex> lock(g_font_registry_mu);
+  for (BitmapFontBase *font : g_font_registry) font->release_buffers();
+  if (!g_font_registry.empty())
+    logger::logf("[font] device reset: released buffers on %d live font(s)", (int)g_font_registry.size());
+}
 
 // DirectX resources need to be manually released.
 void BitmapFontBase::release() {

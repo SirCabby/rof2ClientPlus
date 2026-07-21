@@ -27,6 +27,7 @@
 #include "no_fog.h"
 #include "rcp.h"
 #include "sound_mods.h"
+#include "spell_icons.h"
 #include "target_ring.h"
 #include "view_distance.h"
 #include "window_watch.h"
@@ -398,6 +399,7 @@ void RcpOptionsUI::create_window() {
     btn_role_[i] = get_child(wnd_, rolename);
   }
   cb_nofog_ = get_child(wnd_, "Rcp_NoFog");
+  cb_spellicons_ = get_child(wnd_, "Rcp_ClassicSpellIcons");
   sl_far_ = get_child(wnd_, "Rcp_FarClip");
   lbl_far_hdr_ = get_child(wnd_, "Rcp_FarClipLabel");
   lbl_far_ = get_child(wnd_, "Rcp_FarClipValue");
@@ -524,8 +526,8 @@ void RcpOptionsUI::set_active_tab(int tab) {
   show_window(lbl_np_dist_, tab == 2);
   for (int i = 0; i < kRoleCount; ++i) show_window(btn_role_[i], tab == 3);
   // The Display tab also carries the chase-camera controls (folded in from the former Camera tab).
-  void *display[] = {cb_nofog_,           lbl_far_hdr_,      sl_far_,             lbl_far_,
-                     lbl_actor_hdr_,      sl_actor_,         lbl_actor_,
+  void *display[] = {cb_nofog_,           cb_spellicons_,    lbl_far_hdr_,        sl_far_,
+                     lbl_far_,            lbl_actor_hdr_,    sl_actor_,           lbl_actor_,
                      lbl_cam_hdr_,        cb_chase_enabled_, cb_chase_collision_,
                      lbl_chase_dist_hdr_, sl_chase_dist_,    lbl_chase_dist_};
   for (void *w : display) show_window(w, tab == 4);
@@ -811,6 +813,7 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_blink_, blink_to_slider(nameplate_settings::get_blink_ms()));
   slider_set(sl_np_dist_, np_dist_to_slider(font_overlay::get_max_dist()));
   checkbox_set(cb_nofog_, no_fog_settings::get_enabled());
+  checkbox_set(cb_spellicons_, spell_icons_settings::get_classic());
   slider_set(sl_far_, viewdist_to_slider(view_distance_settings::get_clip()));
   slider_set(sl_actor_, viewdist_to_slider(view_distance_settings::get_actor_clip()));
   checkbox_set(cb_ring_enabled_, target_ring_settings::get_enabled());
@@ -868,6 +871,7 @@ void RcpOptionsUI::seed_last_values() {
   for (int i = 0; i < kTabCount; ++i) last_tab_[i] = checkbox_get(btn_tab_[i]);
   for (int i = 0; i < kRoleCount; ++i) last_role_[i] = checkbox_get(btn_role_[i]);
   last_nofog_ = checkbox_get(cb_nofog_);
+  last_spellicons_ = checkbox_get(cb_spellicons_);
   last_far_ = slider_get(sl_far_);
   last_actor_ = slider_get(sl_actor_);
   last_ring_enabled_ = checkbox_get(cb_ring_enabled_);
@@ -996,7 +1000,7 @@ void RcpOptionsUI::drop_handles() {
   sl_blink_ = lbl_blink_hdr_ = lbl_blink_ = nullptr;
   cb_np_billboard_ = cb_np_hp_ = cb_np_mana_ = cb_np_stam_ = nullptr;
   sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
-  cb_nofog_ = nullptr;
+  cb_nofog_ = cb_spellicons_ = nullptr;
   sl_far_ = lbl_far_hdr_ = lbl_far_ = sl_actor_ = lbl_actor_hdr_ = lbl_actor_ = nullptr;
   cb_ring_enabled_ = cb_ring_hideself_ = cb_ring_concolor_ = btn_ring_color_ = nullptr;
   sl_ring_outer_ = lbl_ring_outer_hdr_ = lbl_ring_outer_ = nullptr;
@@ -1138,6 +1142,12 @@ void RcpOptionsUI::on_frame() {
   if (nf != last_nofog_) {
     no_fog_settings::set_enabled(nf);
     last_nofog_ = nf;
+  }
+  // Display: classic-spell-icons toggle -> spell_icons_settings (swaps next frame + persists).
+  bool si = checkbox_get(cb_spellicons_);
+  if (si != last_spellicons_) {
+    spell_icons_settings::set_classic(si);
+    last_spellicons_ = si;
   }
   // View distance: terrain far clip + actor draw distance sliders (world units; 0 = off).
   int fc = slider_get(sl_far_);

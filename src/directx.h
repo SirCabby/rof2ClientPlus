@@ -39,4 +39,12 @@ void add_render_callback(std::function<void(IDirect3DDevice9 *)> callback);
 // EndScene write only ever shows for the tail of a frame). Same guard rules as
 // add_render_callback.
 void add_prerender_callback(std::function<void(IDirect3DDevice9 *)> callback);
+
+// Register a callback invoked immediately BEFORE the client calls
+// IDirect3DDevice9::Reset (window resize / display-mode change). Reset FAILS
+// (D3DERR_INVALIDCALL - the client's "reset device failed" fatal) while any
+// D3DPOOL_DEFAULT resource is still alive, so every feature holding one must
+// release it here; recreate lazily on the next draw (managed-pool resources
+// survive Reset untouched). Same guard rules as add_render_callback.
+void add_reset_callback(std::function<void(IDirect3DDevice9 *)> callback);
 }  // namespace directx

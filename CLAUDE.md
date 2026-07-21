@@ -9,7 +9,7 @@ delivered** — read the next section before assuming `make install` ships every
 
 ```sh
 make                 # -> build/rof2ClientPlus.asi   (config.mk sets GAME_DIR; gitignored)
-make install         # deploy .asi + option-window overrides (->uifiles/default) + fonts/rings (->uifiles/rcp) + classic maps (->maps/) + eq-window-fix
+make install         # deploy .asi + option-window overrides (->uifiles/default) + fonts/rings/spell-icons (->uifiles/rcp) + classic maps (->maps/) + eq-window-fix
 make install-models  # deploy the 29 classic-model .s3d + patch Resources/GlobalLoad.txt
 make dist            # assemble dist/ (gitignored): a drop-in bundle to hand to a user
 ```
@@ -29,15 +29,17 @@ toolchain or the model sources. (`tools/build_dist.py`; the vendored stock manif
 
 `make install` copies: `rof2ClientPlus.asi`; the option-window overrides
 `uifiles/default/*.xml` (into the client's **default skin** — see UI note below);
-`uifiles/rcp/fonts/*.spritefont`, `uifiles/rcp/targetrings/*.tga`; the classic pre-revamp zone
-maps `maps/*_classic.txt` (into the client's `maps/`); and `eq-window-fix`.
+`uifiles/rcp/fonts/*.spritefont`, `uifiles/rcp/targetrings/*.tga`,
+`uifiles/rcp/spellicons/*.tga` (the pre-2013 classic spell-icon sheets for `/rcpspellicons`);
+the classic pre-revamp zone maps `maps/*_classic.txt` (into the client's `maps/`); and
+`eq-window-fix`.
 Everything else the mod touches is delivered by a **separate** mechanism. Do not assume a
 clean `git clone` + `make install` reconstitutes a working setup — it does not include the
 model-swap assets or the server-side changes. The complete map:
 
 | Artifact | Where it lives | In git? | Delivered by | Reproduce / restore |
 |---|---|---|---|---|
-| The `.asi` + fonts/target-rings | repo `src/`, `uifiles/rcp/{fonts,targetrings}` | ✅ yes | `make install` | `make && make install` |
+| The `.asi` + fonts/target-rings/spell-icons | repo `src/`, `uifiles/rcp/{fonts,targetrings,spellicons}` | ✅ yes | `make install` | `make && make install`; classic icon sheets re-sourceable per `uifiles/rcp/spellicons/README.md` |
 | **Option-window overrides** (`EQUI_OptionsWindow.xml` carrying `/rcpoptions` + `EQUI_AdvancedDisplayOptionsWnd.xml`) | repo `uifiles/default/` → client `uifiles/default/` (**overwrites 2 stock files**) | ✅ yes | `make install` (backs stock up ONCE as `.rcpbak`) | regenerate: `gen_option_overrides.py` (from vendored `tools/stock-uifiles/`) + `gen_rcp_options_ui.py` |
 | **Classic pre-revamp zone maps** (`maps/*_classic.txt` — bazaar/lavastorm/nektulos) | repo `maps/` → client `maps/` (new `*_classic` filenames; never touches a stock map) | ✅ yes | `make install` | in git; re-sourced from Brewall `_original` maps — see `maps/README.md` |
 | **29 `rcp*.s3d` classic-model archives** (59 MB) — model-swap | `$GAME_DIR/*.s3d` only | ❌ no | `make install-models` | `make models` regenerates all 29 from source (see below) |
@@ -51,8 +53,8 @@ model-swap assets or the server-side changes. The complete map:
 
 The mod's option windows live in the client's **`uifiles/default/`** (base skin), so `/rcpoptions`
 and the widened option text load **under any UI skin** — users can run `default` or their own custom
-skin freely. `uifiles/rcp/` is now only the mod's **asset** folder (fonts + target-rings, read by the
-DLL by path), NOT a skin to select; `UISkin=rcp` is obsolete.
+skin freely. `uifiles/rcp/` is now only the mod's **asset** folder (fonts + target-rings + classic
+spell-icon sheets, read by the DLL by path), NOT a skin to select; `UISkin=rcp` is obsolete.
 
 **Delivery:** the `/rcpoptions` window is a **standalone `EQUI_RcpOptions.xml`** shipped into
 `default/`, pulled in by a one-line `<Include>` added to a copy of stock `EQUI.xml` (also in

@@ -1457,12 +1457,40 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_ClassicSpellIcons">
+    <ScreenID>Rcp_ClassicSpellIcons</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>60</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Show the original pre-2013 spell book / gem / buff icon art instead of the revamped icons, swapped live (/rcpspellicons)</TooltipReference>
+    <Text>Classic spell icons</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Label item="Rcp_FarClipLabel">
     <ScreenID>Rcp_FarClipLabel</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>64</Y>
+      <Y>90</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1482,7 +1510,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>80</Y>
+      <Y>106</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1496,7 +1524,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>80</Y>
+      <Y>106</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -1516,7 +1544,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>106</Y>
+      <Y>132</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1536,7 +1564,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>122</Y>
+      <Y>148</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1550,7 +1578,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>122</Y>
+      <Y>148</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -1570,7 +1598,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>154</Y>
+      <Y>180</Y>
     </Location>
     <Size>
       <CX>200</CX>
@@ -1590,7 +1618,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>172</Y>
+      <Y>198</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -1618,7 +1646,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>194</Y>
+      <Y>220</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -1646,7 +1674,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>220</Y>
+      <Y>246</Y>
     </Location>
     <Size>
       <CX>200</CX>
@@ -1666,7 +1694,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>236</Y>
+      <Y>262</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1680,7 +1708,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>236</Y>
+      <Y>262</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -3133,6 +3161,7 @@
     <Pieces>Rcp_Role16</Pieces>
     <Pieces>Rcp_Role17</Pieces>
     <Pieces>Rcp_NoFog</Pieces>
+    <Pieces>Rcp_ClassicSpellIcons</Pieces>
     <Pieces>Rcp_FarClipLabel</Pieces>
     <Pieces>Rcp_FarClip</Pieces>
     <Pieces>Rcp_FarClipValue</Pieces>

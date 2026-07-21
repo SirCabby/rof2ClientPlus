@@ -1317,3 +1317,87 @@ the drag over TextLines, render the highlight, extract + tag-strip). Pick per th
 
 Item-link tags in a copied input selection are not expanded (rare). Unicode (non-ASCII) selections are skipped
 by copy for now.
+
+## Classic spell icons — live texture swap (`src/spell_icons.cpp`, `/rcpspellicons`) — DONE (awaiting in-game confirm 2026-07-20)
+
+The Feb-2013 icon revamp replaced the ART inside the ten sheet files the UI has always used:
+`Spells01-07.tga` (the `A_SpellIcons` 40x40 grid — spell book, buffs, casting bar, item effects) and
+`gemicons01-03.tga` (the `A_SpellGems` 24x24 grid — spell-gem fills), both defined in
+`EQUI_Animations.xml`. Players restore the old icons by overwriting those files and restarting; this
+feature does it **live** at the texture level instead, either direction, with no file changes.
+
+**The seam (all eqlib `game/UI.h` + `graphics/GraphicsResources.h`, 2013-05-10 layouts):** every UI
+draw of a sheet resolves the frame's `CUITextureInfo` through the ONE global `CEQSuiteTextureLoader`
+— a **static instance at `0xB64CEC`** (eqlib casts the address itself; NOT a pointer slot) — whose
+`ArrayClass<_SuiteTexture>` at +0x04 is `{int len; _SuiteTexture* arr}`. Each 0x10-stride entry:
+`bool bUsed@0, CXStr Name@4, enDir@8, BMI*@0xC`; `BMI = {char* Name@0, uint Flags@4, CEQGBitmap*
+pBmp@8}`; `CEQGBitmap` has `char* m_pszFileName@0x28`, `bool m_bHasTexture@0x44`,
+`IDirect3DTexture9* m_pD3DTexture@0x48`. Widgets keep private `CTextureAnimation` copies, but a copy
+only carries the sheet NAME/id — every draw funnels back to the same per-sheet `CEQGBitmap`. So
+**writing `m_pD3DTexture` on ten bitmaps swaps every spell icon in the game at once.**
+
+Implementation: classic sheets ship as `uifiles/rcp/spellicons/*.tga` (TAKP/Quarm stock dump = the
+pre-2013 originals; provenance in that folder's README), lazily `D3DXCreateTextureFromFileA`'d
+(managed pool) on the render thread. A prerender (BeginScene) callback resolves the ten loader
+entries, validates the records per frame (index/BMI/bitmap pointer compares), and installs/restores
+the texture pointer.
+
+**Resolution lesson (cost one in-game round-trip):** matching loader entries by `BMI.Name` /
+`CEQGBitmap.m_pszFileName` basenames found only **1/10** sheets (gemicons02) — those char* fields
+are NOT reliably the sheet filename for skin textures. `GetTexture@0x88AA20` disasm shows the cache
+is **TextureId-keyed** (`CUITextureInfo.TextureId@+0x14` indexes the array directly; the entry's own
+key is a **CXStr** at entry+0x04). The fix resolves via the **animations that the icon draws
+actually use**: the SIDL manager (`pinstCSidlManager @0x15D3D08`) keeps
+`ArrayClass<CTextureAnimation*>` at `+0x94/+0x98` (what `FindAnimation1@0x86E010` hashes over —
+walked read-only on the render thread instead of calling it, since its CXStr temp would allocate
+from the wrong thread); find `A_SpellIcons`/`A_SpellGems` by Name (CXStr@anim+0x04), then each
+frame (`Frames` ArrayClass @+0x08/+0x0C, stride 0x34) carries `Piece.m_info` = `{bValid@0, Dir@4,
+Name CXStr@8, TextureId@0x14}` → TextureId → loader entry. Fallback: full array walk matching the
+entry CXStr key + both char* names. `/rcpspellicons dump` logs both animations' frames + every used
+cache entry for diagnosis. COM refcounts: one base ref per classic
+texture for the process lifetime + one `AddRef` per install so an engine teardown
+(`UnloadAllTextures` on `/loadskin`, camp) safely consumes the engine's ref; a consumed install
+orphans the displaced original texture (the bitmap held its only handle), so we `Release` the saved
+original and re-resolve fresh. Only bitmaps with `m_bHasTexture` set are touched (the union holds a
+raw-bitmap pointer until then). Missing .tga files degrade per-sheet (that sheet keeps revamped
+art) with a one-time chat warning if none load.
+
+Settings: ini `[SpellIcons] Classic`, `/rcpspellicons on|off|status|debug` (alias `/rcpicons`),
+`Rcp_ClassicSpellIcons` checkbox on the Display tab. Since the swap is resolution-agnostic (the
+engine normalizes UVs by the bitmap's own 256x256 `m_uWidth`, not the live texture size), HD icon
+packs dropped into `uifiles/rcp/spellicons/` would also work unmodified.
+
+## Device-reset crash on window resize (`"reset device failed"`) — FIXED 2026-07-20
+
+### The bug
+Resizing the client window makes EQGraphicsDX9 call `IDirect3DDevice9::Reset`
+(`CRender::ResetDevice`). D3D9's contract: Reset FAILS (`D3DERR_INVALIDCALL`) while **any
+`D3DPOOL_DEFAULT` resource is still alive** — and DXVK enforces this. The client retries a
+couple of parameter variants (`"Retrying without lockable backbuffer"` etc.), but with a
+foreign default-pool resource alive every retry fails and it aborts (`"ResetDevice()
+failed!"` / `CRender::ResetDevice: Reset failed.` — strings in EQGraphicsDX9.dll).
+
+The mod held exactly that: `bitmap_font.cpp` keeps its glyph **vertex/index buffers in
+`D3DPOOL_DEFAULT`** (`flush_queue_to_screen`/`create_index_buffer`) for the life of each
+font, and nameplates/floating-damage keep a font alive all session. The post-reset self-heal
+(lazy buffer recreate + `Lock`-failure recovery) existed, but nothing released the buffers
+BEFORE Reset — so Reset itself could never succeed. (All the mod's textures — font atlas,
+target rings, spell-icon sheets — are `D3DPOOL_MANAGED` and neither block nor die in a Reset.)
+
+### The fix (three pieces)
+- **`directx.cpp`: Reset hook + seam** — vtable **slot 16** swapped alongside
+  BeginScene(41)/EndScene(42). `directx::add_reset_callback(cb)` runs each callback (rcp_guard
+  wrapped) BEFORE chaining to the real Reset; the hook logs the new backbuffer size and the
+  Reset HRESULT. Runs on the render thread; the device interface pointer survives Reset.
+- **`bitmap_font.cpp`: live-font registry** — every `BitmapFontBase` registers in ctor /
+  unregisters in dtor (mutex-guarded); the first font arms one reset callback that calls
+  `BitmapFontBase::on_device_reset()` → `release_buffers()` on every live font. Owners
+  (font_overlay, floating_damage) need no changes — the next flush recreates buffers.
+- **`spell_icons.cpp`: pre-reset uninstall** — the displaced ENGINE textures we hold in
+  `s.orig` are of unknown pool, so before Reset every installed sheet is restored
+  (`*slot = orig`, install ref released, records dropped). The engine's cache goes through
+  Reset in stock state; the next `frame_tick` re-resolves and re-installs automatically.
+
+Nothing else in the mod owns default-pool resources (`DrawPrimitiveUP` ring geometry is
+driver-transient). Rule for future features: any persistent `D3DPOOL_DEFAULT` object MUST
+register a `directx::add_reset_callback` that releases it, and recreate lazily on draw.
