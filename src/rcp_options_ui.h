@@ -78,7 +78,6 @@ class RcpOptionsUI {
   // Chase-camera controls (shown at the bottom of the Display tab; formerly their own Camera tab).
   void *lbl_cam_hdr_ = nullptr;  // "Chase camera" section header.
   void *cb_chase_enabled_ = nullptr;
-  void *cb_chase_collision_ = nullptr;
   void *sl_chase_dist_ = nullptr;
   void *lbl_chase_dist_hdr_ = nullptr;
   void *lbl_chase_dist_ = nullptr;
@@ -191,7 +190,6 @@ class RcpOptionsUI {
   bool last_equip_ = false;
   int last_vx_ = -1, last_vy_ = -1, last_vs_ = -1;
   bool last_chase_enabled_ = false;
-  bool last_chase_collision_ = false;
   int last_chase_dist_ = -1;
   bool last_np_billboard_ = false;
   bool last_np_hp_ = false, last_np_mana_ = false, last_np_stam_ = false;

@@ -271,9 +271,6 @@ def build_controls():
     y += 18
     c.append(("Rcp_ChaseEnabled", button, ("Rcp_ChaseEnabled", COL_X, y, 250, 20, "Enable chase camera",
                                            "Adjust the mouse-wheel third-person chase camera (/rcpchase)")))
-    y += 22
-    c.append(("Rcp_ChaseCollision", button, ("Rcp_ChaseCollision", COL_X, y, 250, 20, "Wall collision pull-in",
-                                             "Pull the camera in when world geometry blocks the view")))
     y += 26
     c.append(("Rcp_ChaseDistLabel", label, ("Rcp_ChaseDistLabel", COL_X, y, 200, 14, "Max zoom out (0 = native)")))
     c.append(("Rcp_ChaseDist", slider, ("Rcp_ChaseDist", COL_X, y + 16, SLIDER_W, 16)))

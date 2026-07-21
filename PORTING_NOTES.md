@@ -154,12 +154,12 @@ different (see below), so it stays unconstructed.
   `GetClickedActor 0x48B6B0`, exact eye-height virtual `0x0058CF00` (thiscall).
 
 **Status — WORKING (user-confirmed); confirmed addresses above retained as reference:**
-1. **2b chase positioning (`src/chase_cam.cpp`, WORKING)** — tail-detour `0x799140`;
-   while enabled && `cameraType==6`, reuse the client's OWN computed camera-behind
-   vector `(camPos−playerPos)` (correct direction, honors left-click orbit, keeps
-   player centered) and only **rescale distance** along it + optional **Z height
-   raise**; orientation left native. Off by default; `/rcpchase on|off|dist
-   <n|native>|height <n>`, ini `[Chase]`.
+1. **2b chase positioning (`src/chase_cam.cpp`, WORKING)** — the shipped mechanism is
+   the **`gfMaxZoomCameraDistance 0x9D0DE4` float patch** (raises how far the wheel
+   can zoom out; wheel/orbit stay fully native). Off by default; `/rcpchase
+   on|off|maxdist <10-300|native>`, ini `[Chase]`. *(The `0x799140` Cam6-positioner
+   tail-detour that once re-derived the camera position was removed 2026-07-20 along
+   with the collision pull-in — it had no remaining job once distance went native.)*
    - *Earlier v1 (superseded) recomputed the orbit with `get_cam_pos_behind` +
      forced look=Heading → camera went in-front and player off-centre. Lesson:
      don't recompute the orbit; reuse the client's vector.*
@@ -178,8 +178,9 @@ different (see below), so it stays unconstructed.
    internals (disasm-verified): value@0x218, max@0x220, thumb-scale@0x21c,
    thumb-off@0x224; `GetValue 0x895FE0`, `SetValue 0x8961B0`.
 
-**2c world-collision pull-in (DONE, in `chase_cam.cpp`)** —
-`/rcpchase collision on|off` (off by default). In the positioner, after computing
+**2c world-collision pull-in (REMOVED 2026-07-20 — the pull-in never did anything
+meaningful in practice; RE below retained as the client's LOS-primitive reference)** —
+was `/rcpchase collision on|off` (off by default). In the positioner, after computing
 the wanted camera pos, cast pivot(playerXY@camZ)→wanted through world geometry and
 pull the camera to the clamp point (×0.9 margin) on a hit. Uses the client's own LOS
 primitive (all disasm-verified, coords are EQ-native **Y,X,Z**):
@@ -598,8 +599,8 @@ single wedged client: `pgrep -af eqgame.exe` → `kill -9 <that pid>`.
   from `setjmp` + a thread-local guard-frame stack; the vectored handler `longjmp`s back **only
   on `EXCEPTION_ACCESS_VIOLATION` while a guard is armed**. Guarded bodies must be POD-only (the
   long jump abandons the frame without running destructors). Wraps the POD bodies of the
-  nameplate tint (`0x58BF00`), chase Cam6 positioner (`0x799140`, incl. the eqgraphics collision
-  call), and mouse `GetDeviceState` turn. Master switch `[Window] GuardDetours` (default **on**);
+  nameplate tint (`0x58BF00`) and mouse `GetDeviceState` turn (the chase Cam6 positioner guard
+  went away with the collision pull-in, removed 2026-07-20). Master switch `[Window] GuardDetours` (default **on**);
   `/rcpwindow guard on|off`. Caveat: the VEH precedes frame-based SEH, so guarding a body that
   calls into game code that *intentionally* AV-and-handles could steal it — those features are
   opt-in, so containment > that small risk; disable per-feature via the toggle if needed.

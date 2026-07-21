@@ -1641,40 +1641,12 @@
     </ButtonDrawTemplate>
   </Button>
 
-  <Button item="Rcp_ChaseCollision">
-    <ScreenID>Rcp_ChaseCollision</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>220</Y>
-    </Location>
-    <Size>
-      <CX>250</CX>
-      <CY>20</CY>
-    </Size>
-    <Style_Checkbox>true</Style_Checkbox>
-    <TooltipReference>Pull the camera in when world geometry blocks the view</TooltipReference>
-    <Text>Wall collision pull-in</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>255</B>
-    </TextColor>
-    <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
-    </ButtonDrawTemplate>
-  </Button>
-
   <Label item="Rcp_ChaseDistLabel">
     <ScreenID>Rcp_ChaseDistLabel</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>246</Y>
+      <Y>224</Y>
     </Location>
     <Size>
       <CX>200</CX>
@@ -1694,7 +1666,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>262</Y>
+      <Y>240</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1708,7 +1680,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>262</Y>
+      <Y>240</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -3170,7 +3142,6 @@
     <Pieces>Rcp_ActorClipValue</Pieces>
     <Pieces>Rcp_CamHeader</Pieces>
     <Pieces>Rcp_ChaseEnabled</Pieces>
-    <Pieces>Rcp_ChaseCollision</Pieces>
     <Pieces>Rcp_ChaseDistLabel</Pieces>
     <Pieces>Rcp_ChaseDist</Pieces>
     <Pieces>Rcp_ChaseDistValue</Pieces>

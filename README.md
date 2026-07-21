@@ -6,8 +6,8 @@ A client-side mod for the EverQuest **Rain of Fear 2** client, in the spirit of
 ## Features
 
 - **`/rcpcam`** (alias `/rcpsmoothing`) — smooth mouse-look and a Zeal-style
-  third-person chase camera (scroll out of first person to a smooth,
-  collision-aware chase cam; adjustable zoom, FOV, chase/autofollow). This is a
+  third-person chase camera (scroll out of first person to a smooth chase
+  cam; adjustable zoom, FOV, chase/autofollow). This is a
   faithful port of Zeal's `/zealcam`.
   - `/rcpcam` toggles smoothing; `/rcpcam x y` or `/rcpcam x y x3 y3` sets
     first/third-person sensitivities; `/rcpcam info` prints them.

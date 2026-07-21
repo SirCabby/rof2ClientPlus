@@ -378,7 +378,6 @@ void RcpOptionsUI::create_window() {
   lbl_smooth_ = get_child(wnd_, "Rcp_SmoothValue");
   lbl_cam_hdr_ = get_child(wnd_, "Rcp_CamHeader");
   cb_chase_enabled_ = get_child(wnd_, "Rcp_ChaseEnabled");
-  cb_chase_collision_ = get_child(wnd_, "Rcp_ChaseCollision");
   sl_chase_dist_ = get_child(wnd_, "Rcp_ChaseDist");
   lbl_chase_dist_hdr_ = get_child(wnd_, "Rcp_ChaseDistLabel");
   lbl_chase_dist_ = get_child(wnd_, "Rcp_ChaseDistValue");
@@ -526,9 +525,9 @@ void RcpOptionsUI::set_active_tab(int tab) {
   show_window(lbl_np_dist_, tab == 2);
   for (int i = 0; i < kRoleCount; ++i) show_window(btn_role_[i], tab == 3);
   // The Display tab also carries the chase-camera controls (folded in from the former Camera tab).
-  void *display[] = {cb_nofog_,           cb_spellicons_,    lbl_far_hdr_,        sl_far_,
-                     lbl_far_,            lbl_actor_hdr_,    sl_actor_,           lbl_actor_,
-                     lbl_cam_hdr_,        cb_chase_enabled_, cb_chase_collision_,
+  void *display[] = {cb_nofog_,           cb_spellicons_,    lbl_far_hdr_,      sl_far_,
+                     lbl_far_,            lbl_actor_hdr_,    sl_actor_,         lbl_actor_,
+                     lbl_cam_hdr_,        cb_chase_enabled_,
                      lbl_chase_dist_hdr_, sl_chase_dist_,    lbl_chase_dist_};
   for (void *w : display) show_window(w, tab == 4);
   void *ring[] = {cb_ring_enabled_,   cb_ring_hideself_,    cb_ring_concolor_,  cb_ring_melee_, btn_ring_color_,
@@ -801,7 +800,6 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_sensy_, sens_to_slider(mouse_settings::get_sens_y()));
   slider_set(sl_smooth_, smooth_to_slider(mouse_settings::get_smoothing()));
   checkbox_set(cb_chase_enabled_, chase_settings::get_enabled());
-  checkbox_set(cb_chase_collision_, chase_settings::get_collision());
   slider_set(sl_chase_dist_, chase_dist_to_slider(chase_settings::get_max_distance()));
   checkbox_set(cb_np_billboard_, font_overlay::get_enabled());
   checkbox_set(cb_np_hp_, font_overlay::get_show_hp());
@@ -859,7 +857,6 @@ void RcpOptionsUI::seed_last_values() {
   last_vy_ = slider_get(sl_sensy_);
   last_vs_ = slider_get(sl_smooth_);
   last_chase_enabled_ = checkbox_get(cb_chase_enabled_);
-  last_chase_collision_ = checkbox_get(cb_chase_collision_);
   last_chase_dist_ = slider_get(sl_chase_dist_);
   last_np_billboard_ = checkbox_get(cb_np_billboard_);
   last_np_hp_ = checkbox_get(cb_np_hp_);
@@ -996,7 +993,7 @@ void RcpOptionsUI::toggle_window() {
 void RcpOptionsUI::drop_handles() {
   wnd_ = cb_enabled_ = cb_lockmouse_ = cb_equip_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
   lbl_sensx_hdr_ = lbl_sensy_hdr_ = lbl_smooth_hdr_ = lbl_sensx_ = lbl_sensy_ = lbl_smooth_ = nullptr;
-  lbl_cam_hdr_ = cb_chase_enabled_ = cb_chase_collision_ = sl_chase_dist_ = lbl_chase_dist_hdr_ = lbl_chase_dist_ = nullptr;
+  lbl_cam_hdr_ = cb_chase_enabled_ = sl_chase_dist_ = lbl_chase_dist_hdr_ = lbl_chase_dist_ = nullptr;
   sl_blink_ = lbl_blink_hdr_ = lbl_blink_ = nullptr;
   cb_np_billboard_ = cb_np_hp_ = cb_np_mana_ = cb_np_stam_ = nullptr;
   sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
@@ -1084,14 +1081,13 @@ void RcpOptionsUI::on_frame() {
 
   // Chase camera: push all settings only when the user moved a chase control,
   // so the /rcpchase command stays authoritative otherwise (same rule as mouse).
-  bool cen = checkbox_get(cb_chase_enabled_), ccol = checkbox_get(cb_chase_collision_);
+  bool cen = checkbox_get(cb_chase_enabled_);
   int cd = slider_get(sl_chase_dist_);
-  if (cen != last_chase_enabled_ || ccol != last_chase_collision_ || cd != last_chase_dist_) {
-    chase_settings::set(cen, chase_slider_to_dist(cd), ccol);
+  if (cen != last_chase_enabled_ || cd != last_chase_dist_) {
+    chase_settings::set(cen, chase_slider_to_dist(cd));
     update_labels();
   }
   last_chase_enabled_ = cen;
-  last_chase_collision_ = ccol;
   last_chase_dist_ = cd;
 
   // Custom billboard nameplates: standalone toggle -> font_overlay (applies suppression + persists).
