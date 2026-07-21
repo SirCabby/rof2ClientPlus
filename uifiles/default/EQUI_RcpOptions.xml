@@ -509,6 +509,34 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_Scribe">
+    <ScreenID>Rcp_Scribe</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>238</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Right-click a spell scroll in a bag to scribe it into the first free spell book slot. The spell book opens to show the scribing; standing up or closing it cancels. Same as /rcpscribe.</TooltipReference>
+    <Text>Right-click scroll to scribe</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Button item="Rcp_NpBillboard">
     <ScreenID>Rcp_NpBillboard</ScreenID>
     <RelativePosition>true</RelativePosition>
@@ -1485,12 +1513,40 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Button item="Rcp_NewSpellbook">
+    <ScreenID>Rcp_NewSpellbook</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>86</Y>
+    </Location>
+    <Size>
+      <CX>250</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Replace the stock spell book with the rof2ClientPlus spell-list window: searchable, sortable columns, click a spell's icon to memorize (/rcpbook)</TooltipReference>
+    <Text>New spell book window</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
   <Label item="Rcp_FarClipLabel">
     <ScreenID>Rcp_FarClipLabel</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>90</Y>
+      <Y>116</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1510,7 +1566,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>106</Y>
+      <Y>132</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1524,7 +1580,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>106</Y>
+      <Y>132</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -1544,7 +1600,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>132</Y>
+      <Y>158</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1564,7 +1620,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>148</Y>
+      <Y>174</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1578,7 +1634,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>148</Y>
+      <Y>174</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -1598,7 +1654,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>180</Y>
+      <Y>206</Y>
     </Location>
     <Size>
       <CX>200</CX>
@@ -1618,7 +1674,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>198</Y>
+      <Y>224</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -1646,7 +1702,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>224</Y>
+      <Y>250</Y>
     </Location>
     <Size>
       <CX>200</CX>
@@ -1666,7 +1722,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>240</Y>
+      <Y>266</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1680,7 +1736,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>240</Y>
+      <Y>266</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -3097,6 +3153,7 @@
     <Pieces>Rcp_SmoothValue</Pieces>
     <Pieces>Rcp_LockMouse</Pieces>
     <Pieces>Rcp_Equip</Pieces>
+    <Pieces>Rcp_Scribe</Pieces>
     <Pieces>Rcp_NpBillboard</Pieces>
     <Pieces>Rcp_NpHpBar</Pieces>
     <Pieces>Rcp_NpManaBar</Pieces>
@@ -3134,6 +3191,7 @@
     <Pieces>Rcp_Role17</Pieces>
     <Pieces>Rcp_NoFog</Pieces>
     <Pieces>Rcp_ClassicSpellIcons</Pieces>
+    <Pieces>Rcp_NewSpellbook</Pieces>
     <Pieces>Rcp_FarClipLabel</Pieces>
     <Pieces>Rcp_FarClip</Pieces>
     <Pieces>Rcp_FarClipValue</Pieces>

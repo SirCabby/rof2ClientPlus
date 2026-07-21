@@ -14,6 +14,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "spellbook_ui.h"  // spellbook_scribe: right-click a scroll -> auto-scribe
 
 namespace {
 
@@ -149,10 +150,13 @@ bool try_equip(void *inv_slot, const GlobalIndex &src, bool skip_clicky) {
 }
 
 // Detour: void __thiscall CInvSlot::HandleRButtonUp(this, const CXPoint& pt).
-//   plain right-click on a wearable bag item -> equip it, UNLESS it is a clicky (then the client
-//                                               casts it, as it does natively)
-//   Alt + right-click on a wearable bag item -> equip it (equips clickies too)
-//   everything else                          -> the client's native right-click, unchanged
+//   plain right-click on a spell scroll in a bag  -> scribe it (spellbook_scribe, /rcpscribe)
+//   plain right-click on a wearable bag item      -> equip it, UNLESS it is a clicky (then the client
+//                                                    casts it, as it does natively)
+//   Alt + right-click on a wearable bag item      -> equip it (equips clickies too; skips the scribe)
+//   everything else                               -> the client's native right-click, unchanged
+// This detour is the single owner of the HandleRButtonUp hook - the scribe feature plugs in here
+// instead of adding a second detour on the same address.
 void __fastcall CInvSlot_HandleRButtonUp(void *thiz, int unused_edx, const void *pt) {
   auto call_original = [&] {
     RcpService::get_instance()->hooks->hook_map["equip_rbtn"]->original(CInvSlot_HandleRButtonUp)(thiz, unused_edx, pt);
@@ -160,11 +164,17 @@ void __fastcall CInvSlot_HandleRButtonUp(void *thiz, int unused_edx, const void 
 
   GlobalIndex src;
   void *wmgr = *kCXWndManager;
-  if (g_enabled && wmgr && read_slot_location(thiz, &src) && src.location == kLocPossessions) {
+  if (wmgr && (g_enabled || spellbook_scribe::get_enabled()) && read_slot_location(thiz, &src) &&
+      src.location == kLocPossessions && src.slots[0] >= kInvSlot_FirstBag && src.slots[0] <= kInvSlot_LastBag) {
     bool alt = *(reinterpret_cast<uint8_t *>(wmgr) + kOffKb_LAlt) || *(reinterpret_cast<uint8_t *>(wmgr) + kOffKb_RAlt);
+    // Scribe first: it only claims unscribed spell scrolls (never wearable, so the equip
+    // path below cannot shadow it); anything else falls through.
+    if (!alt && spellbook_scribe::get_enabled() &&
+        spellbook_scribe::handle_inventory_rclick(get_slot_item(thiz), src.location, src.slots))
+      return;
     // Alt+right-click equips anything (incl. clickies); plain right-click equips non-clickies but lets
     // the client cast a clicky. In both cases a non-wearable falls through to the native handler.
-    if (try_equip(thiz, src, /*skip_clicky=*/!alt)) return;
+    if (g_enabled && try_equip(thiz, src, /*skip_clicky=*/!alt)) return;
   }
   call_original();
 }

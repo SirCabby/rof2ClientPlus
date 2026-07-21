@@ -455,6 +455,10 @@ void set_classic(bool on) {
 }
 }  // namespace spell_icons_settings
 
+namespace spell_icons_api {
+char *find_animation(const char *name) { return ::find_animation(name); }
+}  // namespace spell_icons_api
+
 SpellIcons::SpellIcons(RcpService *rcp) : rcp_(rcp) {
   load_settings();
   logger::logf("[icons] settings loaded: classic=%d (swap applies at the prerender seam)", (int)g_classic);

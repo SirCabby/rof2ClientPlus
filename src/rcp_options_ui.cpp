@@ -28,6 +28,7 @@
 #include "rcp.h"
 #include "sound_mods.h"
 #include "spell_icons.h"
+#include "spellbook_ui.h"
 #include "target_ring.h"
 #include "view_distance.h"
 #include "window_watch.h"
@@ -367,6 +368,7 @@ void RcpOptionsUI::create_window() {
   cb_enabled_ = get_child(wnd_, "Rcp_Enabled");
   cb_lockmouse_ = get_child(wnd_, "Rcp_LockMouse");
   cb_equip_ = get_child(wnd_, "Rcp_Equip");
+  cb_scribe_ = get_child(wnd_, "Rcp_Scribe");
   sl_sensx_ = get_child(wnd_, "Rcp_SensX");
   sl_sensy_ = get_child(wnd_, "Rcp_SensY");
   sl_smooth_ = get_child(wnd_, "Rcp_Smooth");
@@ -399,6 +401,7 @@ void RcpOptionsUI::create_window() {
   }
   cb_nofog_ = get_child(wnd_, "Rcp_NoFog");
   cb_spellicons_ = get_child(wnd_, "Rcp_ClassicSpellIcons");
+  cb_newbook_ = get_child(wnd_, "Rcp_NewSpellbook");
   sl_far_ = get_child(wnd_, "Rcp_FarClip");
   lbl_far_hdr_ = get_child(wnd_, "Rcp_FarClipLabel");
   lbl_far_ = get_child(wnd_, "Rcp_FarClipValue");
@@ -510,7 +513,7 @@ void RcpOptionsUI::set_active_tab(int tab) {
                      lbl_aa_active_hdr_, sl_aa_active_,      lbl_aa_active_,      lbl_aa_status_};
   for (void *w : general) show_window(w, tab == 0);
   void *mouse[] = {cb_enabled_, lbl_sensx_hdr_,  sl_sensx_,  lbl_sensx_,  lbl_sensy_hdr_, sl_sensy_,
-                   lbl_sensy_,  lbl_smooth_hdr_, sl_smooth_, lbl_smooth_, cb_lockmouse_, cb_equip_};
+                   lbl_sensy_,  lbl_smooth_hdr_, sl_smooth_, lbl_smooth_, cb_lockmouse_, cb_equip_, cb_scribe_};
   for (void *w : mouse) show_window(w, tab == 1);
   show_window(cb_np_billboard_, tab == 2);
   show_window(cb_np_hp_, tab == 2);
@@ -525,7 +528,8 @@ void RcpOptionsUI::set_active_tab(int tab) {
   show_window(lbl_np_dist_, tab == 2);
   for (int i = 0; i < kRoleCount; ++i) show_window(btn_role_[i], tab == 3);
   // The Display tab also carries the chase-camera controls (folded in from the former Camera tab).
-  void *display[] = {cb_nofog_,           cb_spellicons_,    lbl_far_hdr_,      sl_far_,
+  void *display[] = {cb_nofog_,           cb_spellicons_,    cb_newbook_,
+                     lbl_far_hdr_,        sl_far_,
                      lbl_far_,            lbl_actor_hdr_,    sl_actor_,         lbl_actor_,
                      lbl_cam_hdr_,        cb_chase_enabled_,
                      lbl_chase_dist_hdr_, sl_chase_dist_,    lbl_chase_dist_};
@@ -796,6 +800,7 @@ void RcpOptionsUI::sync_controls() {
   checkbox_set(cb_enabled_, mouse_settings::get_enabled());
   checkbox_set(cb_lockmouse_, mouse_settings::get_lock_mouse());
   checkbox_set(cb_equip_, equip_item_settings::get_enabled());
+  checkbox_set(cb_scribe_, spellbook_scribe::get_enabled());
   slider_set(sl_sensx_, sens_to_slider(mouse_settings::get_sens_x()));
   slider_set(sl_sensy_, sens_to_slider(mouse_settings::get_sens_y()));
   slider_set(sl_smooth_, smooth_to_slider(mouse_settings::get_smoothing()));
@@ -812,6 +817,7 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_np_dist_, np_dist_to_slider(font_overlay::get_max_dist()));
   checkbox_set(cb_nofog_, no_fog_settings::get_enabled());
   checkbox_set(cb_spellicons_, spell_icons_settings::get_classic());
+  checkbox_set(cb_newbook_, spellbook_settings::get_enabled());
   slider_set(sl_far_, viewdist_to_slider(view_distance_settings::get_clip()));
   slider_set(sl_actor_, viewdist_to_slider(view_distance_settings::get_actor_clip()));
   checkbox_set(cb_ring_enabled_, target_ring_settings::get_enabled());
@@ -853,6 +859,7 @@ void RcpOptionsUI::seed_last_values() {
   last_enabled_ = checkbox_get(cb_enabled_);
   last_lockmouse_ = checkbox_get(cb_lockmouse_);
   last_equip_ = checkbox_get(cb_equip_);
+  last_scribe_ = checkbox_get(cb_scribe_);
   last_vx_ = slider_get(sl_sensx_);
   last_vy_ = slider_get(sl_sensy_);
   last_vs_ = slider_get(sl_smooth_);
@@ -869,6 +876,7 @@ void RcpOptionsUI::seed_last_values() {
   for (int i = 0; i < kRoleCount; ++i) last_role_[i] = checkbox_get(btn_role_[i]);
   last_nofog_ = checkbox_get(cb_nofog_);
   last_spellicons_ = checkbox_get(cb_spellicons_);
+  last_newbook_ = checkbox_get(cb_newbook_);
   last_far_ = slider_get(sl_far_);
   last_actor_ = slider_get(sl_actor_);
   last_ring_enabled_ = checkbox_get(cb_ring_enabled_);
@@ -991,13 +999,13 @@ void RcpOptionsUI::toggle_window() {
 // on_frame poll below can never dereference a freed control -- that was the /loadskin
 // access-violation crash (calling a vtable method through a dangling btn_tab_[] pointer).
 void RcpOptionsUI::drop_handles() {
-  wnd_ = cb_enabled_ = cb_lockmouse_ = cb_equip_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
+  wnd_ = cb_enabled_ = cb_lockmouse_ = cb_equip_ = cb_scribe_ = sl_sensx_ = sl_sensy_ = sl_smooth_ = nullptr;
   lbl_sensx_hdr_ = lbl_sensy_hdr_ = lbl_smooth_hdr_ = lbl_sensx_ = lbl_sensy_ = lbl_smooth_ = nullptr;
   lbl_cam_hdr_ = cb_chase_enabled_ = sl_chase_dist_ = lbl_chase_dist_hdr_ = lbl_chase_dist_ = nullptr;
   sl_blink_ = lbl_blink_hdr_ = lbl_blink_ = nullptr;
   cb_np_billboard_ = cb_np_hp_ = cb_np_mana_ = cb_np_stam_ = nullptr;
   sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
-  cb_nofog_ = cb_spellicons_ = nullptr;
+  cb_nofog_ = cb_spellicons_ = cb_newbook_ = nullptr;
   sl_far_ = lbl_far_hdr_ = lbl_far_ = sl_actor_ = lbl_actor_hdr_ = lbl_actor_ = nullptr;
   cb_ring_enabled_ = cb_ring_hideself_ = cb_ring_concolor_ = btn_ring_color_ = nullptr;
   sl_ring_outer_ = lbl_ring_outer_hdr_ = lbl_ring_outer_ = nullptr;
@@ -1059,6 +1067,7 @@ void RcpOptionsUI::on_frame() {
   bool en = checkbox_get(cb_enabled_);
   bool lock = checkbox_get(cb_lockmouse_);
   bool equip = checkbox_get(cb_equip_);
+  bool scribe = checkbox_get(cb_scribe_);
   int vx = slider_get(sl_sensx_), vy = slider_get(sl_sensy_), vs = slider_get(sl_smooth_);
 
   // Only push to the settings when the user actually moved a control this frame,
@@ -1070,11 +1079,13 @@ void RcpOptionsUI::on_frame() {
   // Cursor-lock is an independent setting (its own ini key + immediate release on
   // off), so apply it separately from the sensitivity block above.
   if (lock != last_lockmouse_) mouse_settings::set_lock_mouse(lock);
-  // Right-click-to-equip is its own independent toggle (own module + ini key).
+  // Right-click-to-equip / right-click-to-scribe are independent toggles (own ini keys).
   if (equip != last_equip_) equip_item_settings::set_enabled(equip);
+  if (scribe != last_scribe_) spellbook_scribe::set_enabled(scribe);
   last_enabled_ = en;
   last_lockmouse_ = lock;
   last_equip_ = equip;
+  last_scribe_ = scribe;
   last_vx_ = vx;
   last_vy_ = vy;
   last_vs_ = vs;
@@ -1144,6 +1155,12 @@ void RcpOptionsUI::on_frame() {
   if (si != last_spellicons_) {
     spell_icons_settings::set_classic(si);
     last_spellicons_ = si;
+  }
+  // Display: new-spell-book toggle -> spellbook_settings (the /rcpbook stock-book redirect).
+  bool nb = checkbox_get(cb_newbook_);
+  if (nb != last_newbook_) {
+    spellbook_settings::set_enabled(nb);
+    last_newbook_ = nb;
   }
   // View distance: terrain far clip + actor draw distance sliders (world units; 0 = off).
   int fc = slider_get(sl_far_);
@@ -1532,6 +1549,7 @@ static void __fastcall LoadSidl_dropwnd_hk(void *t, int edx, Rcp::GameUI::CXSTR 
   if (std::string(filename) == "EQUI.xml") {
     RcpService *svc = RcpService::get_instance();
     if (svc && svc->options_ui) svc->options_ui->drop_handles();
+    if (svc && svc->spellbook_ui) svc->spellbook_ui->drop_handles();  // same freed-window hazard
   }
   RcpService::get_instance()->hooks->hook_map["LoadSidl"]->original(LoadSidl_dropwnd_hk)(t, edx, path1, path2,
                                                                                         filename);

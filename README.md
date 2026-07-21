@@ -21,6 +21,14 @@ A client-side mod for the EverQuest **Rain of Fear 2** client, in the spirit of
   **Alt+right-click** to equip a clicky. Ships off; toggle with `/rcpequip
   on|off` or the **Right-click to equip** checkbox on the `/rcpoptions` Mouse
   tab. A RoF2-native port of Zeal's `equip_item`.
+- **`/rcpscribe`** — right-click a spell scroll in a bag to scribe it into the
+  **first free spell book slot**: the scroll moves to your cursor, the spell
+  book opens (the new `/rcpbook` window or the stock book, whichever is active)
+  and the client's own scribe runs — standing up or closing the book cancels
+  it, exactly like scribing by hand. A scroll for a spell you already know (or
+  a lower/equal rank of one) is refused before it ever leaves the bag. Ships
+  off; toggle with `/rcpscribe on|off` or the **Right-click scroll to scribe**
+  checkbox on the `/rcpoptions` Mouse tab.
 - **`/rcpspellicons`** (alias `/rcpicons`) — swap the spell book / gem / buff
   icons between the **original pre-2013 art** and the revamped client default,
   **live** (no relog, no `/loadskin`, no file swapping — the swap happens on

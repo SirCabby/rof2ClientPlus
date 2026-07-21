@@ -31,3 +31,11 @@ namespace spell_icons_settings {
 bool get_classic();         // true = the original pre-2013 icon art is shown.
 void set_classic(bool on);  // Applies on the next frame + persists to ini.
 }  // namespace spell_icons_settings
+
+// Shared UI helpers other modules reuse (spellbook_ui's icon cells).
+namespace spell_icons_api {
+// Find a Ui2DAnimation (CTextureAnimation*) by name with a READ-ONLY walk of the
+// SIDL manager's animation array - no CXStr temp, safe from any thread. Returns
+// the game-owned animation object (do not free), or null before the UI loads.
+char *find_animation(const char *name);
+}  // namespace spell_icons_api

@@ -24,6 +24,7 @@
 #include "npc_model_swap.h"
 #include "rcp.h"
 #include "rcp_options_ui.h"
+#include "spellbook_ui.h"
 #include "window_watch.h"
 
 // stock RoF2 __ProcessGameEvents (eqlib). Runs on the main thread.
@@ -66,6 +67,7 @@ static int __cdecl ProcessGameEvents_hk() {
     if (RcpService *svc = RcpService::get_instance()) {
         if (svc->mouse_mods) svc->mouse_mods->ensure_hooked();
         if (svc->options_ui) svc->options_ui->on_frame();
+        if (svc->spellbook_ui) svc->spellbook_ui->on_frame();
         if (svc->keybinds_mod) svc->keybinds_mod->on_frame();
         if (svc->chat_stml_select) svc->chat_stml_select->on_frame();
     }

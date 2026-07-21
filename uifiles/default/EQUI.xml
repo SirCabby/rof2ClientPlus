@@ -207,8 +207,9 @@
 		<Include>EQUI_ShareWnd.xml</Include>
 		<Include>EQUI_AggroMeterWnd.xml</Include>
 		<Include>EQUI_BazaarConfirmationWnd.xml</Include>
-		<!-- rof2ClientPlus UI override: load the /rcpoptions window (standalone file) -->
+		<!-- rof2ClientPlus UI override: load the rcp windows (standalone files) -->
 		<Include>EQUI_RcpOptions.xml</Include>
+		<Include>EQUI_RcpSpellBook.xml</Include>
 	</Composite>
 
 	<Schema xmlns = "EverQuestData" xmlns:dt = "EverQuestDataTypes"/>

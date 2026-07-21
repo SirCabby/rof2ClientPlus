@@ -206,6 +206,11 @@ def build_controls():
     c.append(("Rcp_Equip", button, ("Rcp_Equip", COL_X, y, 250, 20, "Right-click to equip",
                                     "Right-click a wearable item in a bag to auto-equip it into the best slot "
                                     "(a clicky item casts instead; Alt+right-click equips it). Same as /rcpequip.")))
+    y += 26
+    c.append(("Rcp_Scribe", button, ("Rcp_Scribe", COL_X, y, 250, 20, "Right-click scroll to scribe",
+                                     "Right-click a spell scroll in a bag to scribe it into the first free spell "
+                                     "book slot. The spell book opens to show the scribing; standing up or closing "
+                                     "it cancels. Same as /rcpscribe.")))
 
     # (The former Camera tab's chase-camera controls now live at the bottom of the Display tab.)
 
@@ -257,6 +262,10 @@ def build_controls():
     c.append(("Rcp_ClassicSpellIcons", button, ("Rcp_ClassicSpellIcons", COL_X, y, 250, 20, "Classic spell icons",
                                                 "Show the original pre-2013 spell book / gem / buff icon art instead "
                                                 "of the revamped icons, swapped live (/rcpspellicons)")))
+    y += 26
+    c.append(("Rcp_NewSpellbook", button, ("Rcp_NewSpellbook", COL_X, y, 250, 20, "New spell book window",
+                                           "Replace the stock spell book with the rof2ClientPlus spell-list window: "
+                                           "searchable, sortable columns, click a spell's icon to memorize (/rcpbook)")))
     y += 30
     c.append(("Rcp_FarClipLabel", label, ("Rcp_FarClipLabel", COL_X, y, 190, 14, "Terrain distance (0 = off)")))
     c.append(("Rcp_FarClip", slider, ("Rcp_FarClip", COL_X, y + 16, SLIDER_W, 16)))
@@ -463,8 +472,11 @@ def gen_rcp_block():
     return "\n".join(lines)
 
 
-RCP_INCLUDE = "<Include>EQUI_RcpOptions.xml</Include>"
-EQUI_MARKER = "<!-- rof2ClientPlus UI override: load the /rcpoptions window (standalone file) -->"
+# Every rof2ClientPlus standalone window file EQUI.xml must pull in. This script is the
+# SOLE writer of uifiles/default/EQUI.xml -- other window generators (e.g.
+# gen_rcp_spellbook_ui.py) only write their own EQUI_Rcp*.xml and are listed here.
+RCP_INCLUDES = ["EQUI_RcpOptions.xml", "EQUI_RcpSpellBook.xml"]
+EQUI_MARKER = "<!-- rof2ClientPlus UI override: load the rcp windows (standalone files) -->"
 
 
 def main():
@@ -487,10 +499,11 @@ def main():
     with open(os.path.join(out_dir, "EQUI_RcpOptions.xml"), "w", encoding="ascii") as f:
         f.write(standalone)
 
-    # 2. Composite EQUI.xml with our <Include> added (from the VENDORED stock; idempotent).
+    # 2. Composite EQUI.xml with our <Include>s added (regenerated from the VENDORED
+    #    stock every run, so the include list is always exactly RCP_INCLUDES).
     equi = open(os.path.join(stock_dir, "EQUI.xml"), encoding="latin-1").read()
-    if RCP_INCLUDE not in equi:
-        equi = equi.replace("\t</Composite>", f"\t\t{EQUI_MARKER}\n\t\t{RCP_INCLUDE}\n\t</Composite>", 1)
+    inc_lines = "".join(f"\t\t<Include>{name}</Include>\n" for name in RCP_INCLUDES)
+    equi = equi.replace("\t</Composite>", f"\t\t{EQUI_MARKER}\n{inc_lines}\t</Composite>", 1)
     with open(os.path.join(out_dir, "EQUI.xml"), "w", encoding="latin-1") as f:
         f.write(equi)
 
@@ -507,7 +520,7 @@ def main():
                 f.write(pre + post.lstrip("\n"))
 
     print(f"wrote standalone EQUI_RcpOptions.xml ({len(CONTROLS)} controls + Screen) "
-          f"and EQUI.xml (+1 Include)")
+          f"and EQUI.xml (+{len(RCP_INCLUDES)} Includes)")
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@
 #include "rcp_options_ui.h"
 #include "sound_mods.h"
 #include "spell_icons.h"
+#include "spellbook_ui.h"
 #include "target_ring.h"
 #include "view_distance.h"
 #include "window_watch.h"
@@ -106,6 +107,8 @@ RcpService::RcpService() {
   boat_draft = std::make_unique<BoatDraft>(this);  // /rcpboat: lower client-floated boats by a draft offset (+probes).
   logger::log("  -> SpellIcons");
   spell_icons = std::make_unique<SpellIcons>(this);  // /rcpspellicons: live classic/revamped spell-icon texture swap.
+  logger::log("  -> SpellBookUI");
+  spellbook_ui = std::make_unique<SpellBookUI>(this);  // /rcpbook: Zeal-style spell book window (uses spell_icons_api).
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

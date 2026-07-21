@@ -67,6 +67,7 @@ class RcpService {
   std::unique_ptr<class NpcModelSwap> npc_model_swap;  // NPC/creature body-model swap (Phase 2); /rcpbody probe + redirect.
   std::unique_ptr<class BoatDraft> boat_draft;    // The /rcpboat boat draft offset (client floats boats; lower them ~4).
   std::unique_ptr<class SpellIcons> spell_icons;  // The /rcpspellicons live classic/revamped spell-icon swap.
+  std::unique_ptr<class SpellBookUI> spellbook_ui; // The /rcpbook Zeal-style spell book window (stock-book replacement).
   std::unique_ptr<class CameraMods> camera_mods;  // Zeal chase camera (TAKP addresses; not yet ported).
 
  private:

@@ -1402,3 +1402,72 @@ target rings, spell-icon sheets — are `D3DPOOL_MANAGED` and neither block nor 
 Nothing else in the mod owns default-pool resources (`DrawPrimitiveUP` ring geometry is
 driver-transient). Rule for future features: any persistent `D3DPOOL_DEFAULT` object MUST
 register a `directx::add_reset_callback` that releases it, and recreate lazily on draw.
+
+## Right-click scroll to scribe (`/rcpscribe`, in `src/spellbook_ui.cpp`) — DONE (awaiting in-game confirm 2026-07-21)
+
+Right-click an unscribed spell scroll in a bag → the scroll moves to the cursor, the
+active spell book opens (the `/rcpbook` window when enabled, else the stock book), and the
+client's **own** scribe engine runs against the first free book slot. Standing up or
+closing the book abandons the scribe with the native messages, exactly like scribing by
+hand. Ships off: `/rcpscribe on|off` or the **Right-click scroll to scribe** checkbox on
+the `/rcpoptions` Mouse tab (`[SpellBook] RightClickScribe`).
+
+### The scribe engine (all disasm-verified, 2013-05-10 build)
+
+The engine mirrors the memorize one already mapped for `/rcpbook` (CSpellBookWnd fields:
+mem slot `+0x234`, shared spell id `+0x238`, scribe slot `+0x240`, scribe countdown
+`+0x244`):
+
+- **`CSpellBookWnd::BeginSpellScribe @0x75DDF0`** — `__thiscall (int bookSlot)`, ret 0x4.
+  The stock book calls it when a slot is clicked while the cursor attachment Type is 2
+  (item on cursor). It validates everything with native chat messages: no request in
+  flight (dword `0xE635AC` > 0), mem+scribe slots both -1, **cursor item** (inventory slot
+  0x21 = 33) present, unstacked (`item+0x98` ≤ 1), type-20 scroll, spell not known, F2P
+  rank unlock, class/level, and the target slot empty — or occupied by the **same
+  SpellGroup** (`spell+0x1d4`), where a lower `SpellRank` (`+0x1dc`) pops the native
+  replace-lower-rank **confirm dialog** (handler anchored at `book+0x220`, pending dialog
+  ptr at `+0x228`) and an equal/higher rank refuses. On success: `+0x240 = slot`,
+  `+0x238 = spell id`, `+0x244 = 0x5C`, prints "You begin scribing %1." (str 0x2f11).
+- **Countdown = the EQType-10 gauge provider `@0x75E620`** (same pattern as the EQType-9
+  memorize ticker): decrements `+0x244` by 3 per elapsed time unit **only while a gauge
+  that maps to EQType 10 is drawn** — the stock book's or our `Rcp_SbScribeGauge`. At zero
+  it sends packet opcode `0x217C {bookSlot, spellId}`; completion is server-driven (the
+  scroll is consumed from the **server-side cursor**, which is why the scroll must sit on
+  the inventory cursor for the whole scribe).
+- **Cancel = the book's hide worker `@0x75B7C0`** (`__thiscall`, no args). The stock close
+  path is `Show(false)` → vtable+0xE0 `AboutToHide @0x75BA20` → this worker: detaches a
+  type-1 cursor spell, prints the native abandon message (str 0x2f0d memorize / 0x2f0c
+  scribe) and resets all mem/scribe/set-mem state. Stand-up cancels because the book
+  auto-deactivates (profile flag `+0x340c` in OnProcessFrame) through the same path.
+  `CXWnd::Show @0x865290` is edge-triggered: showing runs vtable+0xDC `AboutToShow
+  @0x75C970` (refuses while moving/looting/feigned, **auto-sits** via
+  `0x5A0BC0(player, 110)`) and hiding runs AboutToHide — a hidden window's `Show(false)`
+  is a no-op, hence calling the worker directly on our window's hide edge.
+- Item helpers (`__thiscall` on ItemClient, def resolved via vtbl+0x8): type =
+  `0x7AFFA0` (def byte `+0x1d4`; 20 = scroll), per-slot spell id = `0x7AFFF0(int
+  spellType)` (def `+0x284 + type*0x64`; type 4 = Scroll). Known-check =
+  `0x449CD0(spellId)` on `pLocalPC+0x2dc8` (exact-compares all 720 profile book slots).
+  Cursor item = `0x42DEC0(&ItemPtr, 33)` on the vbase container
+  `pLocalPC + 8 + *(*(pLocalPC+8) + 4)` — ADDREFS, so the extra ref is dropped
+  immediately (equip_item.cpp pattern). `CSpellBookWnd::TurnToPage @0x75D570(leftPage)`
+  clamps to [0, 0x58] and is gated on the window's active flag.
+
+### Mechanism
+
+Two halves, both in `spellbook_ui.cpp`:
+
+- **Detour half** (`spellbook_scribe::handle_inventory_rclick`, called from
+  equip_item.cpp's `CInvSlot::HandleRButtonUp` detour — that hook has ONE owner and the
+  scribe plugs into it, scrolls first since they are never wearable): pre-checks
+  everything BeginSpellScribe would refuse *after* the pickup (type/stack/class/level/
+  known/rank/free-slot/cursor-empty/busy) so a doomed attempt never strands the scroll on
+  the cursor, then `CInvSlotMgr::MoveItem` bag→cursor(33) and queues the rest. Alt+
+  right-click skips the scribe (keeps its equip meaning).
+- **Frame-poll half** (`scribe_poll`): waits for the cursor to hold the scroll, opens the
+  active book (ours via `toggle_window()`, stock via Activate vtbl+0x90 → native
+  AboutToShow gates), re-picks the slot (lower-rank same-group slot for the native
+  upgrade dialog, else first empty), calls BeginSpellScribe, and on the stock path turns
+  to the slot's page. `scribe_hide_edge_poll` runs the hide worker `0x75B7C0` when OUR
+  window goes hidden with a mem/scribe pending — so close/stand cancels match stock for
+  the new window too (this also gives the new window stock-parity cancel for plain
+  memorizes, which previously just stalled when the window closed mid-mem).

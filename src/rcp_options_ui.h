@@ -65,7 +65,8 @@ class RcpOptionsUI {
   // Mouse tab.
   void *cb_enabled_ = nullptr;
   void *cb_lockmouse_ = nullptr;
-  void *cb_equip_ = nullptr;  // "Right-click to equip" (equip_item_settings).
+  void *cb_equip_ = nullptr;   // "Right-click to equip" (equip_item_settings).
+  void *cb_scribe_ = nullptr;  // "Right-click scroll to scribe" (spellbook_scribe).
   void *sl_sensx_ = nullptr;
   void *sl_sensy_ = nullptr;
   void *sl_smooth_ = nullptr;
@@ -98,6 +99,7 @@ class RcpOptionsUI {
   // Display tab.
   void *cb_nofog_ = nullptr;
   void *cb_spellicons_ = nullptr;  // "Classic spell icons" (spell_icons_settings::set_classic).
+  void *cb_newbook_ = nullptr;     // "New spell book window" (spellbook_settings::set_enabled).
   void *sl_far_ = nullptr;  // Terrain view distance (far clip), world units (view_distance_settings).
   void *lbl_far_hdr_ = nullptr;
   void *lbl_far_ = nullptr;
@@ -188,6 +190,7 @@ class RcpOptionsUI {
   bool last_enabled_ = false;
   bool last_lockmouse_ = false;
   bool last_equip_ = false;
+  bool last_scribe_ = false;
   int last_vx_ = -1, last_vy_ = -1, last_vs_ = -1;
   bool last_chase_enabled_ = false;
   int last_chase_dist_ = -1;
@@ -199,6 +202,7 @@ class RcpOptionsUI {
   bool last_role_[kRoleCount] = {};
   bool last_nofog_ = false;
   bool last_spellicons_ = false;
+  bool last_newbook_ = false;
   int last_far_ = -1;
   int last_actor_ = -1;
   bool last_ring_enabled_ = false;
