@@ -21,13 +21,16 @@
 // loop - a launch that hangs earlier (before our .asi loads) is beyond its reach; for
 // that case rely on the crash handler + clearing the leftover process.
 //
-// Multibox rect dedup ([Window] MultiboxDedup, /rcpwindow dedup, ON by default): boxed
-// clients share eqclient.ini, so they all spawn at the SAME wineserver-side rect, and
-// wine routes mouse input by hit-testing those rects across every client in the
-// session - clicks on one client land in the other ("clickthrough" / focus snapping
-// back; KWin never resyncs its placement into wine, so the collision persists even
-// when the windows LOOK separated). During its first ~30s the newer client detects the
-// identical rect and moves itself to a free monitor. See dedup_pass in the .cpp.
+// Multibox input routing ([Window] MultiboxRaise, ON by default): all boxed clients
+// share one wineserver session, which routes mouse input by hit-testing the cursor
+// against ITS rects in ITS z-order - state KWin's visual stacking and focus never feed
+// back into wine, so clicks on one client landed in the other ("clickthrough" / focus
+// snapping back). Raise-on-activate mirrors each compositor activation into the
+// wineserver z-order, and click-activation is muted while a sibling client runs so a
+// stale-routed click can't steal the focus back. [Window] MultiboxMove (/rcpwindow
+// dedup, OFF by default) is the older fallback that moves a client off a sibling's
+// identical spawn rect; it fought deliberate layouts (maximize kept reverting), so
+// it's opt-in only. See "Multibox input routing" in the .cpp.
 #pragma once
 
 class RcpService;
@@ -46,11 +49,13 @@ bool get_self_heal();
 bool get_verbose();
 bool get_guard();  // Detour fault-net (rcp_guard) - owned here so it persists.
 bool get_char_title();  // /rcpwindow title - show the logged-in character's name in the window title.
-bool get_dedup();       // /rcpwindow dedup - multibox rect dedup (see file comment).
+bool get_raise();       // /rcpwindow raise - multibox raise-on-activate input-routing fix (see file comment).
+bool get_dedup();       // /rcpwindow dedup - multibox rect-move fallback, opt-in (see file comment).
 void set_self_heal(bool on);
 void set_verbose(bool on);
 void set_guard(bool on);
 void set_char_title(bool on);
+void set_raise(bool on);
 void set_dedup(bool on);
 void force_heal_now();   // /rcpwindow heal - apply one corrective pass immediately.
 void force_dedup_now();  // /rcpwindow dedup now - run one dedup decision pass immediately.

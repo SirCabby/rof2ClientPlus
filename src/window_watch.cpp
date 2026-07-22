@@ -25,7 +25,9 @@ bool g_self_heal = false;  // Force the window visible/foreground on a broken wi
 bool g_verbose = false;    // Log the chatty window messages (pos-changing, focus) too.
 bool g_guard = true;       // Wrap our detour bodies in the fault net (crash containment). Default on.
 bool g_char_title = true;  // Put the logged-in character's name in the window title. On by default (see sync_title).
-bool g_dedup = true;       // Multibox rect dedup: move our window off a sibling client's identical rect. See dedup_pass.
+bool g_raise = true;   // Multibox raise-on-activate: keep wineserver z-order tracking compositor activation. THE fix.
+bool g_dedup = false;  // Multibox move layers (spawn shift + runtime move): opt-in fallback only - the runtime move
+                       // fought rects the user arranged on purpose (maximize onto the sibling's monitor = "collision").
 
 constexpr char kIni[] = "Window";
 constexpr DWORD kHealWindowMs = 8000;  // Only self-heal during the window's first few seconds.
@@ -64,7 +66,10 @@ void load_settings() {
   if (ini.exists(kIni, "VerboseLog")) g_verbose = ini.getValue<bool>(kIni, "VerboseLog");
   if (ini.exists(kIni, "GuardDetours")) g_guard = ini.getValue<bool>(kIni, "GuardDetours");
   if (ini.exists(kIni, "CharTitle")) g_char_title = ini.getValue<bool>(kIni, "CharTitle");
-  if (ini.exists(kIni, "MultiboxDedup")) g_dedup = ini.getValue<bool>(kIni, "MultiboxDedup");
+  if (ini.exists(kIni, "MultiboxRaise")) g_raise = ini.getValue<bool>(kIni, "MultiboxRaise");
+  // Deliberately a NEW key (old "MultiboxDedup" inis had TRUE persisted; the move layers
+  // are demoted to opt-in now that raise-on-activate is the real fix - stale key ignored).
+  if (ini.exists(kIni, "MultiboxMove")) g_dedup = ini.getValue<bool>(kIni, "MultiboxMove");
   rcp_guard::set_enabled(g_guard);
 }
 
@@ -74,7 +79,8 @@ void save_settings() {
   ini.setValue<bool>(kIni, "VerboseLog", g_verbose);
   ini.setValue<bool>(kIni, "GuardDetours", g_guard);
   ini.setValue<bool>(kIni, "CharTitle", g_char_title);
-  ini.setValue<bool>(kIni, "MultiboxDedup", g_dedup);
+  ini.setValue<bool>(kIni, "MultiboxRaise", g_raise);
+  ini.setValue<bool>(kIni, "MultiboxMove", g_dedup);
 }
 
 bool belongs_to_us(HWND h) {
@@ -162,23 +168,33 @@ HWND find_main_window() {
   return ctx.best;
 }
 
-// ---- Multibox rect dedup.
+// ---- Multibox input routing.
 //
-// All boxed clients share one eqclient.ini, so every client creates its window at the
-// SAME saved rect and maximizes onto the SAME monitor - and under KWin/XWayland the
-// window manager's real placement is never reflected back into wine's Win32 rect. The
-// wineserver session (shared by all clients) then holds two windows at an identical
-// rect, and since mouse input is routed by hit-testing those rects across ALL
-// processes, clicks on one client land in the other ("clickthrough", focus snapping
-// back). Verified live 2026-07-21: both clients logged rect=(2556,5)-(5124,1404) while
-// X11 showed them on different monitors, and clicks activated the wrong client.
+// All boxed clients live in ONE wineserver session, and wineserver routes mouse input
+// by hit-testing the cursor against ITS window rects in ITS z-order - state that
+// KWin's visual stacking and focus never feed back into wine. Verified live
+// 2026-07-21: both clients held rect=(2556,5)-(5124,1404) (shared eqclient.ini spawn)
+// while X11 showed them on different monitors, and clicks activated the wrong client.
+// Two layers deal with it:
 //
-// Fix: when our wineserver-side rect (near-)equals a sibling client's, the NEWER
-// process moves itself to the first monitor no client occupies (or cascades if all are
-// taken). Distinct rects are all that input routing needs; whether KWin honors the
-// visual move is irrelevant. Auto-runs only during our first ~30s - the collision is a
-// spawn artifact, and rects the user deliberately arranged later differ (any real
-// move/resize resyncs wine) so they never trip the near-equal test. ----
+// 1) Raise-on-activate (wndproc WM_ACTIVATE, g_raise, default ON) - THE fix. Whenever
+//    the compositor activates a client (X FocusIn -> wine foreground -> WM_ACTIVATE),
+//    that client raises itself to the top of wineserver's z-order, so input-topmost
+//    converges to visually-topmost and deliberately-overlapping clients each get their
+//    own clicks. Its partner is the WM_MOUSEACTIVATE mute: a click can race ahead of
+//    the newly-activated sibling's raise, get hit-tested against the STALE z-order,
+//    land in the old client, and wine's click-activation then steals the focus right
+//    back ("flicks back, retry until it sticks"). While a sibling client exists we
+//    return MA_NOACTIVATEANDEAT, so clicks never activate wine-side - every click that
+//    should activate us also activates us through the compositor a beat later, making
+//    KWin the single focus authority.
+//
+// 2) Rect dedup (g_dedup, default OFF) - the older, blunter layer: spawn-shift (IAT
+//    hook below) + runtime move so clients never share a rect at all. Correct routing
+//    no longer needs distinct rects, and the runtime move FOUGHT deliberate layouts:
+//    maximizing the second client onto the first's monitor looks exactly like a spawn
+//    collision, so for the window's first 30s the maximize kept getting reverted. Kept
+//    as an opt-in fallback (/rcpwindow dedup on; spawn hook arms on next launch). ----
 
 #ifndef PROCESS_QUERY_LIMITED_INFORMATION
 #define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
@@ -203,6 +219,14 @@ BOOL CALLBACK enum_siblings(HWND h, LPARAM lp) {
   if (!GetWindowRect(h, &r)) return TRUE;
   out->push_back({h, pid, r});
   return TRUE;
+}
+
+// Any other visible client window in the session right now? One EnumWindows pass -
+// only server-side queries, so it's safe from the wndproc (no message sends).
+bool sibling_exists() {
+  std::vector<SiblingWnd> sibs;
+  EnumWindows(enum_siblings, reinterpret_cast<LPARAM>(&sibs));
+  return !sibs.empty();
 }
 
 // Process creation time as a sortable value; 0 if unknown (treated as older than us,
@@ -460,6 +484,19 @@ LRESULT CALLBACK wndproc_hk(HWND h, UINT msg, WPARAM w, LPARAM l) {
     case WM_ACTIVATEAPP:
       logger::logf("[win] WM_ACTIVATEAPP active=%d", (int)w);
       break;
+    case WM_MOUSEACTIVATE:
+      // Multibox: mute wine-side click activation (see "Multibox input routing" above).
+      // A click can be hit-tested against wineserver's STALE z-order - racing the
+      // just-activated sibling's raise - land in the wrong client, and click-activate
+      // it, stealing back the focus the compositor just gave the other client. Eating
+      // the click also keeps it from acting inside the wrong client's world. Every
+      // click that SHOULD activate us does so via KWin (FocusIn -> WM_ACTIVATE below)
+      // a beat later; with no sibling running, stock behavior.
+      if (g_raise && sibling_exists()) {
+        logger::log("[win] WM_MOUSEACTIVATE -> eaten (multibox: activation follows the compositor)");
+        return MA_NOACTIVATEANDEAT;
+      }
+      break;
     case WM_ACTIVATE:
       // Multibox: mirror the activation into wineserver's z-order. KWin raises the
       // window it activates VISUALLY, but nothing raises it on the wine side - and
@@ -469,10 +506,10 @@ LRESULT CALLBACK wndproc_hk(HWND h, UINT msg, WPARAM w, LPARAM l) {
       // keeps input-topmost == visually-topmost after any activation, exactly the
       // native Windows contract (activated window comes to top). NOACTIVATE avoids
       // re-entry; the losing client only sees INACTIVE and does nothing.
-      if (LOWORD(w) != WA_INACTIVE && g_dedup)
+      if (LOWORD(w) != WA_INACTIVE && g_raise)
         SetWindowPos(h, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
       logger::logf("[win] WM_ACTIVATE %s%s", LOWORD(w) == WA_INACTIVE ? "INACTIVE" : "ACTIVE",
-                   (LOWORD(w) != WA_INACTIVE && g_dedup) ? " (raised to wineserver top)" : "");
+                   (LOWORD(w) != WA_INACTIVE && g_raise) ? " (raised to wineserver top)" : "");
       break;
     case WM_KILLFOCUS:
       logger::log("[win] WM_KILLFOCUS");
@@ -593,8 +630,8 @@ void install_early() {
   load_settings();
 
   const char *disp = getenv("DISPLAY");
-  logger::logf("[win] install_early: DISPLAY=%s selfheal=%d guard=%d verbose=%d", disp ? disp : "(null)",
-               (int)g_self_heal, (int)g_guard, (int)g_verbose);
+  logger::logf("[win] install_early: DISPLAY=%s selfheal=%d guard=%d verbose=%d raise=%d dedup-move=%d",
+               disp ? disp : "(null)", (int)g_self_heal, (int)g_guard, (int)g_verbose, (int)g_raise, (int)g_dedup);
 
   // Snapshot the eqclient.ini window keys - the saved rect/mode the client restores.
   IO_ini cini(IO_ini::kClientFilename);
@@ -608,9 +645,9 @@ void install_early() {
   const int siblings = scan_siblings(true);
   logger::logf("[win] sibling eqgame.exe scan: %d other instance(s)", siblings);
 
-  // Multibox rect dedup, creation-time half: runs at attach, BEFORE the game creates
-  // its window, so the shifted position is what the window (and the game's own
-  // maximize) is born with. See the comment block at install_spawn_hook.
+  // Multibox rect dedup (opt-in fallback), creation-time half: runs at attach, BEFORE
+  // the game creates its window, so the shifted position is what the window (and the
+  // game's own maximize) is born with. See the comment block at install_spawn_hook.
   if (g_dedup) install_spawn_hook();
 }
 
@@ -660,9 +697,9 @@ void on_frame() {
     }
   }
 
-  // Multibox rect dedup, startup-window only. First pass is jittered per-process so
-  // simultaneously-launched boxes decide in sequence, then re-checks let the set
-  // converge (a mover that picked a just-taken monitor re-detects and moves on).
+  // Multibox rect dedup (opt-in fallback), startup-window only. First pass is jittered
+  // per-process so simultaneously-launched boxes decide in sequence, then re-checks let
+  // the set converge (a mover that picked a just-taken monitor re-detects and moves on).
   if (g_dedup && (now - g_first_seen) < kDedupWindowMs) {
     if (!g_dedup_first_delay) g_dedup_first_delay = 2000 + (GetCurrentProcessId() % 5) * 400;
     if ((now - g_first_seen) >= g_dedup_first_delay && (now - g_last_dedup) >= kDedupGapMs) {
@@ -697,9 +734,17 @@ void set_char_title(bool on) {
   g_posted_title.clear();  // On enable, makes sync_title post the current title next frame. (Off = inert.)
   save_settings();
 }
+bool get_raise() { return g_raise; }
+void set_raise(bool on) {
+  g_raise = on;
+  save_settings();
+}
 bool get_dedup() { return g_dedup; }
 void set_dedup(bool on) {
   g_dedup = on;
+  // The spawn-shift half installs from install_early (pre-window); enabling mid-session
+  // only arms the runtime passes + the next launch.
+  if (on && !g_real_cwexa) logger::log("[win] dedup: enabled - spawn hook arms on next launch");
   save_settings();
 }
 
@@ -746,11 +791,11 @@ void log_info() {
 static void print_status() {
   char msg[256];
   std::snprintf(msg, sizeof(msg),
-                "rof2ClientPlus window: self-heal=%s | guard-detours=%s | verbose=%s | char-title=%s | multibox-dedup=%s "
-                "(see rof2ClientPlus.log)",
+                "rof2ClientPlus window: self-heal=%s | guard-detours=%s | verbose=%s | char-title=%s | "
+                "multibox-raise=%s | multibox-move=%s (see rof2ClientPlus.log)",
                 window_watch::get_self_heal() ? "ON" : "OFF", rcp_guard::enabled() ? "ON" : "OFF",
                 window_watch::get_verbose() ? "ON" : "OFF", window_watch::get_char_title() ? "ON" : "OFF",
-                window_watch::get_dedup() ? "ON" : "OFF");
+                window_watch::get_raise() ? "ON" : "OFF", window_watch::get_dedup() ? "ON" : "OFF");
   Rcp::Game::print_chat(msg);
 }
 
@@ -761,8 +806,9 @@ WindowWatch::WindowWatch(RcpService *rcp) : rcp_(rcp) {
       "/rcpwindow", {"/rcpwin"},
       "Windowed-startup diagnostics + self-heal. '/rcpwindow on|off' (self-heal), "
       "'/rcpwindow guard on|off', '/rcpwindow verbose on|off', '/rcpwindow title on|off' (character name in "
-      "window title), '/rcpwindow dedup on|off|now' (multibox: move off a sibling client's identical window "
-      "rect), '/rcpwindow heal', '/rcpwindow info'.",
+      "window title), '/rcpwindow raise on|off' (multibox input-routing fix: raise-on-activate), "
+      "'/rcpwindow dedup on|off|now' (multibox fallback, off by default: move off a sibling client's "
+      "identical window rect), '/rcpwindow heal', '/rcpwindow info'.",
       [](std::vector<std::string> &args) {
         auto onoff = [&](size_t i, bool cur) -> bool {
           if (args.size() > i && (args[i] == "on" || args[i] == "1")) return true;
@@ -775,6 +821,8 @@ WindowWatch::WindowWatch(RcpService *rcp) : rcp_(rcp) {
           window_watch::set_verbose(onoff(2, window_watch::get_verbose()));
         } else if (args.size() >= 2 && args[1] == "title") {
           window_watch::set_char_title(onoff(2, window_watch::get_char_title()));
+        } else if (args.size() >= 2 && args[1] == "raise") {
+          window_watch::set_raise(onoff(2, window_watch::get_raise()));
         } else if (args.size() >= 2 && args[1] == "dedup") {
           if (args.size() > 2 && args[2] == "now") {
             window_watch::force_dedup_now();

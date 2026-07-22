@@ -72,6 +72,7 @@ static constexpr int kEntLFG = 0x440;      // uint8 (bool)
 static constexpr int kEntDisplayNameSprite = 0x1228;  // uint8 (bool); SetNameSpriteState early-outs if 0
 static constexpr int kEntTargetable = 0x160;  // bool: PlayerBase::Targetable ("true if mob is targetable").
 static constexpr int kEntRace = 0xeb4;        // uint16 race id (mActorClient.Race); used only for the hide log.
+static constexpr int kEntSpawnId = 0x148;     // uint32 spawn id (PlayerBase); identity fingerprint for caches.
 
 // Entity Type enum (RoF2: SPAWN_PLAYER/NPC/CORPSE from eqlib Constants.h).
 static constexpr uint8_t kTypePlayer = 0;
@@ -586,10 +587,18 @@ static const char *generate_player_name(char *ent) {
 static constexpr int kTextCacheSize = 128;
 struct NpTextEntry {
   void *entity;
+  uint32_t spawn_id;  // identity fingerprint: the client recycles PlayerClient allocations, so a
+                      // despawned mob's pointer is routinely reused by a NEW mob (mass #repop).
+                      // Without this check the billboard served the DEAD mob's cached name on the
+                      // new body ("High Chief Fosloas" labeled "a fire beetle").
   char text[256];
 };
 static NpTextEntry g_text_cache[kTextCacheSize] = {};
 static int g_text_cache_next = 0;
+
+static uint32_t entity_spawn_id(void *entity) {
+  return *reinterpret_cast<uint32_t *>(static_cast<char *>(entity) + kEntSpawnId);
+}
 
 static void cache_np_text(void *entity, const char *text) {
   int slot = -1;
@@ -603,12 +612,23 @@ static void cache_np_text(void *entity, const char *text) {
     g_text_cache_next = (g_text_cache_next + 1) % kTextCacheSize;
     g_text_cache[slot].entity = entity;
   }
+  g_text_cache[slot].spawn_id = entity_spawn_id(entity);
   std::snprintf(g_text_cache[slot].text, sizeof(g_text_cache[slot].text), "%s", text);
 }
 
 static const char *lookup_np_text(void *entity) {
   for (int i = 0; i < kTextCacheSize; ++i)
-    if (g_text_cache[i].entity == entity && g_text_cache[i].text[0]) return g_text_cache[i].text;
+    if (g_text_cache[i].entity == entity) {
+      if (g_text_cache[i].spawn_id != entity_spawn_id(entity)) {
+        // Same pointer, different spawn: a reused allocation. Purge the stale entry — the
+        // caller falls back to the entity's own displayed name until the next set-string pass
+        // re-caches the full client text.
+        g_text_cache[i].entity = nullptr;
+        g_text_cache[i].text[0] = 0;
+        return nullptr;
+      }
+      return g_text_cache[i].text[0] ? g_text_cache[i].text : nullptr;
+    }
   return nullptr;
 }
 
