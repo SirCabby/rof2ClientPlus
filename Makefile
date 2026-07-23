@@ -37,7 +37,7 @@ LDFLAGS  := -m32 -shared \
 # it matches the game's own d3dx9_30.dll (see PORTING_NOTES.md "N4").
 LDLIBS   := -luser32 -lgdi32 -lws2_32 -lpsapi -ldbghelp -ld3dx9_30
 
-.PHONY: all clean install models install-models dist
+.PHONY: all clean install models install-models dist package
 all: $(TARGET)
 
 $(TARGET): $(OBJS) | $(BUILD)
@@ -142,15 +142,28 @@ install-models:
 	python3 tools/build_models.py --src-dir "$(MODEL_SRC_DIR)" --game-dir "$(GAME_DIR)" --install
 
 # --- Distributable folder --------------------------------------------------------------
-# `make dist` assembles $(DIST)/ mirroring the client layout: the .asi, the 29 rcp*.s3d,
-# Resources/GlobalLoad.txt (stock + the mod's lines), uifiles/rcp/, and an INSTALL.txt.
-# Hand the folder to a user; copying its contents into the RoF2 dir is a complete install.
-# The .s3d are regenerated from $(MODEL_SRC_DIR) if present, else taken from build/ or the
-# backup's built-s3d/. See tools/build_dist.py and docs/MODEL_ASSETS.md.
+# `make dist` assembles the payload folder $(PAYLOAD)/ mirroring the client layout: the
+# .asi, the 29 rcp*.s3d, Resources/GlobalLoad.txt (stock + the mod's lines), uifiles/,
+# maps, launch scripts, and an INSTALL.txt. Hand the folder to a user; copying its
+# contents into the RoF2 dir is a complete install. The .s3d are regenerated from
+# $(MODEL_SRC_DIR) if present, else taken from build/ or the backup's built-s3d/.
+# See tools/build_dist.py and docs/MODEL_ASSETS.md.
 DIST ?= dist
+PAYLOAD = $(DIST)/rof2ClientPlus
 dist: all
-	python3 tools/build_dist.py --out "$(DIST)" --build-dir "$(BUILD)" \
+	python3 tools/build_dist.py --out "$(PAYLOAD)" --build-dir "$(BUILD)" \
 	  --src-dir "$(MODEL_SRC_DIR)" --fallback-s3d "$(MODEL_BACKUP)/built-s3d"
+
+# --- Distributable zip -----------------------------------------------------------------
+# `make package` rebuilds the payload and zips its CONTENTS into $(PKG), next to it in
+# $(DIST)/ (one file to hand to a user). The zip root IS the client layout (plus
+# INSTALL.txt), so extracting it straight into the RoF2 directory is a complete install.
+PKG ?= $(DIST)/rof2ClientPlus.zip
+package: dist
+	@command -v zip >/dev/null || { echo "ERROR: zip required"; exit 1; }
+	@rm -f "$(PKG)"   # zip updates archives in place; start clean so no stale entries survive
+	cd "$(PAYLOAD)" && zip -r -q "$(abspath $(PKG))" .
+	@echo ">> packaged -> $(PKG) ($$(du -h "$(PKG)" | cut -f1))"
 
 clean:
 	rm -rf $(BUILD) $(DIST)

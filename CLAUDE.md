@@ -11,13 +11,14 @@ delivered** — read the next section before assuming `make install` ships every
 make                 # -> build/rof2ClientPlus.asi   (config.mk sets GAME_DIR; gitignored)
 make install         # deploy .asi + option-window overrides (->uifiles/default) + fonts/rings/spell-icons (->uifiles/rcp) + classic maps (->maps/) + eq-window-fix
 make install-models  # deploy the 29 classic-model .s3d + patch Resources/GlobalLoad.txt
-make dist            # assemble dist/ (gitignored): a drop-in bundle to hand to a user
+make dist            # assemble dist/rof2ClientPlus/ (gitignored): a drop-in bundle to hand to a user
+make package         # zip that payload -> dist/rof2ClientPlus.zip (extract straight into a RoF2 dir)
 ```
 
 A **full/fresh deploy is `make install && make install-models`.** `make install` alone does
 NOT deliver the model-swap feature's runtime data (see below).
 
-**`make dist`** builds a self-contained `dist/` folder mirroring the client layout (the `.asi`,
+**`make dist`** builds a self-contained `dist/rof2ClientPlus/` payload folder mirroring the client layout (the `.asi`,
 the 29 `rcp*.s3d`, `Resources/GlobalLoad.txt` = stock + the mod's lines, `uifiles/**` — option
 windows in `default/`, fonts/rings in `rcp/` — the classic pre-revamp `maps/*_classic.txt`, and an
 `INSTALL.txt`). Copying its contents into a

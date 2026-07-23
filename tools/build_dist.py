@@ -2,8 +2,9 @@
 """Assemble a drop-in distribution folder that mirrors the RoF2 client layout, so a user
 can copy its whole contents into their client dir and every file lands where it belongs.
 
-Produces (default ./dist):
-  dist/
+Produces (default ./dist/rof2ClientPlus — the payload folder; `make package` zips its
+contents into ./dist/rof2ClientPlus.zip alongside it):
+  dist/rof2ClientPlus/
     rof2ClientPlus.asi            -> <RoF2>/                 (the mod DLL)
     eq-window-fix                 -> <RoF2>/                 (optional Linux windowed-mode helper)
     launch-eq*.sh                 -> <RoF2>/                 (optional Linux/Wine launch scripts)
@@ -160,7 +161,7 @@ def main():
     a = sys.argv[1:]
     def opt(name, default):
         return a[a.index(name) + 1] if name in a else default
-    out = opt("--out", os.path.join(REPO, "dist"))
+    out = opt("--out", os.path.join(REPO, "dist", "rof2ClientPlus"))
     build_dir = opt("--build-dir", os.path.join(REPO, "build"))
     src_dir = opt("--src-dir", "/home/joshua/Games/RoF2-modelswap-backup/model-inputs")
     fallback = opt("--fallback-s3d", "/home/joshua/Games/RoF2-modelswap-backup/built-s3d")

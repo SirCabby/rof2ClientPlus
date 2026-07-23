@@ -2,6 +2,7 @@ build/
 dist/
 *.asi
 *.o
+__pycache__/
 
 # Per-machine config (holds your private GAME_DIR). Keep out of the repo.
 config.mk
