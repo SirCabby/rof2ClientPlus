@@ -1,5 +1,6 @@
 // rof2ClientPlus - custom-font overlay implementation. See font_overlay.h.
 #include "font_overlay.h"
+#include "rebase.h"
 
 #include <d3d9.h>
 
@@ -40,13 +41,13 @@ float g_test3d_offset_lines = 1.0f;  // Screen-up lift above the head, in text l
 // Controlled player (self / mount / charm) and its world position floats. Same offsets
 // the working chase_cam uses; the three floats are consumed by the renderer in memory
 // order (0x64,0x68,0x6c), with 0x6c the vertical (EQ Z, up).
-void **const kControlled = reinterpret_cast<void **>(0xDD2644);
-void **const kSelf = reinterpret_cast<void **>(0xDD2630);  // local player (for mana/stamina).
+void **const kControlled = reinterpret_cast<void **>(::Rcp::eqva(0xDD2644));
+void **const kSelf = reinterpret_cast<void **>(::Rcp::eqva(0xDD2630));  // local player (for mana/stamina).
 // CDisplay::cameraType - the LIVE render camera (0 = first person). Same address mouse_mods and
 // chase_cam read; distinct from camera_mods' selected-view slot at 0x63BE68 (which does not track
 // a native zoom into first person). Use the live value so the self plate is suppressed exactly
 // when the camera is actually first person.
-int *const kCameraType = reinterpret_cast<int *>(0xD1FD9C);
+int *const kCameraType = reinterpret_cast<int *>(::Rcp::eqva(0xD1FD9C));
 constexpr int kEntPos0 = 0x64;         // first float the renderer reads (EQ Y).
 constexpr int kEntPos1 = 0x68;         // second (EQ X).
 constexpr int kEntPos2 = 0x6c;         // third, vertical (EQ Z).
@@ -75,20 +76,20 @@ constexpr float kFrustumMargin = 1.25f;
 
 // Spawn list (research Q1, triple-confirmed): manager @ 0xE641D0; first node @ mgr+0x08;
 // next node @ entity+0x08; NULL-terminated.
-void **const kSpawnManager = reinterpret_cast<void **>(0xE641D0);
+void **const kSpawnManager = reinterpret_cast<void **>(::Rcp::eqva(0xE641D0));
 constexpr int kListFirst = 0x08;
 constexpr int kEntNext = 0x08;
 
 // Local-player HP/mana/endurance for the self bars (research Q5): the spawn fields are the
 // target/NPC percent path and read 0 for self, so the real values live on CharacterZoneClient
 // (this = pLocalPC + 0x2DC8), read via the client's own accessor functions.
-void **const kLocalPC = reinterpret_cast<void **>(0xDD261C);
+void **const kLocalPC = reinterpret_cast<void **>(::Rcp::eqva(0xDD261C));
 constexpr int kCzcOffset = 0x2DC8;
 typedef int(__thiscall *StatFn2)(void *, int, bool);  // Cur_HP(0x449E00), Max_HP(0x443FA0): (0, true)
 typedef int(__thiscall *StatFn1b)(void *, bool);       // Cur_Mana(0x4442E0): (true)
 typedef int(__thiscall *StatFn1i)(void *, int);        // Max_Mana(0x581E60), Max_Endurance(0x582020): (0)
-constexpr uintptr_t kCurHP = 0x449E00, kMaxHP = 0x443FA0, kCurMana = 0x4442E0, kMaxMana = 0x581E60;
-constexpr uintptr_t kMaxEnd = 0x582020, kGetProfile = 0x7DB210;
+const uintptr_t kCurHP = ::Rcp::eqva(0x449E00), kMaxHP = ::Rcp::eqva(0x443FA0), kCurMana = ::Rcp::eqva(0x4442E0), kMaxMana = ::Rcp::eqva(0x581E60);
+const uintptr_t kMaxEnd = ::Rcp::eqva(0x582020), kGetProfile = ::Rcp::eqva(0x7DB210);
 // Current endurance has no accessor function; read it straight from PcProfile+0x3390. The profile
 // pointer needs a virtual-base adjustment - reproduce exactly what the (working) Cur_Mana at
 // 0x4442E0 does: arg = czc + *(*(czc+4)+4) + 8, then GetCurrentProfile(arg) (disasm 0x444323..).
@@ -412,7 +413,7 @@ void on_render_nameplates(IDirect3DDevice9 *device) {
 // the world geometry (so plates z-test against the world) but BEFORE the deferred 2D UI raster (so
 // the UI paints over the plates). This is exactly where the native name-sprites draw, so drawing
 // here gives correct UI occlusion for free, without any window enumeration or depth tricks.
-void **const kRenderInterface = reinterpret_cast<void **>(0x15D46A4);  // pinstRenderInterface
+void **const kRenderInterface = reinterpret_cast<void **>(::Rcp::eqva(0x15D46A4));  // pinstRenderInterface
 constexpr int kRenderDeviceOffset = 0xF08;         // CRender::pD3DDevice (IDirect3DDevice9*)
 constexpr int kSetRenderCallbackVtblIndex = 50;    // pRender vtable +0xC8
 typedef void(__cdecl *RenderCallbackPtr)();

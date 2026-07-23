@@ -1,5 +1,6 @@
 // rof2ClientPlus - continuous corpse hiding. See hide_corpse.h.
 #include "hide_corpse.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -24,7 +25,7 @@ namespace {
 
 // ---- Confirmed RoF2 eqlib PlayerClient (spawn) layout, shared with the in-game
 // verified modules (nameplate.cpp / font_overlay.cpp / floating_damage.cpp). ----
-void **const kSpawnManager = reinterpret_cast<void **>(0xE641D0);  // pinstSpawnManager (PlayerManagerClient).
+void **const kSpawnManager = reinterpret_cast<void **>(::Rcp::eqva(0xE641D0));  // pinstSpawnManager (PlayerManagerClient).
 constexpr int kListFirst = 0x08;    // manager+0x08 -> first spawn in the linked list.
 constexpr int kEntNext = 0x08;      // spawn+0x08   -> next spawn.
 constexpr int kEntType = 0x125;     // uint8: 0=Player, 1=NPC, 2=Corpse (npc AND player corpses collapse to 2).
@@ -34,7 +35,7 @@ constexpr uint8_t kTypeCorpse = 2;
 
 // PlayerManagerClient::GetSpawnByID(int) @0x5996E0, this = *kSpawnManager. The exact path the client
 // uses; the vendored Rcp::Game::get_entity_by_id is a stale TAKP address (garbage on RoF2) - never use it.
-constexpr uintptr_t kGetSpawnByID = 0x5996E0;
+const uintptr_t kGetSpawnByID = ::Rcp::eqva(0x5996E0);
 void *get_spawn_by_id(int id) {
   void *mgr = *kSpawnManager;
   if (!mgr) return nullptr;
@@ -43,7 +44,7 @@ void *get_spawn_by_id(int id) {
 
 constexpr int kEntName = 0xe4;      // displayed name (pre-trimmed); a corpse shows "<Base>'s corpse".
 constexpr int kEntCandDiscrim = 0x150;  // candidate PC/NPC discriminator to log (fork RE; getter 0x8CFCE0).
-void **const kTarget = reinterpret_cast<void **>(0xDD2648);  // current target spawn (for /hidecorpse debug).
+void **const kTarget = reinterpret_cast<void **>(::Rcp::eqva(0xDD2648));  // current target spawn (for /hidecorpse debug).
 
 inline uint8_t ent_type(char *ent) { return *reinterpret_cast<uint8_t *>(ent + kEntType); }
 inline void *ent_actor(char *ent) { return *reinterpret_cast<void **>(ent + kEntActor); }
@@ -102,7 +103,7 @@ void show_actor(void *actor) {
 void hide_model(char *ent) { hide_actor(ent_actor(ent)); }
 void show_model(char *ent) { show_actor(ent_actor(ent)); }
 
-void **const kSelf = reinterpret_cast<void **>(0xDD2630);  // local player spawn.
+void **const kSelf = reinterpret_cast<void **>(::Rcp::eqva(0xDD2630));  // local player spawn.
 
 // A corpse's displayed name (+0xe4) is "<Base>'s corpse"; copy out <Base> (text before the apostrophe,
 // trailing space trimmed).
@@ -159,7 +160,7 @@ bool is_own_corpse(char *ent) {
 // Group offsets reused from the confirmed nameplate code: pLocalPC (*0xDD261C) -> CGroup* @ +0x31cc ->
 // member ptr[6] @ +0x04, each member's PlayerClient* @ +0x28 (its name @ +0xe4). We match by NAME because
 // a corpse is a different spawn than the live member.
-constexpr uintptr_t kLocalPcPtr = 0xDD261C;
+const uintptr_t kLocalPcPtr = ::Rcp::eqva(0xDD261C);
 constexpr int kPcGroup = 0x31cc;
 constexpr int kGroupMembers = 0x04;
 constexpr int kGroupMemberPlayer = 0x28;
@@ -373,7 +374,7 @@ void reveal_all_hidden() {
 // corpse you were looting (you target a corpse to loot it), so we grab it and hide it. Tracked in
 // g_hidden so showlast/off work with it too. The __fastcall(this, edx) shape is the standard __thiscall
 // detour idiom used across this codebase (chat_timestamp / sound_mods).
-constexpr uintptr_t kLootDeactivate = 0x6bd0b0;
+const uintptr_t kLootDeactivate = ::Rcp::eqva(0x6bd0b0);
 typedef void(__fastcall *LootDeactivateFn)(void *lw, int edx);
 LootDeactivateFn g_loot_orig = nullptr;
 

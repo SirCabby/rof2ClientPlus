@@ -1,5 +1,6 @@
 // rof2ClientPlus - windowed-startup diagnostics + opt-in self-heal. See window_watch.h.
 #include "window_watch.h"
+#include "rebase.h"
 
 #include <windows.h>
 // tlhelp32 must follow windows.h.
@@ -572,7 +573,7 @@ void sync_title(HWND h) {
     // pinstLocalPlayer + PlayerBase::Name @ 0xA4 (char[0x40]) - the RoF2 offset proven in-game by
     // keybinds.cpp::self_name(). NOT Entity.Name@0x000 (stale TAKP layout; that read back "q"), and
     // NOT Rcp::Game::get_self() (stale TAKP global 0x7F94CC -> garbage ptr -> crash). See chat_shortcuts.cpp.
-    if (char *self = *reinterpret_cast<char **>(0xDD2630)) {
+    if (char *self = *reinterpret_cast<char **>(::Rcp::eqva(0xDD2630))) {
       const char *name = self + 0xA4;
       if (name[0]) want = std::string(name) + " - EverQuest";
     }

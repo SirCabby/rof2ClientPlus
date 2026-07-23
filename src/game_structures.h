@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "rebase.h"
 #include <windows.h>
 
 #include "vectors.h"
@@ -953,7 +954,7 @@ struct GAMECHARINFO  // common/patches/mac_structs.h::PlayerProfile_Struct
   // Returns trained rank of an AA
   int GetAbility(int aa_id) {
     if (aa_id < 1 || aa_id > 226) return 0;
-    return reinterpret_cast<int(__thiscall *)(Rcp::GameStructures::GAMECHARINFO *, int)>(0x4C3FB0)(this, aa_id);
+    return reinterpret_cast<int(__thiscall *)(Rcp::GameStructures::GAMECHARINFO *, int)>(::Rcp::eqva(0x4C3FB0))(this, aa_id);
   }
 
   bool is_cloth_caster() {
@@ -963,74 +964,74 @@ struct GAMECHARINFO  // common/patches/mac_structs.h::PlayerProfile_Struct
             cls == ClassTypes::Necromancer);
   }
 
-  float encum_factor() { return reinterpret_cast<float(__thiscall *)(GAMECHARINFO *)>(0x4bb9c7)(this); }
+  float encum_factor() { return reinterpret_cast<float(__thiscall *)(GAMECHARINFO *)>(::Rcp::eqva(0x4bb9c7))(this); }
 
-  short max_mana() { return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *)>(0x4B9483)(this); }
+  short max_mana() { return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *)>(::Rcp::eqva(0x4B9483))(this); }
 
-  short mana() { return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *)>(0x4b9450)(this); }
+  short mana() { return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *)>(::Rcp::eqva(0x4b9450))(this); }
 
-  short str() { return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *)>(0x004bafcb)(this); }
+  short str() { return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *)>(::Rcp::eqva(0x004bafcb))(this); }
 
-  short dex() { return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *)>(0x004bb34e)(this); }
+  short dex() { return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *)>(::Rcp::eqva(0x004bb34e))(this); }
 
   short compute_to_hit(char skill_type) {
-    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, char)>(0x004b9b96)(this, skill_type);
+    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, char)>(::Rcp::eqva(0x004b9b96))(this, skill_type);
   }
 
   short offense(char skill_type)  // skill_type == -1 defaults to hand-to-hand.
   {
-    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, char)>(0x004b9dda)(this, skill_type);
+    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, char)>(::Rcp::eqva(0x004b9dda))(this, skill_type);
   }
 
   short i_have_skill(int skill_type) {
-    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, char)>(0x004bfff5)(this, skill_type);
+    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, char)>(::Rcp::eqva(0x004bfff5))(this, skill_type);
   }
 
   int skill(int skill_type) {
-    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, char)>(0x004b8efd)(this, skill_type);
+    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, char)>(::Rcp::eqva(0x004b8efd))(this, skill_type);
   }
 
   short ac(bool apply_cap) {
-    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, bool)>(0x004b9b8a)(this, apply_cap);
+    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, bool)>(::Rcp::eqva(0x004b9b8a))(this, apply_cap);
   }
 
-  int compute_defense() { return reinterpret_cast<int(__thiscall *)(GAMECHARINFO *)>(0x004b9d19)(this); }
+  int compute_defense() { return reinterpret_cast<int(__thiscall *)(GAMECHARINFO *)>(::Rcp::eqva(0x004b9d19))(this); }
 
   short total_spell_affects(int category, bool unknown1, short *unknown2) {
-    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, int, bool, short *)>(0x004c6b6d)(this, category,
+    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, int, bool, short *)>(::Rcp::eqva(0x004c6b6d))(this, category,
                                                                                                  unknown1, unknown2);
   }
 
   short total_item_spell_affects(int category) {
-    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, int)>(0x004c1235)(this, category);
+    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, int)>(::Rcp::eqva(0x004c1235))(this, category);
   }
 
   bool is_spell_affecting_pc(short spell_id) {
-    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, short)>(0x004c70e7)(this, spell_id);
+    return reinterpret_cast<short(__thiscall *)(GAMECHARINFO *, short)>(::Rcp::eqva(0x004c70e7))(this, spell_id);
   }
 
   int cast(UINT gem, WORD spell_id, int *item, short item_slot) {
-    return reinterpret_cast<int(__thiscall *)(GAMECHARINFO *, UINT, WORD, int *, short)>(0x4c483b)(this, gem, spell_id,
+    return reinterpret_cast<int(__thiscall *)(GAMECHARINFO *, UINT, WORD, int *, short)>(::Rcp::eqva(0x4c483b))(this, gem, spell_id,
                                                                                                    item, item_slot);
   }
 
   void stop_cast(UINT reason, WORD spell_id) {
-    return reinterpret_cast<void(__thiscall *)(GAMECHARINFO *, UINT, WORD)>(0x4cb510)(this, reason, spell_id);
+    return reinterpret_cast<void(__thiscall *)(GAMECHARINFO *, UINT, WORD)>(::Rcp::eqva(0x4cb510))(this, reason, spell_id);
   }
 
   bool can_i_see_invis()  // CanISeeInvis()
   {
-    return reinterpret_cast<bool(__thiscall *)(GAMECHARINFO *)>(0x004c0d02)(this);
+    return reinterpret_cast<bool(__thiscall *)(GAMECHARINFO *)>(::Rcp::eqva(0x004c0d02))(this);
   }
 
   _GAMEBUFFINFO *GetBuff(WORD buff_slot) {  // Supports 0..29
-    return reinterpret_cast<_GAMEBUFFINFO *(__thiscall *)(GAMECHARINFO *, WORD)>(0x004C465A)(this, buff_slot);
+    return reinterpret_cast<_GAMEBUFFINFO *(__thiscall *)(GAMECHARINFO *, WORD)>(::Rcp::eqva(0x004C465A))(this, buff_slot);
   }
 
-  int GetMaxBuffs() { return reinterpret_cast<BYTE(__thiscall *)(GAMECHARINFO *)>(0x004C4637)(this); }
+  int GetMaxBuffs() { return reinterpret_cast<BYTE(__thiscall *)(GAMECHARINFO *)>(::Rcp::eqva(0x004C4637))(this); }
 
   int *RemoveMyAffect(int buff_slot) {  // Supports 0..15
-    return reinterpret_cast<int *(__thiscall *)(GAMECHARINFO *, int)>(0x004d0337)(this, buff_slot);
+    return reinterpret_cast<int *(__thiscall *)(GAMECHARINFO *, int)>(::Rcp::eqva(0x004d0337))(this, buff_slot);
   }
 
   /* 0x0000 */ BYTE Unknown0000[2];
@@ -1172,52 +1173,52 @@ struct GAMECHARINFO  // common/patches/mac_structs.h::PlayerProfile_Struct
 }; /* 0x21A4 (total size) */
 
 struct GameClass {
-  void Invite() { reinterpret_cast<void(__thiscall *)(GameClass *)>(0x005302c1)(this); }
+  void Invite() { reinterpret_cast<void(__thiscall *)(GameClass *)>(::Rcp::eqva(0x005302c1))(this); }
 
-  void Follow() { reinterpret_cast<void(__thiscall *)(GameClass *)>(0x0053069c)(this); }
+  void Follow() { reinterpret_cast<void(__thiscall *)(GameClass *)>(::Rcp::eqva(0x0053069c))(this); }
 
-  void Disband() { reinterpret_cast<void(__thiscall *)(GameClass *)>(0x00530829)(this); }
+  void Disband() { reinterpret_cast<void(__thiscall *)(GameClass *)>(::Rcp::eqva(0x00530829))(this); }
 
-  BYTE IsOkToTransact() { return reinterpret_cast<BYTE(__thiscall *)(GameClass *)>(0x54825C)(this); }
+  BYTE IsOkToTransact() { return reinterpret_cast<BYTE(__thiscall *)(GameClass *)>(::Rcp::eqva(0x54825C))(this); }
 
-  void SetupCharSelectCamera() { reinterpret_cast<void(__thiscall *)(GameClass *)>(0x0053c7cd)(this); }
+  void SetupCharSelectCamera() { reinterpret_cast<void(__thiscall *)(GameClass *)>(::Rcp::eqva(0x0053c7cd))(this); }
 
   void doInspect(struct Rcp::GameStructures::Entity *player) {
-    reinterpret_cast<void(__thiscall *)(GameClass *, Rcp::GameStructures::Entity *)>(0x54390E)(this, player);
+    reinterpret_cast<void(__thiscall *)(GameClass *, Rcp::GameStructures::Entity *)>(::Rcp::eqva(0x54390E))(this, player);
   }
 
   void DoPercentConvert(const char *buffer, int unk_flag) {
     // CEverQuest::DoPercentConvert(char* line, bool bOutGoing) - stock RoF2 0x51B600 (eqlib-confirmed;
     // the old 0x538110 was a stale TAKP offset that lands mid-function in RoF2).
-    reinterpret_cast<void(__thiscall *)(GameClass *, const char *, int)>(0x0051B600)(this, buffer, unk_flag);
+    reinterpret_cast<void(__thiscall *)(GameClass *, const char *, int)>(::Rcp::eqva(0x0051B600))(this, buffer, unk_flag);
   }
 
   void dsp_chat(char *data, short color, bool un) {
     // Stock RoF2 CEverQuest::dsp_chat(const char*, int color, bool allowLog, bool doPercentConvert).
     // Was TAKP 0x00537f99 with a 3-arg signature.
-    reinterpret_cast<void(__thiscall *)(GameClass *, const char *, int, bool, bool)>(0x51F1A0)(this, data, color, un,
+    reinterpret_cast<void(__thiscall *)(GameClass *, const char *, int, bool, bool)>(::Rcp::eqva(0x51F1A0))(this, data, color, un,
                                                                                                true);
   }
 
   const char *GetClassDesc(int class_id) {
-    return reinterpret_cast<const char *(__thiscall *)(GameClass *, int)>(0x0052d5f1)(this, class_id);
+    return reinterpret_cast<const char *(__thiscall *)(GameClass *, int)>(::Rcp::eqva(0x0052d5f1))(this, class_id);
   }
 
   const char *GetTitleDesc(int class_id, int aa_rank, int gender) {
-    return reinterpret_cast<const char *(__thiscall *)(GameClass *, int, int, int)>(0x0052eb69)(this, class_id, aa_rank,
+    return reinterpret_cast<const char *(__thiscall *)(GameClass *, int, int, int)>(::Rcp::eqva(0x0052eb69))(this, class_id, aa_rank,
                                                                                                 gender);
   }
 
   void IssuePetCommand(int command, short spawn_id) {
-    reinterpret_cast<void(__thiscall *)(GameClass *, int, short)>(0x00547749)(this, command, spawn_id);
+    reinterpret_cast<void(__thiscall *)(GameClass *, int, short)>(::Rcp::eqva(0x00547749))(this, command, spawn_id);
   }
 
   char *stripName(const char *spawn_name) {
-    return reinterpret_cast<char *(__thiscall *)(GameClass *, const char *)>(0x00537E4B)(this, spawn_name);
+    return reinterpret_cast<char *(__thiscall *)(GameClass *, const char *)>(::Rcp::eqva(0x00537E4B))(this, spawn_name);
   }
 
   char *trimName(const char *spawn_name) {
-    return reinterpret_cast<char *(__thiscall *)(GameClass *, const char *)>(0x00537D39)(this, spawn_name);
+    return reinterpret_cast<char *(__thiscall *)(GameClass *, const char *)>(::Rcp::eqva(0x00537D39))(this, spawn_name);
   }
 
   /*0x000*/ BYTE Unknown0000[0x288];
@@ -1227,40 +1228,40 @@ struct GameClass {
 };
 
 struct Display {
-  void SetDayPeriod(int period) { reinterpret_cast<void(__thiscall *)(Display *, int)>(0x004b177f)(this, period); }
+  void SetDayPeriod(int period) { reinterpret_cast<void(__thiscall *)(Display *, int)>(::Rcp::eqva(0x004b177f))(this, period); }
 
   void SetFog(int toggle, float distance, float unknown, char r, char g, char b) {
-    reinterpret_cast<void(__thiscall *)(Display *, int, float, float, char, char, char)>(0x004add26)(
+    reinterpret_cast<void(__thiscall *)(Display *, int, float, float, char, char, char)>(::Rcp::eqva(0x004add26))(
         this, toggle, distance, unknown, r, g, b);
   }
 
   bool UpdatePlayerActor(Entity *actor) {
-    return reinterpret_cast<bool(__thiscall *)(Display *, Entity *)>(0x004af76e)(this, actor);
+    return reinterpret_cast<bool(__thiscall *)(Display *, Entity *)>(::Rcp::eqva(0x004af76e))(this, actor);
   }
 
-  void SetSunLight() { reinterpret_cast<void(__thiscall *)(Display *)>(0x004b18b1)(this); }
+  void SetSunLight() { reinterpret_cast<void(__thiscall *)(Display *)>(::Rcp::eqva(0x004b18b1))(this); }
 
-  void SetYon(float clip) { reinterpret_cast<void(__thiscall *)(Display *, float)>(0x004aca7f)(this, clip); }
+  void SetYon(float clip) { reinterpret_cast<void(__thiscall *)(Display *, float)>(::Rcp::eqva(0x004aca7f))(this, clip); }
 
   // Calls s3dCollideSphereWithWorld internally.
   char GenericSphereColl(float start_x, float start_y, float start_z, float end_x, float end_y, float end_z,
                          float *result_x, float *result_y, float *result_z, char collision_type) {
     return reinterpret_cast<char(__thiscall *)(Display *, float, float, float, float, float, float, float *, float *,
-                                               float *, char)>(0x004b3c45)(
+                                               float *, char)>(::Rcp::eqva(0x004b3c45))(
         this, start_x, start_y, start_z, end_x, end_y, end_z, result_x, result_y, result_z, collision_type);
   }
 
-  void KeyMapUpdated() { reinterpret_cast<void(__thiscall *)(Display *)>(0x004a7ca5)(this); }
+  void KeyMapUpdated() { reinterpret_cast<void(__thiscall *)(Display *)>(::Rcp::eqva(0x004a7ca5))(this); }
 
   void HandleMaterial(Rcp::GameStructures::GAMECHARINFO *char_info, short slot_id,
                       Rcp::GameStructures::GAMEITEMINFO *new_item, Rcp::GameStructures::GAMEITEMINFO *old_item) {
     reinterpret_cast<void(__thiscall *)(Display *, Rcp::GameStructures::GAMECHARINFO *, short,
                                         Rcp::GameStructures::GAMEITEMINFO *, Rcp::GameStructures::GAMEITEMINFO *)>(
-        0x004a28b0)(this, char_info, slot_id, new_item, old_item);
+        ::Rcp::eqva(0x004a28b0))(this, char_info, slot_id, new_item, old_item);
   }
 
   void DoItemSlot(Rcp::GameStructures::Entity *self, int slot_id) {
-    reinterpret_cast<void(__thiscall *)(Display *, Rcp::GameStructures::Entity *, int)>(0x004a9c8a)(this, self,
+    reinterpret_cast<void(__thiscall *)(Display *, Rcp::GameStructures::Entity *, int)>(::Rcp::eqva(0x004a9c8a))(this, self,
                                                                                                      slot_id);
   }
 
@@ -1290,11 +1291,11 @@ struct Display {
 struct Entity {
   void ChangeStance(BYTE new_stance) {
     if (this && this->StandingState != new_stance)
-      reinterpret_cast<void(__thiscall *)(Entity *, unsigned char)>(0x50be3c)(this, new_stance);
+      reinterpret_cast<void(__thiscall *)(Entity *, unsigned char)>(::Rcp::eqva(0x50be3c))(this, new_stance);
   }
 
   UINT ModifyAttackSpeed(UINT raw_delay, UINT is_bow) {
-    return reinterpret_cast<UINT(__thiscall *)(void *player, UINT raw_delay, UINT is_bow)>(0x0050a039)(this, raw_delay,
+    return reinterpret_cast<UINT(__thiscall *)(void *player, UINT raw_delay, UINT is_bow)>(::Rcp::eqva(0x0050a039))(this, raw_delay,
                                                                                                        is_bow);
   }
 
@@ -1537,7 +1538,7 @@ struct SPELL {
   short CalculateSpellDuration(Rcp::GameStructures::GAMECHARINFO *char_info, BYTE caster_level) {
     if (!char_info) return 0;
     return reinterpret_cast<short(__thiscall *)(Rcp::GameStructures::GAMECHARINFO *, Rcp::GameStructures::SPELL *,
-                                                BYTE, BYTE)>(0x4ca746)(char_info, this, caster_level, 0);
+                                                BYTE, BYTE)>(::Rcp::eqva(0x4ca746))(char_info, this, caster_level, 0);
   }
 
   // Note: Technically this is a GAMECHARINFO::CalculateAffectChange, but declared here for now
@@ -1550,7 +1551,7 @@ struct SPELL {
       return 315 + (10 * level);
     }
     return reinterpret_cast<short(__thiscall *)(Rcp::GameStructures::GAMECHARINFO *, Rcp::GameStructures::SPELL *,
-                                                BYTE, BYTE, Rcp::GameStructures::_GAMEBUFFINFO *)>(0x4c657d)(
+                                                BYTE, BYTE, Rcp::GameStructures::_GAMEBUFFINFO *)>(::Rcp::eqva(0x4c657d))(
         char_info, this, caster_level, effect_index, buff);
   }
 
@@ -1696,10 +1697,10 @@ struct GameAltAbility {          // operator new of 0x38 bytes.
 
 struct AltAdvManager {  // operator new of 0x38c bytes.
 
-  static AltAdvManager *get_manager() { return *reinterpret_cast<AltAdvManager **>(0x0063d724); }
+  static AltAdvManager *get_manager() { return *reinterpret_cast<AltAdvManager **>(::Rcp::eqva(0x0063d724)); }
 
   int CalculateMitigationBoost(GAMECHARINFO *char_info, int softcap) {
-    return reinterpret_cast<int(__thiscall *)(AltAdvManager *, GAMECHARINFO *, int)>(0x004b7b48)(this, char_info,
+    return reinterpret_cast<int(__thiscall *)(AltAdvManager *, GAMECHARINFO *, int)>(::Rcp::eqva(0x004b7b48))(this, char_info,
                                                                                                  softcap);
   }
 

@@ -19,6 +19,7 @@
 // Off until configured; '/rcpcam <x> <y>' sets independent axis sensitivity.
 // Addresses are stock RoF2 facts from eqlib + the 0x516d40 turn function.
 #include "mouse_mods.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -37,24 +38,24 @@
 #include "rcp.h"
 
 // Stock RoF2 addresses (eqlib offsets/eqgame.h).
-static void **const kDIMouseDevice = reinterpret_cast<void **>(0xE67B50);   // DI8__Mouse (IDirectInputDevice8*)
-static constexpr uintptr_t kMouseStateBuf = 0xE67884;                       // DIMOUSESTATE2 buffer (lX+0, lY+4)
-static uint8_t *const kMouseLook = reinterpret_cast<uint8_t *>(0xDDF702);   // EverQuestInfo->MouseLook (1 while looking)
-static uint8_t *const kRBtn = reinterpret_cast<uint8_t *>(0xDDF73D);        // EverQuestInfo->MouseButtons[1] (right down)
+static void **const kDIMouseDevice = reinterpret_cast<void **>(::Rcp::eqva(0xE67B50));   // DI8__Mouse (IDirectInputDevice8*)
+static const uintptr_t kMouseStateBuf = ::Rcp::eqva(0xE67884);                       // DIMOUSESTATE2 buffer (lX+0, lY+4)
+static uint8_t *const kMouseLook = reinterpret_cast<uint8_t *>(::Rcp::eqva(0xDDF702));   // EverQuestInfo->MouseLook (1 while looking)
+static uint8_t *const kRBtn = reinterpret_cast<uint8_t *>(::Rcp::eqva(0xDDF73D));        // EverQuestInfo->MouseButtons[1] (right down)
 static constexpr int kGetDeviceStateVtIndex = 9;                            // IDirectInputDevice8::GetDeviceState
 
 // Float-turn addresses (from the stock RoF2 mouse-turn function at 0x516d40).
 // The client turns by (delta / screen_dim) * base * S applied to an integer
 // delta, giving sparse-count stair-stepping on the slow axis. We reproduce the
 // SAME math in float on a smoothed delta so diagonals stay smooth.
-static void **const kControlled = reinterpret_cast<void **>(0xDD2644);      // controlled player (self/mount/charm)
-static int *const kCameraType = reinterpret_cast<int *>(0xD1FD9C);          // CDisplay::cameraType (0 = first person)
+static void **const kControlled = reinterpret_cast<void **>(::Rcp::eqva(0xDD2644));      // controlled player (self/mount/charm)
+static int *const kCameraType = reinterpret_cast<int *>(::Rcp::eqva(0xD1FD9C));          // CDisplay::cameraType (0 = first person)
 static constexpr int kChaseView = 6;  // cameraType 6 = the mouse-wheel chase view (see PORTING_NOTES).
-static int *const kScreenLeft = reinterpret_cast<int *>(0xDDF620);
-static int *const kScreenRight = reinterpret_cast<int *>(0xDDF628);
-static int *const kScreenTop = reinterpret_cast<int *>(0xDDF624);
-static int *const kScreenBottom = reinterpret_cast<int *>(0xDDF62C);
-static int *const kMouseSensIni = reinterpret_cast<int *>(0xDDF69C);        // client MouseSensitivity setting
+static int *const kScreenLeft = reinterpret_cast<int *>(::Rcp::eqva(0xDDF620));
+static int *const kScreenRight = reinterpret_cast<int *>(::Rcp::eqva(0xDDF628));
+static int *const kScreenTop = reinterpret_cast<int *>(::Rcp::eqva(0xDDF624));
+static int *const kScreenBottom = reinterpret_cast<int *>(::Rcp::eqva(0xDDF62C));
+static int *const kMouseSensIni = reinterpret_cast<int *>(::Rcp::eqva(0xDDF69C));        // client MouseSensitivity setting
 static constexpr int kOffHeading = 0x80;       // PlayerClient::Heading (float, 0..512 yaw)
 static constexpr int kOffSpeedHeading = 0x8C;  // PlayerClient::SpeedHeading (yaw rate)
 static constexpr int kOffPitch = 0x90;         // PlayerClient::CameraAngle (look pitch)

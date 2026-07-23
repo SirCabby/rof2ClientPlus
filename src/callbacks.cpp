@@ -1,4 +1,5 @@
 #include <algorithm>
+#include "rebase.h"
 #include <format>
 #include "callbacks.h"
 
@@ -302,25 +303,25 @@ void DeactivateMainUI() {
 }
 
 CallbackManager::CallbackManager(RcpService *rcp) {
-  rcp->hooks->Add("DrawWindows", 0x59E000, DrawWindows,
+  rcp->hooks->Add("DrawWindows", ::Rcp::eqva(0x59E000), DrawWindows,
                    hook_type_detour);  // render in this hook so damage is displayed behind ui
-  rcp->hooks->Add("ExecuteCmd", 0x54050c, executecmd_hk, hook_type_detour);
-  rcp->hooks->Add("MainLoop", 0x5473c3, main_loop_hk, hook_type_detour);
-  rcp->hooks->Add("CDisplayRender_MinWorld", 0x004abe54, CDisplayRender_MinWorld_hk, hook_type_detour);
-  rcp->hooks->Add("Render", 0x4AA8BC, render_hk, hook_type_detour);
+  rcp->hooks->Add("ExecuteCmd", ::Rcp::eqva(0x54050c), executecmd_hk, hook_type_detour);
+  rcp->hooks->Add("MainLoop", ::Rcp::eqva(0x5473c3), main_loop_hk, hook_type_detour);
+  rcp->hooks->Add("CDisplayRender_MinWorld", ::Rcp::eqva(0x004abe54), CDisplayRender_MinWorld_hk, hook_type_detour);
+  rcp->hooks->Add("Render", ::Rcp::eqva(0x4AA8BC), render_hk, hook_type_detour);
   HMODULE gfx_dx8 = GetModuleHandleA("eqgfx_dx8.dll");
   if (gfx_dx8) rcp->hooks->Add("RenderUI", (DWORD)gfx_dx8 + 0x6b7f0, render_ui, hook_type_detour);
 
-  rcp->hooks->Add("EnterZone", 0x53D2C4, enterzone_hk, hook_type_detour);
-  rcp->hooks->Add("CDisplayCleanGameUI", 0x4A6EBC, CDisplayCleanGameUI, hook_type_detour);  // Also char select.
-  rcp->hooks->Add("DoCharacterSelection", 0x53b9cf, charselect_hk, hook_type_detour);
-  rcp->hooks->Add("InitGameUI", 0x4a60b5, initgameui_hk, hook_type_detour);
-  rcp->hooks->Add("InitCharSelectUI", 0x4a5f85, initcharselectui_hk, hook_type_detour);
-  rcp->hooks->Add("HandleWorldMessage", 0x4e829f, handleworldmessage_hk, hook_type_detour);
-  rcp->hooks->Add("SendMessage", 0x54e51a, send_message_hk, hook_type_detour);
-  rcp->hooks->Add("GamePlayer", 0x506802, GamePlayer, hook_type_detour);
-  rcp->hooks->Add("GamePlayerDeconstruct", 0x50723D, GamePlayerDeconstruct, hook_type_detour);
-  rcp->hooks->Add("AddOutputText", 0x4139A2, OutputText, hook_type_detour);
-  rcp->hooks->Add("ReportSuccessfulHit", 0x5297D2, ReportSuccessfulHit, hook_type_detour);
-  rcp->hooks->Add("DeactivateMainUI", 0x4A7705, DeactivateMainUI, hook_type_detour);
+  rcp->hooks->Add("EnterZone", ::Rcp::eqva(0x53D2C4), enterzone_hk, hook_type_detour);
+  rcp->hooks->Add("CDisplayCleanGameUI", ::Rcp::eqva(0x4A6EBC), CDisplayCleanGameUI, hook_type_detour);  // Also char select.
+  rcp->hooks->Add("DoCharacterSelection", ::Rcp::eqva(0x53b9cf), charselect_hk, hook_type_detour);
+  rcp->hooks->Add("InitGameUI", ::Rcp::eqva(0x4a60b5), initgameui_hk, hook_type_detour);
+  rcp->hooks->Add("InitCharSelectUI", ::Rcp::eqva(0x4a5f85), initcharselectui_hk, hook_type_detour);
+  rcp->hooks->Add("HandleWorldMessage", ::Rcp::eqva(0x4e829f), handleworldmessage_hk, hook_type_detour);
+  rcp->hooks->Add("SendMessage", ::Rcp::eqva(0x54e51a), send_message_hk, hook_type_detour);
+  rcp->hooks->Add("GamePlayer", ::Rcp::eqva(0x506802), GamePlayer, hook_type_detour);
+  rcp->hooks->Add("GamePlayerDeconstruct", ::Rcp::eqva(0x50723D), GamePlayerDeconstruct, hook_type_detour);
+  rcp->hooks->Add("AddOutputText", ::Rcp::eqva(0x4139A2), OutputText, hook_type_detour);
+  rcp->hooks->Add("ReportSuccessfulHit", ::Rcp::eqva(0x5297D2), ReportSuccessfulHit, hook_type_detour);
+  rcp->hooks->Add("DeactivateMainUI", ::Rcp::eqva(0x4A7705), DeactivateMainUI, hook_type_detour);
 }

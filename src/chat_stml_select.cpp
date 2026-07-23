@@ -1,5 +1,6 @@
 // rof2ClientPlus - character-precise drag-select + copy for chat history. See chat_stml_select.h.
 #include "chat_stml_select.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -17,13 +18,13 @@ namespace {
 // ---------------------------------------------------------------------------
 // Stock RoF2 addresses / offsets (eqlib + disasm, May 10 2013 build).
 // ---------------------------------------------------------------------------
-void **const kChatMgr = reinterpret_cast<void **>(0xF71070);  // pinstCChatWindowManager
+void **const kChatMgr = reinterpret_cast<void **>(::Rcp::eqva(0xF71070));  // pinstCChatWindowManager
 constexpr int kMaxChatWindows = 32;
 constexpr int kChatOutputWnd = 0x228;  // CChatWindow::OutputWnd (a CStmlWnd)
 
 // CXWnd
 constexpr int kWndVScroll = 0x17c;              // int VScrollPos
-constexpr uintptr_t kGetScreenRect = 0x8638D0;  // CXRect GetScreenRect() - __thiscall, struct return
+const uintptr_t kGetScreenRect = ::Rcp::eqva(0x8638D0);  // CXRect GetScreenRect() - __thiscall, struct return
 
 // CStmlWnd
 constexpr int kStmlLines = 0x1dc;  // CircularArrayClass2<STextLine> (embedded); +0x00 == this field
@@ -46,14 +47,14 @@ constexpr int kRepLength = 0x08, kRepEncoding = 0x0c, kRepData = 0x14;
 // (+0x44), NOT LButtonUp (+0x3c) - both must end the selection.
 constexpr int kVtDraw = 0x0c / 4, kVtLBD = 0x38 / 4, kVtLBU = 0x3c / 4, kVtLBUAH = 0x44 / 4, kVtMM = 0x60 / 4;
 
-constexpr uintptr_t kDrawColoredRect = 0x863010;  // __cdecl(const CXRect*, COLORREF, const CXRect*)
+const uintptr_t kDrawColoredRect = ::Rcp::eqva(0x863010);  // __cdecl(const CXRect*, COLORREF, const CXRect*)
 
 // DI8__MouseState (0xE67884) is the game's polled DirectInput mouse state
 // {LONG lX,lY,lZ; BYTE rgbButtons[8]}; left button = rgbButtons[0] @ +0xC. This
 // is the authoritative "is the button down" signal, refreshed every frame - far
 // more reliable than the up-events, which Wine drops when a slow drag crosses
 // EQ's "held" threshold (the release then never reaches the window).
-constexpr uintptr_t kMouseLButton = 0xE67890;
+const uintptr_t kMouseLButton = ::Rcp::eqva(0xE67890);
 
 struct Rect {
   int left = 0, top = 0, right = 0, bottom = 0;

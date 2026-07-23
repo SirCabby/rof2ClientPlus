@@ -1,4 +1,5 @@
 #include <algorithm>
+#include "rebase.h"
 #include <format>
 #include "game_functions.h"
 
@@ -39,7 +40,7 @@ namespace Rcp {
 namespace Game {
 int GetSpellCastingTime()  // GetSpellCastingTime() in client.
 {
-  return reinterpret_cast<int(__cdecl *)(void)>(0x00435f28)();
+  return reinterpret_cast<int(__cdecl *)(void)>(::Rcp::eqva(0x00435f28))();
 }
 
 DWORD GetLevelCon(Rcp::GameStructures::Entity *ent) {
@@ -224,8 +225,8 @@ bool IsPlayableRace(WORD race) {
 
 // See server common/patches/mac_limits.h namespace invslot for valid slot numbers. 0 = Cursor.
 bool move_item(int from_slot, int to_slot, int print_error, int a3) {
-  return reinterpret_cast<bool(__thiscall *)(int t, int a1, int slot, int a2, int a3)>(0x422b1c)(
-      *(int *)0x63d6b4, from_slot, to_slot, print_error, a3);
+  return reinterpret_cast<bool(__thiscall *)(int t, int a1, int slot, int a2, int a3)>(::Rcp::eqva(0x422b1c))(
+      *(int *)::Rcp::eqva(0x63d6b4), from_slot, to_slot, print_error, a3);
 }
 
 // Internal client function that checks if the item can be placed into the bag (container).
@@ -233,7 +234,7 @@ bool can_go_in_bag(Rcp::GameStructures::GAMEITEMINFO *item, Rcp::GameStructures:
                    int print_error) {
   bool result =
       reinterpret_cast<int(__cdecl *)(Rcp::GameStructures::GAMEITEMINFO *, Rcp::GameStructures::GAMEITEMINFO *, int)>(
-          0x004f11a3)(item, container, print_error);
+          ::Rcp::eqva(0x004f11a3))(item, container, print_error);
   return result;
 }
 
@@ -313,7 +314,7 @@ static bool pickup_item(int item_slot, Rcp::GameStructures::GAMEITEMINFO *item) 
       display->DoItemSlot(self, item_slot);
 
     if (item_slot <= GAME_PACKS_SLOTS_END) {
-      reinterpret_cast<void(__cdecl *)(Rcp::GameStructures::GAMECHARINFO *)>(0x004f0c7b)(char_info);  // UpdateLight()
+      reinterpret_cast<void(__cdecl *)(Rcp::GameStructures::GAMECHARINFO *)>(::Rcp::eqva(0x004f0c7b))(char_info);  // UpdateLight()
     }
 
     Rcp::Game::WavePlay(0x92);
@@ -401,7 +402,7 @@ bool is_on_ground(Rcp::GameStructures::Entity *ent) {
 }
 
 char *get_string(UINT id) {
-  return reinterpret_cast<char *(__thiscall *)(int t, UINT id, bool *)>(0x550EFE)(*(int *)0x7f9490, id, nullptr);
+  return reinterpret_cast<char *(__thiscall *)(int t, UINT id, bool *)>(::Rcp::eqva(0x550EFE))(*(int *)::Rcp::eqva(0x7f9490), id, nullptr);
 }
 
 float heading_to_yaw(float heading) {
@@ -463,7 +464,7 @@ std::string equipSlotToString(int slot) {
 bool can_use_item(Rcp::GameStructures::GAMECHARINFO *c, Rcp::GameStructures::GAMEITEMINFO *item) {
   using FunctionType2 =
       bool(__thiscall *)(Rcp::GameStructures::GAMECHARINFO * char_info, Rcp::GameStructures::GAMEITEMINFO * iItem);
-  FunctionType2 can_use_item = reinterpret_cast<FunctionType2>(0x4BB8E8);
+  FunctionType2 can_use_item = reinterpret_cast<FunctionType2>(::Rcp::eqva(0x4BB8E8));
   return can_use_item(c, item);
 }
 
@@ -471,7 +472,7 @@ bool can_item_equip_in_slot(Rcp::GameStructures::GAMECHARINFO *c, const Rcp::Gam
                             int slot) {
   using FunctionType = bool(__cdecl *)(Rcp::GameStructures::GAMECHARINFO * char_info, UINT equipable_slots, UINT slot,
                                        const Rcp::GameStructures::GAMEITEMINFO *iItem);
-  FunctionType check_loc = reinterpret_cast<FunctionType>(0x4F0DB4);
+  FunctionType check_loc = reinterpret_cast<FunctionType>(::Rcp::eqva(0x4F0DB4));
   return check_loc(c, item->EquipableSlots, slot, item);
 }
 
@@ -520,7 +521,7 @@ bool can_inventory_item(Rcp::GameStructures::GAMEITEMINFO *item) {
 }
 
 Rcp::GameStructures::ActorLocation get_actor_location(int actor) {
-  DWORD addr = *(DWORD *)0x7f99c8;  // game pointer to function
+  DWORD addr = *(DWORD *)::Rcp::eqva(0x7f99c8);  // game pointer to function
   Rcp::GameStructures::ActorLocation actor_loc{};
   int *r = (int *)&actor_loc;
   // Original MSVC inline asm pushed r then actor (cdecl, caller cleans 8 bytes),
@@ -530,14 +531,14 @@ Rcp::GameStructures::ActorLocation get_actor_location(int actor) {
 }
 
 bool show_context_menu() {
-  int ctx = GameInternal::CXWndShowContextMenu(*(int *)Game::WndManager, 0, *(int *)0x8092e8, *(int *)0x8092ec);
+  int ctx = GameInternal::CXWndShowContextMenu(*(int *)Game::WndManager, 0, *(int *)::Rcp::eqva(0x8092e8), *(int *)::Rcp::eqva(0x8092ec));
   return ctx;
 }
 
 GameUI::CXWndManager *get_wnd_manager() { return *Game::WndManager; }
 
 bool is_gui_visible() {
-  return *(reinterpret_cast<int *>(0x0063b918)) != 3;  // ScreenMode == 3 when F10 is pressed.
+  return *(reinterpret_cast<int *>(::Rcp::eqva(0x0063b918))) != 3;  // ScreenMode == 3 when F10 is pressed.
 }
 
 bool is_game_ui_window_hovered() {
@@ -577,7 +578,7 @@ float encum_factor() {
     return 1.0f;
 }
 
-int *get_sound_manager() { return (int *)(*(int *)0x63dea8); }
+int *get_sound_manager() { return (int *)(*(int *)::Rcp::eqva(0x63dea8)); }
 
 void DoPercentConvert(std::string &data) {
   char temp_buffer[2048];  // Same maximum size as internal DoPercentConvert.
@@ -588,19 +589,19 @@ void DoPercentConvert(std::string &data) {
 }
 
 Rcp::GameStructures::Entity *get_player_partial_name(const char *name) {
-  return reinterpret_cast<Rcp::GameStructures::Entity *(__cdecl *)(const char *name)>(0x0050820e)(name);
+  return reinterpret_cast<Rcp::GameStructures::Entity *(__cdecl *)(const char *name)>(::Rcp::eqva(0x0050820e))(name);
 }
 
-void log(const char *data) { reinterpret_cast<void(__cdecl *)(const char *data)>(0x005240dc)(data); }
+void log(const char *data) { reinterpret_cast<void(__cdecl *)(const char *data)>(::Rcp::eqva(0x005240dc))(data); }
 
-void log(std::string &data) { reinterpret_cast<void(__cdecl *)(const char *data)>(0x5240dc)(data.c_str()); }
+void log(std::string &data) { reinterpret_cast<void(__cdecl *)(const char *data)>(::Rcp::eqva(0x5240dc))(data.c_str()); }
 
-Rcp::GameStructures::GAMECHARINFO *get_char_info() { return (Rcp::GameStructures::GAMECHARINFO *)(*(int *)0x7F94E8); }
+Rcp::GameStructures::GAMECHARINFO *get_char_info() { return (Rcp::GameStructures::GAMECHARINFO *)(*(int *)::Rcp::eqva(0x7F94E8)); }
 
-void do_autoattack(bool enabled) { reinterpret_cast<void(__thiscall *)(int, bool)>(0x5493b5)(0x798540, enabled); }
+void do_autoattack(bool enabled) { reinterpret_cast<void(__thiscall *)(int, bool)>(::Rcp::eqva(0x5493b5))(::Rcp::eqva(0x798540), enabled); }
 
 const Rcp::GameStructures::GameCommand *get_command_struct(const std::string &command) {
-  auto command_list = reinterpret_cast<const Rcp::GameStructures::GameCommand *>(0x00609af8);
+  auto command_list = reinterpret_cast<const Rcp::GameStructures::GameCommand *>(::Rcp::eqva(0x00609af8));
   for (int i = 0; i < Rcp::GameStructures::GameCommand::kNumCommands; ++i) {
     if ((command_list[i].localized_name && command == command_list[i].localized_name) ||
         (command == command_list[i].name))
@@ -617,7 +618,7 @@ int get_command_function(const std::string &command) {
 
 std::vector<std::string> get_command_matches(const std::string &start_of_name) {
   std::vector<std::string> result;
-  auto command_list = reinterpret_cast<const Rcp::GameStructures::GameCommand *>(0x00609af8);
+  auto command_list = reinterpret_cast<const Rcp::GameStructures::GameCommand *>(::Rcp::eqva(0x00609af8));
   for (int i = 0; i < Rcp::GameStructures::GameCommand::kNumCommands; ++i) {
     const char *localized_name = command_list[i].localized_name;
     const char *name = command_list[i].name;
@@ -637,29 +638,29 @@ Rcp::GameStructures::ViewActor *get_view_actor() {
   return v;
 }
 
-UINT get_game_time() { return reinterpret_cast<UINT(__cdecl *)()>(0x4f35c7)(); }
+UINT get_game_time() { return reinterpret_cast<UINT(__cdecl *)()>(::Rcp::eqva(0x4f35c7))(); }
 
-int get_game_main() { return *(int *)0x7f9574; }
+int get_game_main() { return *(int *)::Rcp::eqva(0x7f9574); }
 
 void SetMusicSelection(int number, bool enabled) {
   int *sound_manager = get_sound_manager();
   if (sound_manager)
-    reinterpret_cast<void(__thiscall *)(int *, int, bool)>(0x4d54c1)(get_sound_manager(), number, enabled);
+    reinterpret_cast<void(__thiscall *)(int *, int, bool)>(::Rcp::eqva(0x4d54c1))(get_sound_manager(), number, enabled);
 }
 
 void WavePlay(int index) {
   if (get_sound_manager())
-    reinterpret_cast<void(__thiscall *)(int *, int, int)>(0x004d518b)(get_sound_manager(), index, 0);
+    reinterpret_cast<void(__thiscall *)(int *, int, int)>(::Rcp::eqva(0x004d518b))(get_sound_manager(), index, 0);
 }
 
 bool CanIHitTarget(float dist) {
   return reinterpret_cast<bool(__thiscall *)(Rcp::GameStructures::Entity *, Rcp::GameStructures::Entity *, float)>(
-      0x509E09)(get_self(), get_target(), dist);
+      ::Rcp::eqva(0x509E09))(get_self(), get_target(), dist);
 }
 
 bool do_attack(uint8_t type, uint8_t p2) {
   return reinterpret_cast<bool(__thiscall *)(Rcp::GameStructures::Entity * player, uint8_t type, uint8_t p2,
-                                             Rcp::GameStructures::Entity * target)>(0x50A0F8)(get_self(), type, p2,
+                                             Rcp::GameStructures::Entity * target)>(::Rcp::eqva(0x50A0F8))(get_self(), type, p2,
                                                                                                get_target());
 }
 
@@ -667,7 +668,7 @@ void do_who(const char *query) {
   if (get_self() && query) {
     char buffer[512];  // Probably unnecessary but protect the input buffer from possible modification by the call.
     strcpy_s(buffer, sizeof(buffer), query);
-    reinterpret_cast<void(__cdecl *)(Rcp::GameStructures::Entity * player, char *arguments)>(0x004f491e)(get_self(),
+    reinterpret_cast<void(__cdecl *)(Rcp::GameStructures::Entity * player, char *arguments)>(::Rcp::eqva(0x004f491e))(get_self(),
                                                                                                           buffer);
   }
 }
@@ -678,14 +679,14 @@ void do_raidaccept(bool cross_zone) {
     return;
   }
   if (get_self())
-    reinterpret_cast<void(__thiscall *)(Rcp::GameStructures::Entity * player, const char *unused)>(0x004f3be5)(
+    reinterpret_cast<void(__thiscall *)(Rcp::GameStructures::Entity * player, const char *unused)>(::Rcp::eqva(0x004f3be5))(
         get_self(), "");
 }
 
 void do_raiddecline(bool cross_zone) {
   if (cross_zone) return;  // No current deny command for cross-zone invites
   if (get_self())
-    reinterpret_cast<void(__thiscall *)(Rcp::GameStructures::Entity * player, const char *unused)>(0x004f3bc1)(
+    reinterpret_cast<void(__thiscall *)(Rcp::GameStructures::Entity * player, const char *unused)>(::Rcp::eqva(0x004f3bc1))(
         get_self(), "");
 }
 
@@ -715,8 +716,8 @@ const char *strip_name(const char *name)  // aka stripName in client
 }
 
 void send_message(UINT opcode, int *buffer, UINT size, int unknown) {
-  reinterpret_cast<void(__cdecl *)(int *connection, UINT opcode, int *buffer, UINT size, int unknown)>(0x54e51a)(
-      (int *)0x7952fc, opcode, buffer, size, unknown);
+  reinterpret_cast<void(__cdecl *)(int *connection, UINT opcode, int *buffer, UINT size, int unknown)>(::Rcp::eqva(0x54e51a))(
+      (int *)::Rcp::eqva(0x7952fc), opcode, buffer, size, unknown);
 }
 
 bool is_view_actor_me() {
@@ -996,12 +997,12 @@ Vec3 get_view_actor_head_pos() {
   }
 }
 
-bool is_in_character_select() { return *(int *)0x63d5d8 != 0; }
+bool is_in_character_select() { return *(int *)::Rcp::eqva(0x63d5d8) != 0; }
 
 int get_region_from_pos(Vec3 *pos) {
   static int last_good_region = 0;
   auto display = Rcp::Game::get_display();
-  auto t3dGetRegionNumberFromWorldAndXYZ = reinterpret_cast<int(__cdecl *)(int *, Vec3 *)>(*(int **)(0x007f9a30));
+  auto t3dGetRegionNumberFromWorldAndXYZ = reinterpret_cast<int(__cdecl *)(int *, Vec3 *)>(*(int **)(::Rcp::eqva(0x007f9a30)));
 
   int rval = display ? t3dGetRegionNumberFromWorldAndXYZ(display->World, pos) : -1;
   if (rval == -1)
@@ -1665,7 +1666,7 @@ void update_get_camera_location() {
   auto display = Rcp::Game::get_display();
   if (!display) return;
 
-  auto t3dGetCameraLocation = reinterpret_cast<int(__cdecl *)(float *, float *)>(*(int **)(0x007f99d4));
+  auto t3dGetCameraLocation = reinterpret_cast<int(__cdecl *)(float *, float *)>(*(int **)(::Rcp::eqva(0x007f99d4)));
   t3dGetCameraLocation(display->ActiveCamera, display->CameraLocation);
 }
 
@@ -1676,7 +1677,7 @@ int update_get_world_visible_actor_list(float max_distance) {
 
   auto s3dGetWorldVisibleActorList =
       reinterpret_cast<int(__cdecl *)(int *world, float *active_camera, float *position, float distance, int parameter,
-                                      Rcp::GameStructures::Display::ReferenceList *list)>(*(int **)(0x007f9850));
+                                      Rcp::GameStructures::Display::ReferenceList *list)>(*(int **)(::Rcp::eqva(0x007f9850)));
   return s3dGetWorldVisibleActorList(display->World, display->ActiveCamera, NULL, max_distance, 0x11,
                                      &display->VisibleReferenceList);
 }
@@ -1782,13 +1783,13 @@ std::vector<std::string> splitStringByNewLine(const std::string &str) {
 }
 
 void do_consent(const char *name) {
-  auto do_consent_fn = reinterpret_cast<void(__cdecl *)(Rcp::GameStructures::Entity *, const char *)>(0x004fb39e);
+  auto do_consent_fn = reinterpret_cast<void(__cdecl *)(Rcp::GameStructures::Entity *, const char *)>(::Rcp::eqva(0x004fb39e));
   do_consent_fn(get_self(), name);
 }
 
 void do_say(bool hide_local, const char *format, ...) {
   BYTE orig[13] = {0};
-  if (hide_local) mem::set(0x538672, 0x90, 13, orig);
+  if (hide_local) mem::set(::Rcp::eqva(0x538672), 0x90, 13, orig);
 
   va_list argptr;
   char buffer[512];
@@ -1800,18 +1801,18 @@ void do_say(bool hide_local, const char *format, ...) {
   GameInternal::do_say(get_self(), buffer);
 
   if (hide_local && orig) {
-    mem::copy(0x538672, orig, 13);
+    mem::copy(::Rcp::eqva(0x538672), orig, 13);
   }
 }
 
 void do_say(bool hide_local, std::string data) {
   BYTE orig[13] = {0};
-  if (hide_local) mem::set(0x538672, 0x90, 13, orig);
+  if (hide_local) mem::set(::Rcp::eqva(0x538672), 0x90, 13, orig);
 
   GameInternal::do_say(get_self(), data.c_str());
 
   if (hide_local && orig) {
-    mem::copy(0x538672, orig, 13);
+    mem::copy(::Rcp::eqva(0x538672), orig, 13);
   }
 }
 
@@ -1903,7 +1904,7 @@ void destroy_held() {
   // class pointer. This will either destroy the cursor item immediately if fast destroy is set
   // or it will pop up a confirmation dialog.
   auto inventory_wnd = Rcp::Game::Windows->Inventory;
-  reinterpret_cast<void(__fastcall *)(Rcp::GameUI::SidlWnd *, int unused_edx)>(0x00421637)(inventory_wnd, 0);
+  reinterpret_cast<void(__fastcall *)(Rcp::GameUI::SidlWnd *, int unused_edx)>(::Rcp::eqva(0x00421637))(inventory_wnd, 0);
 }
 
 int get_gamestate() {
@@ -1914,15 +1915,15 @@ int get_gamestate() {
 }
 
 // pinstCEverQuest (stock RoF2 / eqlib). Was TAKP 0x00809478.
-GameStructures::GameClass *get_game() { return *reinterpret_cast<GameStructures::GameClass **>(0xE67CCC); }
+GameStructures::GameClass *get_game() { return *reinterpret_cast<GameStructures::GameClass **>(::Rcp::eqva(0xE67CCC)); }
 
-GameStructures::Display *get_display() { return *reinterpret_cast<GameStructures::Display **>(0x007F9510); }
+GameStructures::Display *get_display() { return *reinterpret_cast<GameStructures::Display **>(::Rcp::eqva(0x007F9510)); }
 
-const char *get_ui_skin() { return reinterpret_cast<const char *>(0x0063D3C0); }
+const char *get_ui_skin() { return reinterpret_cast<const char *>(::Rcp::eqva(0x0063D3C0)); }
 
 std::string get_ui_ini_filename() {
   // First try to use client's function (GetUIIniFilename) to retrieve it.
-  const char *ui_ini_file = reinterpret_cast<const char *(__cdecl *)(void)>(0x00437481)();
+  const char *ui_ini_file = reinterpret_cast<const char *(__cdecl *)(void)>(::Rcp::eqva(0x00437481))();
   if (ui_ini_file && ui_ini_file[0]) return ui_ini_file;
 
   Rcp::GameStructures::GAMECHARINFO *c = Rcp::Game::get_char_info();
@@ -1935,7 +1936,7 @@ std::string get_ui_ini_filename() {
 
 std::string get_host_tag() {
   // Try to use client's function (GetUIIniFilename) to retrieve the filesafe host description.
-  const char *ui_ini_file = reinterpret_cast<const char *(__cdecl *)(void)>(0x00437481)();
+  const char *ui_ini_file = reinterpret_cast<const char *(__cdecl *)(void)>(::Rcp::eqva(0x00437481))();
   if (ui_ini_file && ui_ini_file[0]) {
     std::string ini_file = std::string(ui_ini_file);
     std::regex pattern(".*_([^_]+)\\.ini$");  // Captures all chars after last underscore before .ini.
@@ -1969,16 +1970,16 @@ int get_channel_number(const char *name)  // ChannelServerApi::GetChannelNumber(
 {
   auto game = get_game();
   if (!game || !game->ChannelServerApi) return -1;
-  return reinterpret_cast<int(__fastcall *)(void *ChannelServerApi, int unused_edx, const char *name)>(0x0049cdaf)(
+  return reinterpret_cast<int(__fastcall *)(void *ChannelServerApi, int unused_edx, const char *name)>(::Rcp::eqva(0x0049cdaf))(
       game->ChannelServerApi, 0, name);
 }
 
 void do_join(Rcp::GameStructures::Entity *player, const char *name) {
-  reinterpret_cast<void(__cdecl *)(Rcp::GameStructures::Entity *, const char *)>(0x00500106)(player, name);
+  reinterpret_cast<void(__cdecl *)(Rcp::GameStructures::Entity *, const char *)>(::Rcp::eqva(0x00500106))(player, name);
 }
 
 void send_to_channel(int chat_channel_zero_based, const char *message) {
-  reinterpret_cast<void(__cdecl *)(int, const char *)>(0x00500266)(chat_channel_zero_based + 1, message);
+  reinterpret_cast<void(__cdecl *)(int, const char *)>(::Rcp::eqva(0x00500266))(chat_channel_zero_based + 1, message);
 }
 
 void do_inspect(Rcp::GameStructures::Entity *player) { get_game()->doInspect(player); }
@@ -1986,7 +1987,7 @@ void do_inspect(Rcp::GameStructures::Entity *player) { get_game()->doInspect(pla
 void pet_command(int cmd, short spawn_id) { get_game()->IssuePetCommand(cmd, spawn_id); }
 
 void execute_cmd(UINT cmd, int isdown, int unk2) {
-  reinterpret_cast<void(__cdecl *)(UINT, int, int)>(0x54050c)(cmd, isdown, unk2);
+  reinterpret_cast<void(__cdecl *)(UINT, int, int)>(::Rcp::eqva(0x54050c))(cmd, isdown, unk2);
 }
 
 std::string generateTimestamp() {
@@ -2295,7 +2296,7 @@ bool use_item(int global_slot_id, bool quiet, Rcp::GameStructures::GAMEITEMINFO 
   return chr->cast(kUseItemGemSlot, 0, (int *)&item, global_slot_id) != 0;
 }
 
-bool is_autoattacking() { return *reinterpret_cast<BYTE *>(0x007f6ffe); }
+bool is_autoattacking() { return *reinterpret_cast<BYTE *>(::Rcp::eqva(0x007f6ffe)); }
 
 Rcp::GameStructures::Entity *get_active_corpse() {
   return *(Rcp::GameStructures::Entity **)Rcp::Game::Active_Corpse;
@@ -2313,10 +2314,10 @@ void set_target(Rcp::GameStructures::Entity *target) {
   // that will keep the server in sync and also trigger a target HP update packet response.
 }
 
-void do_target(const char *name) { reinterpret_cast<void(__cdecl *)(int, const char *)>(0x4FD9A7)(0, name); }
+void do_target(const char *name) { reinterpret_cast<void(__cdecl *)(int, const char *)>(::Rcp::eqva(0x4FD9A7))(0, name); }
 
 void do_consider(Rcp::GameStructures::Entity *entity, const char *str) {
-  reinterpret_cast<void(__cdecl *)(Rcp::GameStructures::Entity *, const char *)>(0x004f6364)(entity, str);
+  reinterpret_cast<void(__cdecl *)(Rcp::GameStructures::Entity *, const char *)>(::Rcp::eqva(0x004f6364))(entity, str);
 }
 
 Rcp::GameStructures::Entity *get_entity_list() { return *(Rcp::GameStructures::Entity **)Rcp::Game::EntListPtr; }
@@ -2327,7 +2328,7 @@ void set_attack_on_assist(bool enable) { *Rcp::Game::attack_on_assist = enable; 
 
 long get_user_color(int index) {
   index -= 1;
-  long _param_1 = reinterpret_cast<long(__cdecl *)(int)>(0x4AA2C1)(index);
+  long _param_1 = reinterpret_cast<long(__cdecl *)(int)>(::Rcp::eqva(0x4AA2C1))(index);
   if (_param_1 == 0) return 0xFFFFFFFF;
   return (_param_1 & 0xff00 | _param_1 >> 0x10 & 0xff | (_param_1 | 0xffffff00) << 0x10);
 }
@@ -2346,7 +2347,7 @@ Rcp::GameStructures::Entity *get_entity_by_parent_id(short parent_id) {
   return 0;
 }
 
-Rcp::GameStructures::SPELLMGR *get_spell_mgr() { return *(Rcp::GameStructures::SPELLMGR **)0x805CB0; }
+Rcp::GameStructures::SPELLMGR *get_spell_mgr() { return *(Rcp::GameStructures::SPELLMGR **)::Rcp::eqva(0x805CB0); }
 
 int get_spell_level(int spell_id) {
   Rcp::GameStructures::GAMECHARINFO *char_info = Rcp::Game::get_char_info();
@@ -2765,24 +2766,24 @@ int get_showname() {
   // Holds value of /showname command.
   //  1 = first names, 2 = first/last names, 3 = first/last/guild names, 4 = everything
   //  5 = title/first names 6. title/first/last names 7. first/guild names
-  return *reinterpret_cast<int32_t *>(0x007d01e4);
+  return *reinterpret_cast<int32_t *>(::Rcp::eqva(0x007d01e4));
 }
 
 int get_show_pc_names() {
   // Holds value of Options -> Display -> Show PC Names
   // 0 = off, 1 = on
-  return *reinterpret_cast<int *>(0x0063D6C8);
+  return *reinterpret_cast<int *>(::Rcp::eqva(0x0063D6C8));
 }
 
 int get_show_npc_names() {
   // Holds value of Options -> Display -> Show NPC Names
   // 0 = off, 1 = on
-  return *reinterpret_cast<int *>(0x0063D6CC);
+  return *reinterpret_cast<int *>(::Rcp::eqva(0x0063D6CC));
 }
 
 std::string get_full_zone_name(int zone_id) {
-  const int fn_GetFullZoneName = 0x00523e49;
-  void *pWorld = *reinterpret_cast<void **>(0x007F9494);
+  const int fn_GetFullZoneName = ::Rcp::eqva(0x00523e49);
+  void *pWorld = *reinterpret_cast<void **>(::Rcp::eqva(0x007F9494));
   char buffer[512];  // LongName is only 0x80 in GAMEZONEINFO.
   buffer[0] = 0;     // Returns "Unknown Zone" if invalid index
   reinterpret_cast<void(__thiscall *)(void *this_world, int zone_id, char *buffer)>(fn_GetFullZoneName)(pWorld, zone_id,
@@ -2791,8 +2792,8 @@ std::string get_full_zone_name(int zone_id) {
 }
 
 std::string get_zone_name_from_index(int zone_id) {
-  const int fn_GetZoneNameFromIndex = 0x00523f73;
-  void *pWorld = *reinterpret_cast<void **>(0x007F9494);
+  const int fn_GetZoneNameFromIndex = ::Rcp::eqva(0x00523f73);
+  void *pWorld = *reinterpret_cast<void **>(::Rcp::eqva(0x007F9494));
   char buffer[512];  // ShortName is only 0x20 in GAMEZONEINFO.
   if (!reinterpret_cast<bool(__thiscall *)(void *this_world, int zone_id, char *buffer)>(fn_GetZoneNameFromIndex)(
           pWorld, zone_id, buffer))
@@ -2801,8 +2802,8 @@ std::string get_zone_name_from_index(int zone_id) {
 }
 
 int get_index_from_zone_name(const std::string &name) {
-  const int fn_GetIndexFromZoneName = 0x00523fa4;  // Returns 0 if not found.
-  void *pWorld = *reinterpret_cast<void **>(0x007F9494);
+  const int fn_GetIndexFromZoneName = ::Rcp::eqva(0x00523fa4);  // Returns 0 if not found.
+  void *pWorld = *reinterpret_cast<void **>(::Rcp::eqva(0x007F9494));
   return reinterpret_cast<int(__thiscall *)(void *this_world, const char *buffer)>(fn_GetIndexFromZoneName)(
       pWorld, name.c_str());
 }
@@ -2816,7 +2817,7 @@ std::string get_title_desc(int class_id, int aa_rank, int gender) {
 std::string get_player_guild_name(short guild_id) {
   // Roughly equivalent to:
   // return (guild_id == -1) ? "Unknown" : Rcp::Game::guild_names->Guild[guildId].Name;
-  const int fn_GetPlayerGuildName = 0x0054c7e1;
+  const int fn_GetPlayerGuildName = ::Rcp::eqva(0x0054c7e1);
   auto desc = reinterpret_cast<const char *(*)(short)>(fn_GetPlayerGuildName)(guild_id);
   return std::string(desc);
 }
@@ -2825,7 +2826,7 @@ bool is_in_game() { return get_gamestate() == GAMESTATE_INGAME; }
 
 bool is_in_char_select() { return get_gamestate() == GAMESTATE_CHARSELECT; }
 
-bool is_new_ui() { return *(BYTE *)0x8092D8; }
+bool is_new_ui() { return *(BYTE *)::Rcp::eqva(0x8092D8); }
 
 HWND get_game_window() {
   HMODULE dll = GetModuleHandleA("eqw.dll");
@@ -2873,7 +2874,7 @@ void UpdateGems(int index) {
   Windows->SpellGems->UpdateSpellGems(index);
 }
 
-bool IsValidSpellIndex(int spellid) { return reinterpret_cast<bool(__cdecl *)(int)>(0x004D79EA)(spellid); }
+bool IsValidSpellIndex(int spellid) { return reinterpret_cast<bool(__cdecl *)(int)>(::Rcp::eqva(0x004D79EA))(spellid); }
 }  // namespace Spells
 
 namespace OldUI {
@@ -2960,7 +2961,7 @@ void sort_list_wnd(Rcp::GameUI::ListWnd *list_wnd, int sort_column, SortType sor
 
 short total_spell_affects(Rcp::GameStructures::GAMECHARINFO *char_info, BYTE affect_type, BYTE a3,
                           int *per_buff_values) {
-  return reinterpret_cast<short(__thiscall *)(Rcp::GameStructures::GAMECHARINFO *, BYTE, BYTE, int *)>(0x4C6B6D)(
+  return reinterpret_cast<short(__thiscall *)(Rcp::GameStructures::GAMECHARINFO *, BYTE, BYTE, int *)>(::Rcp::eqva(0x4C6B6D))(
       char_info, affect_type, a3, per_buff_values);
 }
 
@@ -2979,7 +2980,7 @@ void sit()  // Using game ::Sit() logic here, but without the sit/stand toggle
 
 void dismount()  // Same as /dismount
 {
-  reinterpret_cast<void(__cdecl *)(int)>(0x004ff5a6)(1);  // do_dismount(1).
+  reinterpret_cast<void(__cdecl *)(int)>(::Rcp::eqva(0x004ff5a6))(1);  // do_dismount(1).
 }
 
 bool is_mounted() {
@@ -3012,11 +3013,11 @@ int get_num_total_bank_slots() {
 
   // First read the patched total number of bank slots.
   // PatchT(0x4CE982 + 3, (int)TotalBagSlotsAtEndOfPlayerProfile); // GameCharInfo Destructor
-  int total_number = *reinterpret_cast<int *>(0x4ce985);
+  int total_number = *reinterpret_cast<int *>(::Rcp::eqva(0x4ce985));
 
   // And also sanity check the char_info_size allocation matches.
   // PatchT(0x40B036 + 1, (int)new_charinfo_size); // CCharacterCreation::CCharacterCreation_40AB77
-  int char_info_size = *reinterpret_cast<int *>(0x40b037);
+  int char_info_size = *reinterpret_cast<int *>(::Rcp::eqva(0x40b037));
 
   if (total_number == 60 && char_info_size == sizeof(Rcp::GameStructures::GAMECHARINFO)) return 60;
 

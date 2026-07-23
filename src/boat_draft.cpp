@@ -1,5 +1,6 @@
 // rof2ClientPlus - boat draft offset. See boat_draft.h.
 #include "boat_draft.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -23,7 +24,7 @@ namespace {
 
 // ---- Confirmed RoF2 spawn (PlayerClient) layout, shared with hide_corpse.cpp /
 // npc_model_swap.cpp (race offset verified there). ----
-void **const kSpawnManager = reinterpret_cast<void **>(0xE641D0);  // pinstSpawnManager.
+void **const kSpawnManager = reinterpret_cast<void **>(::Rcp::eqva(0xE641D0));  // pinstSpawnManager.
 constexpr int kListFirst = 0x08;   // manager+0x08 -> first spawn in the linked list.
 constexpr int kEntNext = 0x08;     // spawn+0x08   -> next spawn.
 constexpr int kEntY = 0x64;        // float Y (eqlib PlayerBase; family-confirmed by 0x125/0x148).

@@ -11,6 +11,7 @@
 // 0x53A6C0) and create the service on its first call - while the main thread
 // sits inside our constructor it cannot also be running the loop.
 #include <windows.h>
+#include "rebase.h"
 
 #include "aa_exp.h"
 #include "chat_stml_select.h"
@@ -28,7 +29,7 @@
 #include "window_watch.h"
 
 // stock RoF2 __ProcessGameEvents (eqlib). Runs on the main thread.
-static const int kProcessGameEventsAddr = 0x53A6C0;
+static const int kProcessGameEventsAddr = ::Rcp::eqva(0x53A6C0);
 
 static HookWrapper *g_boot = nullptr;
 
@@ -90,6 +91,10 @@ static void on_attach() {
     logger::init("rof2ClientPlus.log");
     logger::logf("DllMain PROCESS_ATTACH: module=%p pid=%lu", (void *)pinned,
                  (unsigned long)GetCurrentProcessId());
+    // ASLR diagnostic: every eqgame VA in this mod is rebased through Rcp::eqva().
+    // Delta is 0 under Wine (preferred base); nonzero on native Windows is NORMAL.
+    logger::logf("eqgame base=%p (ASLR delta +0x%lX)", (void *)GetModuleHandleA(nullptr),
+                 (unsigned long)Rcp::eqgame_delta());
 
     // Install the crash handler FIRST so even faults during early init / the very
     // first detour are captured, then the window diagnostics (env + ini + leftover-

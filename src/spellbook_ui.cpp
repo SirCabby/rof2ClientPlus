@@ -29,6 +29,7 @@
 // index = spell book slot); dropping it on a cast-bar gem runs the client's
 // native memorize (animation, server round-trip, gem refresh) untouched.
 #include "spellbook_ui.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -62,12 +63,12 @@ constexpr char kIniKeyUnscribed[] = "ShowUnscribed";
 constexpr char kIniKeyScribe[] = "RightClickScribe";
 
 // ---- stock RoF2 addresses (eqlib offsets/eqgame.h + repo-proven values) ----
-constexpr int kCreateXWnd = 0x870400;    // CSidlManagerBase::CreateXWndFromTemplate(parent,name)
-constexpr int kGetChildItem = 0x85CFD0;  // CSidlScreenWnd::GetChildItem(name, flag)
-constexpr int kSetFocus = 0x865250;      // CXWnd::SetFocus() - route typing to the search box on open
-constexpr int kCXStrCtor = 0x805C20;     // CXStr::CXStr(const char*)
-constexpr int kCXStrDtor = 0x465AE0;     // CXStr::~CXStr
-void **const kSidlManager = reinterpret_cast<void **>(0x15D3D08);  // pinstCSidlManager
+const int kCreateXWnd = ::Rcp::eqva(0x870400);    // CSidlManagerBase::CreateXWndFromTemplate(parent,name)
+const int kGetChildItem = ::Rcp::eqva(0x85CFD0);  // CSidlScreenWnd::GetChildItem(name, flag)
+const int kSetFocus = ::Rcp::eqva(0x865250);      // CXWnd::SetFocus() - route typing to the search box on open
+const int kCXStrCtor = ::Rcp::eqva(0x805C20);     // CXStr::CXStr(const char*)
+const int kCXStrDtor = ::Rcp::eqva(0x465AE0);     // CXStr::~CXStr
+void **const kSidlManager = reinterpret_cast<void **>(::Rcp::eqva(0x15D3D08));  // pinstCSidlManager
 constexpr int kShowVtOffset = 0xD8;           // CXWnd vtable Show() slot
 constexpr int kSetWindowTextVtOffset = 0x124; // CXWnd vtable SetWindowText(const CXStr&) slot
 constexpr int kCheckedOffset = 0x1E4;         // CButtonWnd::Checked
@@ -75,16 +76,16 @@ constexpr int kDShowOffset = 0x196;           // CXWnd::dShow (visible flag)
 
 // CListWnd (proven set from rcp_options_ui.cpp + the eqlib-mapped extras this
 // window needs: per-cell icons, per-row data, per-cell colors, sort state).
-constexpr int kListAddString = 0x8580C0;   // int AddString(const CXStr&, COLORREF, uint32 data, void* pTa, char* tip)
-constexpr int kListGetCurSel = 0x853430;   // int GetCurSel() const
-constexpr int kListSetCurSel = 0x853470;   // void SetCurSel(int)
-constexpr int kListSetItemText = 0x8575B0; // void SetItemText(int row, int col, const CXStr&)
-constexpr int kListRemoveLine = 0x8582A0;  // void RemoveLine(int)
-constexpr int kListSetItemIcon = 0x857540; // void SetItemIcon(int row, int col, const CTextureAnimation*)
-constexpr int kListGetItemData = 0x853680; // uint32 GetItemData(int row) const
-constexpr int kListSetItemColor = 0x857770;   // void SetItemColor(int row, int col, COLORREF)
-constexpr int kListEnsureVisible = 0x8550D0;  // void EnsureVisible(int row)
-constexpr int kListSetColumnsSizable = 0x855F20;  // void SetColumnsSizable(bool) - enables header drag-resize
+const int kListAddString = ::Rcp::eqva(0x8580C0);   // int AddString(const CXStr&, COLORREF, uint32 data, void* pTa, char* tip)
+const int kListGetCurSel = ::Rcp::eqva(0x853430);   // int GetCurSel() const
+const int kListSetCurSel = ::Rcp::eqva(0x853470);   // void SetCurSel(int)
+const int kListSetItemText = ::Rcp::eqva(0x8575B0); // void SetItemText(int row, int col, const CXStr&)
+const int kListRemoveLine = ::Rcp::eqva(0x8582A0);  // void RemoveLine(int)
+const int kListSetItemIcon = ::Rcp::eqva(0x857540); // void SetItemIcon(int row, int col, const CTextureAnimation*)
+const int kListGetItemData = ::Rcp::eqva(0x853680); // uint32 GetItemData(int row) const
+const int kListSetItemColor = ::Rcp::eqva(0x857770);   // void SetItemColor(int row, int col, COLORREF)
+const int kListEnsureVisible = ::Rcp::eqva(0x8550D0);  // void EnsureVisible(int row)
+const int kListSetColumnsSizable = ::Rcp::eqva(0x855F20);  // void SetColumnsSizable(bool) - enables header drag-resize
 constexpr int kListItemsCountOffset = 0x1d8;  // ItemsArray.m_length == row count
 constexpr int kListCurColOffset = 0x1fc;      // CurCol: column of the last click (next to proven CurSel@0x1f8)
 constexpr int kListSortColOffset = 0x210;     // SortCol
@@ -111,10 +112,10 @@ constexpr int kRepLength = 0x08, kRepEncoding = 0x0c, kRepData = 0x14;
 // shared Frames array is only ever read, and SetCurCell touches per-copy fields.
 constexpr int kTexAnimSize = 0x4c;
 constexpr int kTexAnimNameOffset = 0x04;
-constexpr int kTexAnimSetCurCell = 0x87A860;  // void SetCurCell(int)
+const int kTexAnimSetCurCell = ::Rcp::eqva(0x87A860);  // void SetCurCell(int)
 
 // Spell manager + EQ_Spell field offsets (eqlib game/Spells.h, 2013-05-10).
-char **const kSpellMgr = reinterpret_cast<char **>(0xE646B0);  // ClientSpellManager**
+char **const kSpellMgr = reinterpret_cast<char **>(::Rcp::eqva(0xE646B0));  // ClientSpellManager**
 constexpr int kSpellTableOffset = 0x2c180;
 constexpr int kTotalSpellCount = 45001;
 constexpr int kSpCastTime = 0x010;      // uint32 ms
@@ -137,7 +138,7 @@ constexpr int kSpName = 0x27a;          // char[64] inline
 constexpr int kSpScribable = 0x4e1;     // bool
 
 // Character profile (eqlib PcClient.h/PcProfile.h).
-char **const kLocalPC = reinterpret_cast<char **>(0xDD261C);
+char **const kLocalPC = reinterpret_cast<char **>(::Rcp::eqva(0xDD261C));
 constexpr int kProfileMgrOffset = 0x31F0;  // ProfileManager {ProfileList* pFirst; int CurProfileList}
 constexpr int kProfSpellBook = 0x2520;     // int[720]
 constexpr int kProfMemorized = 0x3060;     // int[16] (12 usable gems)
@@ -153,15 +154,15 @@ constexpr uint8_t kStandStateStanding = 100;
 constexpr uint8_t kStandStateSitting = 110;
 
 // DB string table (category names + spell descriptions).
-void **const kDbStr = reinterpret_cast<void **>(0xD1F380);  // pinstCDBStr
-constexpr int kDbGetString = 0x4866C0;  // const char* GetString(this, int id, int type, bool* found)
+void **const kDbStr = reinterpret_cast<void **>(::Rcp::eqva(0xD1F380));  // pinstCDBStr
+const int kDbGetString = ::Rcp::eqva(0x4866C0);  // const char* GetString(this, int id, int type, bool* found)
 constexpr int kDbTypeSpellCategory = 5;
 constexpr int kDbTypeSpellDescription = 6;
 
 // CStmlWnd::SetSTMLText@0x883E10 (ret 0xC = 3 args: CXStr by value, bool
 // addToHistory, SLinkInfo*). The generic vtable SetWindowText does NOT feed the
 // STML parser on this build (pane stayed empty) - call this directly.
-constexpr int kStmlSetText = 0x883E10;
+const int kStmlSetText = ::Rcp::eqva(0x883E10);
 
 // Stock-window registry: CDisplay *(0xDD2660) + 0x2d84 = ScreenWndManager
 // {ArrayClass<ScreenRecord> screens}: {int len; ScreenRecord* arr}, record
@@ -169,14 +170,14 @@ constexpr int kStmlSetText = 0x883E10;
 // (Used only by the /rcpbook findwnd diagnostic - the windows the feature needs
 // have direct instance globals below, found via disasm of the client's own
 // memorize path: MemorizeSet@0x75CAC0 and the gem-drop handler @0x648905.)
-char **const kDisplay = reinterpret_cast<char **>(0xDD2660);
+char **const kDisplay = reinterpret_cast<char **>(::Rcp::eqva(0xDD2660));
 constexpr int kGameScreensOffset = 0x2d84;
 constexpr int kScreenRecSize = 0x10;
 constexpr int kSidlTextOffset = 0x1dc;
 
 // Stock window instances (disasm-verified globals for THIS build).
-void **const kSpellBookWnd = reinterpret_cast<void **>(0xD1FC88);   // pinstCSpellBookWnd
-void **const kCursorAttach = reinterpret_cast<void **>(0xD1FC7C);   // pinstCCursorAttachment
+void **const kSpellBookWnd = reinterpret_cast<void **>(::Rcp::eqva(0xD1FC88));   // pinstCSpellBookWnd
+void **const kCursorAttach = reinterpret_cast<void **>(::Rcp::eqva(0xD1FC7C));   // pinstCCursorAttachment
 
 // CSpellBookWnd fields, disasm-verified (eqlib's MemTicksLeft@0x23c/ScribeTicks@
 // 0x244 are NOT this build's layout - reading them as counters is what falsely
@@ -207,8 +208,8 @@ constexpr int kDeactivateVtOffset = 0x94;  // CXWnd vtable: Deactivate()
 // Overlay CTextureAnimation is provided - so the pickup must pass the spell's
 // icon animation as the overlay (which is also what draws on the cursor).
 constexpr int kCursorTypeOffset = 0x224;
-constexpr int kAttachToCursor6 = 0x662290;
-constexpr int kIsOkToActivate = 0x660F30;
+const int kAttachToCursor6 = ::Rcp::eqva(0x662290);
+const int kIsOkToActivate = ::Rcp::eqva(0x660F30);
 constexpr int kCursorAttachMemorizeSpell = 1;
 
 // ---- right-click-to-scribe (/rcpscribe), disasm-verified for THIS build ----
@@ -224,38 +225,38 @@ constexpr int kCursorAttachMemorizeSpell = 1;
 // scroll, spell not known, class/level/membership ok, target slot empty (or
 // same SpellGroup -> the native replace-lower-rank confirm dialog), then prints
 // "You begin scribing %1." and seeds the countdown.
-constexpr int kBookBeginScribe = 0x75DDF0;
+const int kBookBeginScribe = ::Rcp::eqva(0x75DDF0);
 // void __thiscall CSpellBookWnd hide-worker @0x75B7C0 (no args) - what the
 // stock book runs on EVERY close (Show(false) -> AboutToHide vtable+0xE0 ->
 // this): detaches a type-1 cursor spell, prints the native "abandon" message
 // for a pending memorize (str 0x2f0d) or scribe (str 0x2f0c), and resets all
 // mem/scribe/set-mem state. Called on OUR window's hide edge so closing the
 // new book (or standing up, which closes it) cancels exactly like stock.
-constexpr int kBookHideCancel = 0x75B7C0;
+const int kBookHideCancel = ::Rcp::eqva(0x75B7C0);
 // void __thiscall CSpellBookWnd::TurnToPage(int leftPage) - ret 0x4; clamps to
 // [0, 0x58], gated on the window's active flag (only used on the stock-book
 // path to show the page being scribed).
-constexpr int kBookTurnToPage = 0x75D570;
+const int kBookTurnToPage = ::Rcp::eqva(0x75D570);
 // Global pending-request counter (both tickers inc it when they send; the
 // begin functions refuse while it is > 0).
-int *const kBookRequestsInFlight = reinterpret_cast<int *>(0xE635AC);
+int *const kBookRequestsInFlight = reinterpret_cast<int *>(::Rcp::eqva(0xE635AC));
 // ItemClient virtual-free helpers (thiscall on the ITEM; each resolves the
 // definition via vtbl+0x8 internally):
-constexpr int kItemGetType = 0x7AFFA0;     // def byte @+0x1d4; 20 = spell scroll
-constexpr int kItemGetSpellId = 0x7AFFF0;  // (int spellType) ret 0x4; def dword @0x284 + type*0x64
+const int kItemGetType = ::Rcp::eqva(0x7AFFA0);     // def byte @+0x1d4; 20 = spell scroll
+const int kItemGetSpellId = ::Rcp::eqva(0x7AFFF0);  // (int spellType) ret 0x4; def dword @0x284 + type*0x64
 constexpr int kItemTypeScroll = 20;
 constexpr int kItemSpellTypeScroll = 4;    // eqlib ItemSpellType_Scroll
 constexpr int kItemStackCountOffset = 0x98;  // ItemBase stack count (begin-scribe refuses > 1)
 constexpr int kOffItemRefCount = 0x04;       // VeBaseReferenceCount::ReferenceCount
 // bool __thiscall <pcSpellBookInfo>::IsSpellKnown(int spellId) - ret 0x4; this =
 // pLocalPC + 0x2dc8; exact-compares all 720 profile book slots.
-constexpr int kSpellBookKnows = 0x449CD0;
+const int kSpellBookKnows = ::Rcp::eqva(0x449CD0);
 constexpr int kSpellBookInfoOffset = 0x2dc8;
 // ItemPtr* __thiscall <container>::GetItem(ItemPtr* out, int slot) - ret 0x8;
 // this = pLocalPC + 8 + *(*(pLocalPC+8) + 4) (the vbase chain every stock call
 // site uses); ADDREFS the item, so the extra reference is dropped immediately
 // (the inventory keeps its own - same pattern as equip_item.cpp).
-constexpr int kContainerGetItem = 0x42DEC0;
+const int kContainerGetItem = ::Rcp::eqva(0x42DEC0);
 constexpr int kInvSlotCursor = 33;  // 0x21 - the inventory cursor slot
 // Spell fields for the rank pre-check (eqlib Spells.h, matches the disasm).
 constexpr int kSpSpellGroup = 0x1d4;  // int: rank family (0 = ungrouped)
@@ -264,8 +265,8 @@ constexpr int kSpIsSkill = 0x244;     // bool: BeginSpellScribe silently refuses
 // CInvSlotMgr::MoveItem (proven in equip_item.cpp) - moves the scroll onto the
 // inventory cursor, which is where both BeginSpellScribe and the server-side
 // scribe completion expect it.
-constexpr int kInvSlotMgrMoveItem = 0x698D80;
-void **const kInvSlotMgr = reinterpret_cast<void **>(0xD1FD80);  // pinstCInvSlotMgr
+const int kInvSlotMgrMoveItem = ::Rcp::eqva(0x698D80);
+void **const kInvSlotMgr = reinterpret_cast<void **>(::Rcp::eqva(0xD1FD80));  // pinstCInvSlotMgr
 // Stack mirror of eqlib's ItemGlobalIndex (0x0c bytes).
 struct ScribeGlobalIndex {
   int location;
@@ -281,9 +282,9 @@ struct ScribeGlobalIndex {
 // writes (children show ZEROS there; the window shows its stale XML design
 // rect). Resize itself takes FIVE args (w,h,1,0,0; ret 0x14) and preserves the
 // top-left, so all layout goes through the Move virtual instead.
-constexpr uintptr_t kMouseInfo = 0xE67B54;
+const uintptr_t kMouseInfo = ::Rcp::eqva(0xE67B54);
 constexpr int kWndLocationOffset = 0x60;
-constexpr int kResize = 0x863990;
+const int kResize = ::Rcp::eqva(0x863990);
 constexpr int kSplitGap = 8;      // divider drag-handle height (matches the generator layout)
 constexpr int kListMinCY = 96;    // never shrink the list below ~3 rows + header
 constexpr int kDescMinCY = 40;    // never shrink the description below this
@@ -296,7 +297,7 @@ constexpr int kLayPadFallback = 8;
 // Column-width access for persistence (SListWndColumn stride 0x3c, Width@+0).
 constexpr int kListColumnsOffset = 0x1e8;  // ArrayClass<SListWndColumn> {len@0, arr@4}
 constexpr int kColRecSize = 0x3c;
-constexpr int kListSetColumnWidth = 0x853BF0;
+const int kListSetColumnWidth = ::Rcp::eqva(0x853BF0);
 
 // ---- settings ----
 bool g_enabled = false;         // "[SpellBook] NewWindow": replace the stock book
@@ -528,10 +529,10 @@ void list_ensure_visible(void *list, int row) {
 // ---- CComboWnd wrappers (the filter picker; proven offsets from the options
 // window). Every method derefs pListWnd@+0x1d8 with no null check, so all
 // wrappers gate on it.
-constexpr int kComboDeleteAll = 0x86A960;
-constexpr int kComboInsertChoice = 0x86AE50;
-constexpr int kComboGetCurChoice = 0x86A780;
-constexpr int kComboSetChoice = 0x86A740;
+const int kComboDeleteAll = ::Rcp::eqva(0x86A960);
+const int kComboInsertChoice = ::Rcp::eqva(0x86AE50);
+const int kComboGetCurChoice = ::Rcp::eqva(0x86A780);
+const int kComboSetChoice = ::Rcp::eqva(0x86A740);
 constexpr int kComboListWndOffset = 0x1d8;
 bool combo_ready(void *combo) {
   return combo && *reinterpret_cast<void **>(reinterpret_cast<char *>(combo) + kComboListWndOffset);

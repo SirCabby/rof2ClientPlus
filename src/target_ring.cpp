@@ -1,5 +1,6 @@
 // rof2ClientPlus - solid-color target ring. See target_ring.h.
 #include "target_ring.h"
+#include "rebase.h"
 
 #include <windows.h>
 #include <d3d9.h>
@@ -28,8 +29,8 @@ namespace {
 constexpr char kIniSection[] = "TargetRing";
 
 // ---- stock RoF2 globals + entity offsets (disasm-confirmed; see nameplate.cpp / font_overlay.cpp).
-void **const kTarget = reinterpret_cast<void **>(0xDD2648);  // current target entity
-void **const kSelf = reinterpret_cast<void **>(0xDD2630);    // local player
+void **const kTarget = reinterpret_cast<void **>(::Rcp::eqva(0xDD2648));  // current target entity
+void **const kSelf = reinterpret_cast<void **>(::Rcp::eqva(0xDD2630));    // local player
 // Position floats consumed by the renderer in memory order (0x64,0x68,0x6c), 0x6c the vertical (EQ Z,
 // up). A circle is rotationally symmetric, so the EQ X/Y ordering is irrelevant - the ring lies flat
 // in the render horizontal plane regardless.

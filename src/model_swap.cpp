@@ -1,5 +1,6 @@
 // rof2ClientPlus - live classic/new held-model toggle. See model_swap.h.
 #include "model_swap.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -24,15 +25,15 @@ namespace {
 
 // SetHeldModel(this=spawn, slot, char* tag, a2, a3): held-item attach primitive. ret 0x10.
 // slot 7/8 = primary/secondary hand; arg1 (`tag`) is the model-name string ("IT7", ...).
-constexpr uintptr_t kSetHeldModel = 0x5923f0;
-constexpr uintptr_t kSelfPtr = 0xdd2630;  // *(void**)kSelfPtr = local player spawn
+const uintptr_t kSetHeldModel = ::Rcp::eqva(0x5923f0);
+const uintptr_t kSelfPtr = ::Rcp::eqva(0xdd2630);  // *(void**)kSelfPtr = local player spawn
 // Resolve a spawn id -> its LIVE eqlib spawn ptr via the client's own spawn manager (mirrors
 // floating_damage, confirmed in-game). Held models attach to eqlib PlayerClient objects, which are
 // NOT the game_structures Entity list get_entity_list() returns -- so we key spawns by id and re-
 // resolve. eqlib PlayerBase: spawn id @0x148; PlayerManagerClient::GetSpawnByID(int)@0x5996E0.
 constexpr int kEntSpawnId = 0x148;
-void **const kSpawnManager = reinterpret_cast<void **>(0xE641D0);
-constexpr uintptr_t kGetSpawnByID = 0x5996E0;
+void **const kSpawnManager = reinterpret_cast<void **>(::Rcp::eqva(0xE641D0));
+const uintptr_t kGetSpawnByID = ::Rcp::eqva(0x5996E0);
 constexpr char kIniSection[] = "Models";
 constexpr char kClassicPrefix[] = "RCP";  // tools/isolate_archive.py prefix; RCPIT<n>_ACTORDEF
 

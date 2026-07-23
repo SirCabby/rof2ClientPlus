@@ -1,5 +1,6 @@
 // rof2ClientPlus - NPC/creature body-model classic-vs-new swap (Phase 2). See npc_model_swap.h.
 #include "npc_model_swap.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -35,8 +36,8 @@ namespace {
 // alias and CreateActorDefinition builds it from the loaded rcpglobal_chr fragments + registers it, so
 // it renders. Rewriting +0xEBA at entry is safe: the internal name-rebuild (SetActorDefName@0x59e4d0)
 // is COLD on the normal path (confirmed zero in-game hits), so it never clobbers our value.
-constexpr uintptr_t kBuildActor = 0x48f4b0;          // __thiscall(mgr; spawn,p2,p3,p4,p5,p6) 6 stack args, ret 0x18
-constexpr uintptr_t kFindActorDefByName = 0x4066f0;  // Node* __stdcall(char* name) ret 4; registry @0xDD260C
+const uintptr_t kBuildActor = ::Rcp::eqva(0x48f4b0);          // __thiscall(mgr; spawn,p2,p3,p4,p5,p6) 6 stack args, ret 0x18
+const uintptr_t kFindActorDefByName = ::Rcp::eqva(0x4066f0);  // Node* __stdcall(char* name) ret 4; registry @0xDD260C
 constexpr int kEntName = 0xA4;       // char[] spawn name
 constexpr int kEntRace = 0xEB4;      // int race
 constexpr int kEntActorDef = 0xEBA;  // char[64] actordef name -- the field the build consumes
@@ -47,10 +48,10 @@ constexpr int kLogCap = 4000;
 // set (spawn, arg2=0, 1, 2, 1, 0) is what the illusion / auto-build paths use. Iterate live spawns via
 // the client's spawn manager. Main-thread only.
 constexpr int kEntSpawnId = 0x148;                                 // eqlib spawn id
-void **const kSpawnManager = reinterpret_cast<void **>(0xE641D0);  // PlayerManagerClient (GetSpawnByID this)
-constexpr uintptr_t kGetSpawnByID = 0x5996E0;
-void **const kRenderMgr = reinterpret_cast<void **>(0xDD2660);    // BuildActor's `this` (render mgr)
-void **const kLocalPlayer = reinterpret_cast<void **>(0xDD2630);  // pinstLocalPlayer -- never force-rebuild
+void **const kSpawnManager = reinterpret_cast<void **>(::Rcp::eqva(0xE641D0));  // PlayerManagerClient (GetSpawnByID this)
+const uintptr_t kGetSpawnByID = ::Rcp::eqva(0x5996E0);
+void **const kRenderMgr = reinterpret_cast<void **>(::Rcp::eqva(0xDD2660));    // BuildActor's `this` (render mgr)
+void **const kLocalPlayer = reinterpret_cast<void **>(::Rcp::eqva(0xDD2630));  // pinstLocalPlayer -- never force-rebuild
 constexpr int kEntActor = 0x101C;  // CActorInterface* -- the live render actor (shared w/ hide_corpse).
 constexpr size_t kMaxSpawns = 4096;
 
@@ -315,7 +316,7 @@ void refresh_world() {
       if (old_vt && old_vt == new_vt) {
         rcp_guard::run("npcbody.destroy_leftover", [&] { release_actor(old_actor); });
         rcp_guard::run("npcbody.retint", [&] {  // re-apply the fixed body texture (elemental tint etc.)
-          reinterpret_cast<void(__thiscall *)(void *)>(0x594ad0)(spawn);
+          reinterpret_cast<void(__thiscall *)(void *)>(::Rcp::eqva(0x594ad0))(spawn);
         });
         if (do_log)
           rcp_guard::run("npcbody.pcdump2", [&] {
@@ -460,7 +461,7 @@ int __fastcall BuildActor_hk(void *mgr, int edx, void *spawn, void *p2, int p3, 
 // unrelated bucket pointer -- the strncmp verify in swap_table_code rejects it). The previous zero-arg
 // call worked only off stack residue and ACCESS-VIOLATED when codegen shifted (24x per toggle in the
 // 2026-07-15 log), silently leaving the table unswapped.
-constexpr uintptr_t kResolveModelCode = 0x50a2d0;  // __thiscall(mgr; char* out, int race, int gender) ret4
+const uintptr_t kResolveModelCode = ::Rcp::eqva(0x50a2d0);  // __thiscall(mgr; char* out, int race, int gender) ret4
 
 int g_table_dumped = 0;  // (retained: referenced by the resolver log cap)
 // TEMP freeze-hunt probes (/rcppc probe <n>). The record is no longer mutated at all, so most are inert;
@@ -474,7 +475,7 @@ bool g_probe_skip_storm = false;   // skip the per-spawn rebuild loop
 // the current settings.
 void unlink_actordef_name(const std::string &full) {
   rcp_guard::run("pc.unlink", [&] {
-    char **head = reinterpret_cast<char **>(0xDD260C);
+    char **head = reinterpret_cast<char **>(::Rcp::eqva(0xDD260C));
     char *prev = nullptr, *cur = *head;
     while (cur) {
       char *next = *reinterpret_cast<char **>(cur + 0x4);
@@ -666,7 +667,7 @@ void *__stdcall FindActorDef_hk(char *name) {
 // UseLuclin flags -> the NATIVE model loads (armor + face intact). Race ids are the standard EQ ids the
 // function receives (it special-cases race 1/4/0x82). Applies when the config next runs (zone); the instant
 // re-apply builds on this. ----
-constexpr uintptr_t kShouldUseLuclin = 0x48e510;
+const uintptr_t kShouldUseLuclin = ::Rcp::eqva(0x48e510);
 typedef int(__fastcall *ShouldLuclinFn)(void *mgr, int edx, int race, int gender);
 ShouldLuclinFn g_pc_orig = nullptr;
 
@@ -879,8 +880,8 @@ void add_pc_redirects() {
 // slot=-1 -> all slots; race gate inside is exactly the playable races; robes 10..16 handled). The
 // appearance object is inline at spawn+0xEA4 (its +0x10 race == our proven Race@0xeb4). Re-calling it
 // after the rebuild re-dresses the new actor.
-constexpr uintptr_t kApplyArmor = 0x40e450;        // ApplyArmorTexture(this=spawn+0xEA4; int slot), -1 = all
-constexpr uintptr_t kApplyBodyTexture = 0x594ad0;  // __thiscall(spawn): re-apply the NPC fixed body texture
+const uintptr_t kApplyArmor = ::Rcp::eqva(0x40e450);        // ApplyArmorTexture(this=spawn+0xEA4; int slot), -1 = all
+const uintptr_t kApplyBodyTexture = ::Rcp::eqva(0x594ad0);  // __thiscall(spawn): re-apply the NPC fixed body texture
                                                    // (spawn+0xEA8 byte 1..0x1E); no-op for 0xFF/equipment
 constexpr int kEntWearObj = 0xea4;                 // inline appearance/equipment sub-object on the spawn
 // Worn-equipment data lives TWICE (eqlib exact-build structs): the server truth `EQUIPMENT Equipment` at
@@ -897,7 +898,7 @@ constexpr int kEquipSize = 0xb4;
 // and resolves the race+texture variant handle into spawn+0x234 (same 0x50f070 name-builder the def
 // creation uses; F_48ff's create path reads 0xEB9 @0x49000b). Re-run it before our rebuild so the fresh
 // instance picks the variant up again.
-constexpr uintptr_t kSetBodyTexture = 0x59e400;
+const uintptr_t kSetBodyTexture = ::Rcp::eqva(0x59e400);
 // RefreshEquipSlot@0x594e50 = __thiscall(spawn; int slot, ArmorProperties props BY VALUE (5 dwords),
 // uint tintARGB, int local_only) ret 0x20 -- THE native per-slot dress. Verified from its spawn-add
 // caller @0x595c9c..0x595cca (push 1; push tint; sub esp,0x14 + 5 stores; push slot). For the HEAD
@@ -906,45 +907,45 @@ constexpr uintptr_t kSetBodyTexture = 0x59e400;
 // detach + DLL actor vt[0x14C] SwapHead("%sHE%02d_DMSPRITEDEF") = the classic head-PIECE (coif/kettle);
 // Velious 240/241 -> 0x40a5b0 racial IT map + SetHeldModel("IT%d") attach; Luclin (def34) -> HeadType@0xEAB
 // + ApplyArmorTexture(0) piece attach. local_only=1 suppresses the WearChange send (0x7994).
-constexpr uintptr_t kRefreshEquipSlot = 0x594e50;
-constexpr uintptr_t kSet6 = 0x594de0;  // __thiscall(spawn; slot, material, 0, tintARGB, 5, 0) ret 0x18 --
+const uintptr_t kRefreshEquipSlot = ::Rcp::eqva(0x594e50);
+const uintptr_t kSet6 = ::Rcp::eqva(0x594de0);  // __thiscall(spawn; slot, material, 0, tintARGB, 5, 0) ret 0x18 --
                                        // the per-slot dress setter the natural spawn-add emits (learn log)
 constexpr int kEntBodyTex = 0xeb9;
 constexpr int kEntBodyTexHandle = 0x234;
 // SetRace@0x59e440 = __thiscall(spawn; int race): stores race@0xEB4 + re-resolves the race+texture variant
 // handle @+0x234 + pokes anim state. NO rebuild, NO dress (disasm-complete) -- kept for reference.
-constexpr uintptr_t kSetRace = 0x59e440;
+const uintptr_t kSetRace = ::Rcp::eqva(0x59e440);
 // EnsureActor@0x5a1a40 = __thiscall(spawn), no args, plain ret: THE natural "build my actor" wrapper -- the
 // exact path every login/zone-entry spawn build takes (hook return address 0x5a1baa = its F_48ff call site;
 // callers: world-entry loop 0x51c76b + spawn-add 0x59673b). No-ops when spawn+0x101C already has an actor;
 // on a missing actor it runs the full natural sequence: appearance-obj prelude (0x40f090 / SetOwner
 // 0x40c160 / 0x40c1a0) -> F_48ff (our redirect detour applies) -> post-init (glow/scale). Natural builds
 // through it come out DRESSED, so detaching the actor and calling it replicates login exactly.
-constexpr uintptr_t kEnsureActor = 0x5a1a40;
+const uintptr_t kEnsureActor = ::Rcp::eqva(0x5a1a40);
 // ReleaseActor@0x59e3f0 = __thiscall(spawn; CActorInterface* newActor) -- thunks (add ecx,0xEA4;
 // jmp 0x40c000) to the ActorClient's SetAttachedActor, which PROPERLY releases the old actor (its own
 // vtable teardown, not our hide+scene hack) and writes newActor to ActorClient+0x178 == spawn+0x101C.
 // Call with newActor=null to detach+free the live actor and null the slot. This is what the client's own
 // illusion/appearance-change path does before a rebuild (site 0x59718b), so it leaves no ghost.
-constexpr uintptr_t kReleaseActor = 0x59e3f0;
+const uintptr_t kReleaseActor = ::Rcp::eqva(0x59e3f0);
 // PostBuildInit@0x5900e0 = __thiscall(spawn), no args: the world loop runs it right after EnsureActor
 // (0x51c772). For the LOCAL/CONTROLLED player (globals 0xDD2630 / 0xDD2644) it re-binds the camera/view to
 // the freshly built actor (actor vtable[0x1C](1) @0x590375) -- the exact step our out-of-band rebuild was
 // missing, which is why a raw local rebuild left the camera on the old actor. Harmless for other spawns
 // (early-returns at the local/controlled check).
-constexpr uintptr_t kPostBuildInit = 0x5900e0;
+const uintptr_t kPostBuildInit = ::Rcp::eqva(0x5900e0);
 // AttachPlayerCamera@0x507b30 = __thiscall(player), no args: reads the player's CURRENT actor (spawn+0x101C)
 // and (re)binds the camera/view to it. This is the per-player camera attach the world-entry local-view
 // setup (0x48c8d0) calls; 0x5900e0 only sets up the render anim/pose actor, NOT the camera target -- so
 // after an out-of-band rebuild the camera stays on the old actor until THIS runs on the new one.
-constexpr uintptr_t kAttachPlayerCamera = 0x507b30;
+const uintptr_t kAttachPlayerCamera = ::Rcp::eqva(0x507b30);
 // LocalViewSetup@0x48c8d0 = __thiscall(rendermgr), no args: the world-entry per-player VIEW/CAMERA setup.
 // Operates on BOTH pinstLocalPlayer(0xDD2630) and pinstControlledPlayer(0xDD2644) -- sets up bounding
 // (0x58ff80), view state (0x507230), and the camera attach (0x507b30) for each. This is what makes the
 // camera work after a zone; the Eye-of-Zomm control-switch reasoning confirms the camera follows the
 // CONTROLLED player, and this rebinds it. Call after an out-of-band local rebuild to re-point the camera
 // at the new actor.
-constexpr uintptr_t kLocalViewSetup = 0x48c8d0;
+const uintptr_t kLocalViewSetup = ::Rcp::eqva(0x48c8d0);
 constexpr int kEntDefCache = 0x1024;  // cached CActorDefinition* -- nulled on a name change so a fresh def
                                       // is resolved for the new code (native path nulls it at 0x5971db)
 constexpr int kEntAnimActor = 0x1020;  // render anim/pose actor (from 0x48b270); the camera binds to THIS
@@ -963,8 +964,8 @@ constexpr int kEntAnimActor = 0x1020;  // render anim/pose actor (from 0x48b270)
 // (actor-delete @0x490a10) does the same re-point -- our release_actor hide+unlink hack bypasses it, which
 // is why the native "delete" flows never rescued us. ORDER MATTERS: call SetViewActor BEFORE release_actor
 // hides the old actor (it would un-hide the ghost if run after).
-constexpr uintptr_t kSetViewActor = 0x48F030;
-void **const kViewActor = reinterpret_cast<void **>(0xD1FD88);  // pinstViewActor (eqlib)
+const uintptr_t kSetViewActor = ::Rcp::eqva(0x48F030);
+void **const kViewActor = reinterpret_cast<void **>(::Rcp::eqva(0xD1FD88));  // pinstViewActor (eqlib)
 
 // DIAGNOSTIC: dump the appearance obj + material records (spawn+0xEA4..+0xFA4) so a before/after diff shows
 // exactly which fields F_48ff resets (the armor re-dress reads these).
@@ -1341,7 +1342,7 @@ void self_diag_tick() {
     void *anim = *reinterpret_cast<void **>(self + kEntAnimActor);
     // pinstControlledPlayer (eqlib 0xDD2644): keyboard/mouse input drives THIS spawn. If it diverges
     // from pinstLocalPlayer, input goes elsewhere = exactly a "can't move or turn" freeze.
-    void *controlled = *reinterpret_cast<void **>(0xDD2644);
+    void *controlled = *reinterpret_cast<void **>(::Rcp::eqva(0xDD2644));
     float anim_walk = *reinterpret_cast<float *>(self + 0x330);  // walk/run anim speed thresholds (0x592xxx)
     float anim_run = *reinterpret_cast<float *>(self + 0x350);
     // Registry state for the local player's CURRENT actordef name: after a toggle's unlink, a by-name
@@ -1483,11 +1484,11 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
   }
   rcp->hooks->Add("rcp_npc_find", static_cast<int>(kFindActorDefByName), FindActorDef_hk, hook_type_detour);
   g_find_orig = rcp->hooks->hook_map["rcp_npc_find"]->original(FindActorDef_hk);
-  rcp->hooks->Add("rcp_mdf", static_cast<int>(0x8dc12f), Sprintf_hk, hook_type_detour);
+  rcp->hooks->Add("rcp_mdf", static_cast<int>(::Rcp::eqva(0x8dc12f)), Sprintf_hk, hook_type_detour);
   g_sprintf_orig = rcp->hooks->hook_map["rcp_mdf"]->original(Sprintf_hk);
-  rcp->hooks->Add("rcp_defb_c", static_cast<int>(0x407800), DefBuildClassic_hk, hook_type_detour);
+  rcp->hooks->Add("rcp_defb_c", static_cast<int>(::Rcp::eqva(0x407800)), DefBuildClassic_hk, hook_type_detour);
   g_defb_classic = rcp->hooks->hook_map["rcp_defb_c"]->original(DefBuildClassic_hk);
-  rcp->hooks->Add("rcp_defb_n", static_cast<int>(0x407dc0), DefBuildNew_hk, hook_type_detour);
+  rcp->hooks->Add("rcp_defb_n", static_cast<int>(::Rcp::eqva(0x407dc0)), DefBuildNew_hk, hook_type_detour);
   g_defb_new = rcp->hooks->hook_map["rcp_defb_n"]->original(DefBuildNew_hk);
   // dress-chain detours: set6/slotref are temporary learn-hooks; the apply hook ALSO carries the
   // permanent classic-helm gate (suppress Luclin 3D helm pieces on classic WLD bodies -- see ApplyArmor_hk)
@@ -1495,7 +1496,7 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
     rcp->hooks->Add("rcp_learn_apply", static_cast<int>(kApplyArmor), ApplyArmor_hk, hook_type_detour);
     g_apply_orig = rcp->hooks->hook_map["rcp_learn_apply"]->original(ApplyArmor_hk);
   }
-  rcp->hooks->Add("rcp_learn_set6", static_cast<int>(0x594de0), Set6_hk, hook_type_detour);
+  rcp->hooks->Add("rcp_learn_set6", static_cast<int>(::Rcp::eqva(0x594de0)), Set6_hk, hook_type_detour);
   g_set6_orig = rcp->hooks->hook_map["rcp_learn_set6"]->original(Set6_hk);
   rcp->hooks->Add("rcp_learn_slotref", static_cast<int>(kRefreshEquipSlot), SlotRefresh_hk, hook_type_detour);
   g_slotref_orig = rcp->hooks->hook_map["rcp_learn_slotref"]->original(SlotRefresh_hk);

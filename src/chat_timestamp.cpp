@@ -1,5 +1,6 @@
 // rof2ClientPlus - Zeal-style chat timestamps. See chat_timestamp.h.
 #include "chat_timestamp.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -25,7 +26,7 @@ namespace {
 // signature mirrors the proven wrapper in game_structures.h (GameClass::dsp_chat), so the ABI matches
 // exactly; the __fastcall(this, edx, ...) shape is the standard __thiscall-detour idiom used across
 // this codebase (chat_shortcuts.cpp / sound_mods.cpp).
-constexpr uintptr_t kDspChat = 0x51F1A0;
+const uintptr_t kDspChat = ::Rcp::eqva(0x51F1A0);
 typedef void(__fastcall *DspChatFn)(void *game, int edx, char *text, int color, bool log_ok, bool convert_pct);
 DspChatFn g_orig = nullptr;
 

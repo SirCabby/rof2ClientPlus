@@ -1,6 +1,7 @@
 // rof2ClientPlus - character nameplate tinting + text mods (Zeal nameplate port, N1+N2), RoF2.
 // See nameplate.h and PORTING_NOTES.md (Nameplate) for the mechanism + full RE.
 #include "nameplate.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -22,21 +23,21 @@
 
 // ---- Stock RoF2 addresses (eqlib-sourced, disasm-confirmed; see PORTING_NOTES) ----
 // PlayerClient::SetNameSpriteTint(), __thiscall(this == entity), no args, returns int.
-static constexpr uintptr_t kSetNameSpriteTint = 0x58BF00;
+static const uintptr_t kSetNameSpriteTint = ::Rcp::eqva(0x58BF00);
 // PlayerClient::SetNameSpriteState(this, bool show), __thiscall, ret 0x4. Rebuilds the whole
 // nameplate text (-> SetNameSpriteString -> SetNameSpriteTint). The client only calls this on
 // its own slow timer / on some state changes, NOT on targeting or HP change - so we call it
 // ourselves to make text mods take effect immediately when the target/self/HP changes.
-static constexpr uintptr_t kSetNameSpriteState = 0x58E2D0;
+static const uintptr_t kSetNameSpriteState = ::Rcp::eqva(0x58E2D0);
 // CGuild::GetGuildName(this, int guildId) -> const char*, __thiscall. The guild manager is a
 // static object AT 0xDD5CF8 (callers use `mov ecx, 0xDD5CF8` immediate, not a pointer deref).
-static constexpr uintptr_t kGetGuildName = 0x425670;
-static void *const kGuildInstance = reinterpret_cast<void *>(0xDD5CF8);
+static const uintptr_t kGetGuildName = ::Rcp::eqva(0x425670);
+static void *const kGuildInstance = reinterpret_cast<void *>(::Rcp::eqva(0xDD5CF8));
 // __ShowNames: the /shownames level (int). 0=off, 1..6 accepted natively (>3 => title+suffix).
-static int *const kShowNamesLevel = reinterpret_cast<int *>(0xDE0A70);
+static int *const kShowNamesLevel = reinterpret_cast<int *>(::Rcp::eqva(0xDE0A70));
 // Group + raid membership sources (both are objects at these addresses, not pointers).
 // CRaid object (instCRaid): raidMembers[72] @ +0x260 (each 0x94, Name@0x00), count @ +0x2c04.
-static char *const kRaid = reinterpret_cast<char *>(0xDD2690);
+static char *const kRaid = reinterpret_cast<char *>(::Rcp::eqva(0xDD2690));
 static constexpr int kRaidMembers = 0x260;
 static constexpr int kRaidMemberStride = 0x94;
 static constexpr int kRaidMemberCount = 0x2c04;
@@ -44,13 +45,13 @@ static constexpr int kRaidMaxMembers = 72;
 // Group: pLocalPC (PcClient, *(void**)0xDD261C) -> CGroup* Group @ +0x31cc; CGroup holds
 // CGroupMember*[6] @ +0x04, each CGroupMember has pPlayer (PlayerClient*) @ +0x28. So we can
 // match group members by SPAWN POINTER, not name (the LabelCache name approach didn't populate).
-static void **const kLocalPC = reinterpret_cast<void **>(0xDD261C);
+static void **const kLocalPC = reinterpret_cast<void **>(::Rcp::eqva(0xDD261C));
 static constexpr int kPcGroup = 0x31cc;
 static constexpr int kGroupMembers = 0x04;
 static constexpr int kGroupMemberPlayer = 0x28;
 static constexpr int kGroupMaxMembers = 6;
-static void **const kSelf = reinterpret_cast<void **>(0xDD2630);    // local player
-static void **const kTarget = reinterpret_cast<void **>(0xDD2648);  // current target
+static void **const kSelf = reinterpret_cast<void **>(::Rcp::eqva(0xDD2630));    // local player
+static void **const kTarget = reinterpret_cast<void **>(::Rcp::eqva(0xDD2648));  // current target
 
 // PlayerClient (Entity) field offsets.
 static constexpr int kEntActor = 0x101c;   // CActorInterface* (all-virtual); apply tint via its vtable

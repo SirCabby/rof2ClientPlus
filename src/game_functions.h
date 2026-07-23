@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "rebase.h"
 #include <filesystem>
 
 #include "game_structures.h"
@@ -18,115 +19,115 @@ enum Stance {
 namespace Rcp {
 namespace Game {
 namespace GameInternal {
-static int fn_GetLabelFromGame = 0x436680;
-static int fn_GetGaugeLabelFromGame = 0x43600d;
-static int fn_finalizeloot = 0x47f2bd;
-static int fn_releaseloot = 0x426576;
-static int fn_targetnearestnpc = 0x4ac17f;
-static int *fn_s_t3dGetActorLocation_ptr = (int *)0x7f99c8;
-static int *fn_s_s3dGetWorldVisibleActorList = (int *)0x7f9850;
-static int *fn_s_s3dGetCameraLocation = (int *)0x7f99D4;
-static int *fn_s_t3dSetCameraLocation = (int *)0x7f9ae4;
-static int fn_handle_mouselook = 0x4DB384;
-static int fn_initkeyboardassignments = 0x42A9D7;
-static int fn_executecmd = 0x4D7230;    // stock RoF2 __ExecuteCmd (was TAKP 0x54050c)
-static int fn_interpretcmd = 0x51FCE0;  // stock RoF2 CEverQuest::InterpretCmd (was TAKP 0x54572f)
+static int fn_GetLabelFromGame = ::Rcp::eqva(0x436680);
+static int fn_GetGaugeLabelFromGame = ::Rcp::eqva(0x43600d);
+static int fn_finalizeloot = ::Rcp::eqva(0x47f2bd);
+static int fn_releaseloot = ::Rcp::eqva(0x426576);
+static int fn_targetnearestnpc = ::Rcp::eqva(0x4ac17f);
+static int *fn_s_t3dGetActorLocation_ptr = (int *)::Rcp::eqva(0x7f99c8);
+static int *fn_s_s3dGetWorldVisibleActorList = (int *)::Rcp::eqva(0x7f9850);
+static int *fn_s_s3dGetCameraLocation = (int *)::Rcp::eqva(0x7f99D4);
+static int *fn_s_t3dSetCameraLocation = (int *)::Rcp::eqva(0x7f9ae4);
+static int fn_handle_mouselook = ::Rcp::eqva(0x4DB384);
+static int fn_initkeyboardassignments = ::Rcp::eqva(0x42A9D7);
+static int fn_executecmd = ::Rcp::eqva(0x4D7230);    // stock RoF2 __ExecuteCmd (was TAKP 0x54050c)
+static int fn_interpretcmd = ::Rcp::eqva(0x51FCE0);  // stock RoF2 CEverQuest::InterpretCmd (was TAKP 0x54572f)
 // static int fn_main_loop = 0x5473c3;
 /*inline int fn_loadoptions = 0x536CE0;*/
-static int fn_KeyboardPageHandleKeyboardMsg = 0x42c4fb;
+static int fn_KeyboardPageHandleKeyboardMsg = ::Rcp::eqva(0x42c4fb);
 
 // CEverQuest::DoPercentConvert(char* line, bool bOutGoing) - stock RoF2 0x51B600 (eqlib-confirmed;
 // the old 0x538110 was a stale TAKP offset that lands mid-function in RoF2). See chat_shortcuts.cpp.
-static mem::function<void __fastcall(int t, int unused, char *data, int unknown)> DoPercentConvert = 0x0051B600;
-static mem::function<void __cdecl(const char *data)> gamelog = 0x005240dc;
+static mem::function<void __fastcall(int t, int unused, char *data, int unknown)> DoPercentConvert = ::Rcp::eqva(0x0051B600);
+static mem::function<void __cdecl(const char *data)> gamelog = ::Rcp::eqva(0x005240dc);
 static mem::function<char __fastcall(void *this_display, int unused_edx, Rcp::GameStructures::Entity *viewer,
                                      Rcp::GameStructures::Entity *target)>
-    is_invisible = 0x4afa90;  // can_target
+    is_invisible = ::Rcp::eqva(0x4afa90);  // can_target
 static mem::function<char __fastcall(int, int, int, int, float *, float, UINT32)> get_world_visible_actor_list =
-    0x7f9850;
-static mem::function<short __fastcall(int, int)> get_max_mana = 0x4B9483;
-static mem::function<short __fastcall(int, int)> get_cur_mana = 0x4b9450;
+    ::Rcp::eqva(0x7f9850);
+static mem::function<short __fastcall(int, int)> get_max_mana = ::Rcp::eqva(0x4B9483);
+static mem::function<short __fastcall(int, int)> get_cur_mana = ::Rcp::eqva(0x4b9450);
 static mem::function<int __cdecl(int, Vec3 *)> t3dGetRegionNumberFromWorldAndXYZ = 0x0;
-static mem::function<void __fastcall(DWORD, int unused, DWORD)> ui_something = 0x536bae;
-static mem::function<float __fastcall(void *this_display, int unused_edx, float input_heading)> fix_heading = 0x4a2eed;
-static mem::function<void __cdecl()> ProcessMouseEvent = 0x525db4;
-static mem::function<void __fastcall(int, int, float)> MouseLook = 0x4db384;
-static mem::function<void __fastcall(DWORD, int unused, DWORD)> proc_mouse = 0x537707;
+static mem::function<void __fastcall(DWORD, int unused, DWORD)> ui_something = ::Rcp::eqva(0x536bae);
+static mem::function<float __fastcall(void *this_display, int unused_edx, float input_heading)> fix_heading = ::Rcp::eqva(0x4a2eed);
+static mem::function<void __cdecl()> ProcessMouseEvent = ::Rcp::eqva(0x525db4);
+static mem::function<void __fastcall(int, int, float)> MouseLook = ::Rcp::eqva(0x4db384);
+static mem::function<void __fastcall(DWORD, int unused, DWORD)> proc_mouse = ::Rcp::eqva(0x537707);
 static mem::function<void __fastcall(DWORD, int unused, int cmd, int str_id, int category)> InitKeyBind =
-    0x42B21D;  // arguments coptionswnd ptr, cmd, string_id, category
-static mem::function<int __cdecl(Rcp::GameUI::CXSTR *, const char *format)> CXStr_PrintString = 0x578110;
-static mem::function<int __fastcall(void *this_game, int unused_edx)> LoadOptions = 0x536CE0;  // Game ::loadOptions()
-static mem::function<int __cdecl(int key, int type)> readKeyMapFromIni = 0x525520;
+    ::Rcp::eqva(0x42B21D);  // arguments coptionswnd ptr, cmd, string_id, category
+static mem::function<int __cdecl(Rcp::GameUI::CXSTR *, const char *format)> CXStr_PrintString = ::Rcp::eqva(0x578110);
+static mem::function<int __fastcall(void *this_game, int unused_edx)> LoadOptions = ::Rcp::eqva(0x536CE0);  // Game ::loadOptions()
+static mem::function<int __cdecl(int key, int type)> readKeyMapFromIni = ::Rcp::eqva(0x525520);
 static mem::function<void __cdecl(Rcp::GameStructures::GAMECHARINFO *_char, Rcp::GameStructures::_GAMEITEMINFO **Item,
                                   int)>
-    auto_inventory = 0x4F0EEB;
-static mem::function<int __cdecl()> UI_ChatInputCheck = 0x54042d;
+    auto_inventory = ::Rcp::eqva(0x4F0EEB);
+static mem::function<int __cdecl()> UI_ChatInputCheck = ::Rcp::eqva(0x54042d);
 static mem::function<bool __cdecl()> IsNoSlashWndActive =
-    0x00545bbd;  // Returns false if merchant, loot, trade, and bank windows are not activated.
-static mem::function<bool __cdecl()> IsPlayerABardAndSingingASong = 0x0040a74a;  // Does internal pointer checking.
+    ::Rcp::eqva(0x00545bbd);  // Returns false if merchant, loot, trade, and bank windows are not activated.
+static mem::function<bool __cdecl()> IsPlayerABardAndSingingASong = ::Rcp::eqva(0x0040a74a);  // Does internal pointer checking.
 static mem::function<int __fastcall(void *this_raid, int unused_edx, const char *)> send_raid_chat =
-    0x0049e2e8;  // CRaid::SendRaidChat()
-static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_say = 0x4f8172;
-static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_tell = 0x004f8367;
-static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_guildsay = 0x004f4bd1;
-static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_gsay = 0x004f82a8;
-static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_auction = 0x004f8325;
-static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_ooc = 0x004f8346;
-static mem::function<float __fastcall(int, int)> encum_factor = 0x4bb9c7;
-static mem::function<float __fastcall(int, int, int, int)> OpenContainer = 0x4168bd;
-static mem::function<float __fastcall(int, int)> CloseAllContainers = 0x416a43;
-static mem::function<int __fastcall(int, int)> GetFocusWnd = 0x5a07c0;
-static mem::function<int __fastcall(int, int, int)> CXWndIsType = 0x571300;
-static mem::function<int __fastcall(int, int, int, int)> CXWndShowContextMenu = 0x5A02F0;
+    ::Rcp::eqva(0x0049e2e8);  // CRaid::SendRaidChat()
+static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_say = ::Rcp::eqva(0x4f8172);
+static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_tell = ::Rcp::eqva(0x004f8367);
+static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_guildsay = ::Rcp::eqva(0x004f4bd1);
+static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_gsay = ::Rcp::eqva(0x004f82a8);
+static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_auction = ::Rcp::eqva(0x004f8325);
+static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> do_ooc = ::Rcp::eqva(0x004f8346);
+static mem::function<float __fastcall(int, int)> encum_factor = ::Rcp::eqva(0x4bb9c7);
+static mem::function<float __fastcall(int, int, int, int)> OpenContainer = ::Rcp::eqva(0x4168bd);
+static mem::function<float __fastcall(int, int)> CloseAllContainers = ::Rcp::eqva(0x416a43);
+static mem::function<int __fastcall(int, int)> GetFocusWnd = ::Rcp::eqva(0x5a07c0);
+static mem::function<int __fastcall(int, int, int)> CXWndIsType = ::Rcp::eqva(0x571300);
+static mem::function<int __fastcall(int, int, int, int)> CXWndShowContextMenu = ::Rcp::eqva(0x5A02F0);
 static mem::function<char __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX, int left, int top, int right,
                                      int bottom)>
-    CXWndMoveAndInvalidate = 0x00573600;
+    CXWndMoveAndInvalidate = ::Rcp::eqva(0x00573600);
 static mem::function<Rcp::GameUI::CXRect *__fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX,
                                                       Rcp::GameUI::CXRect *rect)>
-    CXWndGetMinimizedRect = 0x00573730;
+    CXWndGetMinimizedRect = ::Rcp::eqva(0x00573730);
 static mem::function<int __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX, int32_t mouse_x, int32_t mouse_y,
                                     uint32_t unknown3)>
-    CSidlScreenWndHandleRButtonDown = 0x005703f0;
+    CSidlScreenWndHandleRButtonDown = ::Rcp::eqva(0x005703f0);
 static mem::function<void __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX)> CXWndDeactivate =
-    0x0056e0b0;  // Does nothing.
+    ::Rcp::eqva(0x0056e0b0);  // Does nothing.
 static mem::function<char __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX, Rcp::GameUI::CXRect rect)>
-    CXWndOnMove = 0x00402301;
+    CXWndOnMove = ::Rcp::eqva(0x00402301);
 static mem::function<int __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX, int width, int height)> CXWndOnResize =
-    0x0056eb00;
-static mem::function<void __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX)> CXWndOnMinimizeBox = 0x00402306;
+    ::Rcp::eqva(0x0056eb00);
+static mem::function<void __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX)> CXWndOnMinimizeBox = ::Rcp::eqva(0x00402306);
 static mem::function<int __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX)> CXWndOnActivate =
-    0x00402317;  // Just returns zero. Shared call.
+    ::Rcp::eqva(0x00402317);  // Just returns zero. Shared call.
 static mem::function<int __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX)> CXWndAboutToDeleteWnd =
-    0x00402317;  // Just returns zero. Shared call.
+    ::Rcp::eqva(0x00402317);  // Just returns zero. Shared call.
 static mem::function<Rcp::GameUI::CXRect *__fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX,
                                                       Rcp::GameUI::CXRect *rect, int region)>
-    CXWndGetHitTestRect = 0x00571540;
+    CXWndGetHitTestRect = ::Rcp::eqva(0x00571540);
 static mem::function<Rcp::GameUI::CXRect *__fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX,
                                                       Rcp::GameUI::CXRect *rect)>
-    CXWndGetInnerRect = 0x005714b0;
+    CXWndGetInnerRect = ::Rcp::eqva(0x005714b0);
 static mem::function<Rcp::GameUI::CXRect *__fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX,
                                                       Rcp::GameUI::CXRect *rect)>
-    CXWndGetClientRect = 0x00572390;
-static mem::function<int __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX)> CSidlScreenWndOnShow = 0x0056f590;
-static mem::function<void __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX)> CSidlScreenWndLoadIniInfo = 0x0056f5a0;
+    CXWndGetClientRect = ::Rcp::eqva(0x00572390);
+static mem::function<int __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX)> CSidlScreenWndOnShow = ::Rcp::eqva(0x0056f590);
+static mem::function<void __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX)> CSidlScreenWndLoadIniInfo = ::Rcp::eqva(0x0056f5a0);
 static mem::function<void __fastcall(Rcp::GameUI::SidlWnd *wnd, int unusedEDX)> CSidlScreenWndStoreIniInfo =
-    0x0056fe10;
+    ::Rcp::eqva(0x0056fe10);
 static mem::function<int *__fastcall(Rcp::GameUI::SidlWnd *, int unusedEDX, Rcp::GameUI::BasicWnd *,
                                      Rcp::GameUI::CXSTR name)>
-    CSidlScreenWndConstructor = 0x0056e2b0;
+    CSidlScreenWndConstructor = ::Rcp::eqva(0x0056e2b0);
 static mem::function<int *__fastcall(Rcp::GameUI::SidlWnd *, int unusedEDX, bool delete_me)> CSidlScreenWndDestructor =
-    0x0056e0c0;
+    ::Rcp::eqva(0x0056e0c0);
 static mem::function<Rcp::GameUI::ItemDisplayWnd *__fastcall(const Rcp::GameUI::ItemDisplayWnd *, int unusedEDX,
                                                               int unk)>
-    CItemDisplayWndConstructor = 0x00423331;
+    CItemDisplayWndConstructor = ::Rcp::eqva(0x00423331);
 static mem::function<int *__fastcall(Rcp::GameUI::ItemDisplayWnd *, int unusedEDX, bool delete_me)>
-    CItemDisplayWndDestructor = 0x004234e8;
-static mem::function<int __fastcall(int, int)> CLootWndDeactivate = 0x42651f;
-static mem::function<int __cdecl()> MessageEvent = 0x52437F;
-static mem::function<int __fastcall(int, int)> ProcessControls = 0x53F337;
-static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> ReplyTarget = 0x4ff62d;
+    CItemDisplayWndDestructor = ::Rcp::eqva(0x004234e8);
+static mem::function<int __fastcall(int, int)> CLootWndDeactivate = ::Rcp::eqva(0x42651f);
+static mem::function<int __cdecl()> MessageEvent = ::Rcp::eqva(0x52437F);
+static mem::function<int __fastcall(int, int)> ProcessControls = ::Rcp::eqva(0x53F337);
+static mem::function<int __cdecl(Rcp::GameStructures::Entity *, const char *)> ReplyTarget = ::Rcp::eqva(0x4ff62d);
 static mem::function<Rcp::GameStructures::Entity *__cdecl(const char *name)> GetPlayerFromName =
-    0x005081db;  // Entity list traversal with name stricmp.
+    ::Rcp::eqva(0x005081db);  // Entity list traversal with name stricmp.
 }  // namespace GameInternal
 
 namespace Spells  // some wrappers for simplifying
@@ -210,7 +211,7 @@ const Rcp::GameStructures::GameCommand *get_command_struct(const std::string &co
 int get_command_function(const std::string &command);  // Returns function pointer of command.
 std::vector<std::string> get_command_matches(const std::string &start_of_command);
 Rcp::GameStructures::Entity *get_view_actor_entity();
-inline Rcp::GameStructures::GuildName *guild_names = (Rcp::GameStructures::GuildName *)0x7F9C94;
+inline Rcp::GameStructures::GuildName *guild_names = (Rcp::GameStructures::GuildName *)::Rcp::eqva(0x7F9C94);
 bool collide_with_world(Vec3 start, Vec3 end, Vec3 &result, char collision_type = 0x3, bool debug = false);
 bool is_view_actor_invisible(Rcp::GameStructures::Entity *entity);
 std::vector<Rcp::GameStructures::Entity *> get_world_visible_actor_list(float max_dist, bool only_targetable = true);
@@ -339,17 +340,17 @@ int get_hand_to_hand_delay();
 void print_melee_attack_stats(bool primary, const Rcp::GameStructures::GAMEITEMINFO *weapon = nullptr,
                               short color = USERCOLOR_DEFAULT);
 
-inline int get_screen_resolution_x() { return *reinterpret_cast<int *>(0x00798564); }
+inline int get_screen_resolution_x() { return *reinterpret_cast<int *>(::Rcp::eqva(0x00798564)); }
 
-inline int get_screen_resolution_y() { return *reinterpret_cast<int *>(0x00798568); }
+inline int get_screen_resolution_y() { return *reinterpret_cast<int *>(::Rcp::eqva(0x00798568)); }
 
-inline int get_viewport_left() { return *reinterpret_cast<short *>(0x00798548); }
+inline int get_viewport_left() { return *reinterpret_cast<short *>(::Rcp::eqva(0x00798548)); }
 
-inline int get_viewport_top() { return *reinterpret_cast<short *>(0x0079854a); }
+inline int get_viewport_top() { return *reinterpret_cast<short *>(::Rcp::eqva(0x0079854a)); }
 
-inline int get_viewport_right() { return *reinterpret_cast<short *>(0x0079854c); }
+inline int get_viewport_right() { return *reinterpret_cast<short *>(::Rcp::eqva(0x0079854c)); }
 
-inline int get_viewport_bottom() { return *reinterpret_cast<short *>(0x0079854e); }
+inline int get_viewport_bottom() { return *reinterpret_cast<short *>(::Rcp::eqva(0x0079854e)); }
 
 }  // namespace Game
 }  // namespace Rcp

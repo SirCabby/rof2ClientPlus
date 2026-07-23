@@ -1,5 +1,6 @@
 // rof2ClientPlus - automatic AA-experience gating. See aa_exp.h.
 #include "aa_exp.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -23,7 +24,7 @@ namespace {
 // the Cur_/Max_ vtable accessors (see chat_shortcuts.cpp). Confirmed against four
 // independent read/write sites (the AA-window +/- handlers, the server setter at
 // 0x4B7060, the exp/aa getters, and the gauge/label builders).
-void **const kLocalPC = reinterpret_cast<void **>(0xDD261C);
+void **const kLocalPC = reinterpret_cast<void **>(::Rcp::eqva(0xDD261C));
 constexpr int kOffPercentToAA = 0x2081;  // uint8, 0..100: PercentEXPtoAA (== the AA-window slider value).
 constexpr int kOffExp = 0x2910;          // int64: experience WITHIN the current level, range 0..330.
 constexpr long long kExpPerLevel = 330;  // Exp == 330 is a full bar (100% into the level). (client const 100/330.)
@@ -34,13 +35,13 @@ constexpr long long kExpPerLevel = 330;  // Exp == 330 is a full bar (100% into 
 // buttons call after stepping the field, so writing the byte then calling this makes the server
 // redistribute gained XP just like moving the native AA slider. (eqgame.exe 0x607C40.)
 typedef void(__cdecl *SendAaPctFn)();
-constexpr uintptr_t kSendAaPct = 0x607C40;
+const uintptr_t kSendAaPct = ::Rcp::eqva(0x607C40);
 
 // CAAWnd::Update (__thiscall) - repaint the AA window's gauge if it happens to be open. Purely
 // cosmetic (the packet has already gone out); guarded on a non-null window instance. pinstCAAWnd.
-void **const kAAWnd = reinterpret_cast<void **>(0xD1FC20);
+void **const kAAWnd = reinterpret_cast<void **>(::Rcp::eqva(0xD1FC20));
 typedef void(__thiscall *AAWndUpdateFn)(void *);
-constexpr uintptr_t kAAWndUpdate = 0x609F90;
+const uintptr_t kAAWndUpdate = ::Rcp::eqva(0x609F90);
 
 // ---- Settings (rof2ClientPlus.ini [Experience]) ----
 constexpr char kIniSection[] = "Experience";

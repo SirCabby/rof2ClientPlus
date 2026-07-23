@@ -1,5 +1,6 @@
 // rof2ClientPlus - floating combat damage. See floating_damage.h.
 #include "floating_damage.h"
+#include "rebase.h"
 
 #include <windows.h>
 #include <d3d9.h>
@@ -33,7 +34,7 @@ constexpr char kIniSection[] = "FloatingDamage";
 // = 0x52EE40, `bool ReportSuccessfulHit(EQSuccessfulHit*, bool, int)` - a __thiscall member. This
 // is the function that prints the "You/X hit Y for N points" combat lines; hooking it (like Zeal
 // hooks its TAKP equivalent) hands us every melee/spell damage event the client is told about.
-constexpr uintptr_t kReportSuccessfulHit = 0x52EE40;
+const uintptr_t kReportSuccessfulHit = ::Rcp::eqva(0x52EE40);
 
 // eqlib EQSuccessfulHit (RoF2 layout - NOT the TAKP Damage_Struct in game_packets.h, whose field
 // sizes differ: here Skill is 1 byte and SpellID/DamageCaused are 4).
@@ -56,8 +57,8 @@ typedef bool(__fastcall *ReportHitFn)(void *pThis, int edx, EQSuccessfulHit *hit
 ReportHitFn g_orig = nullptr;
 
 // ---- stock RoF2 globals + entity offsets (disasm-confirmed; see font_overlay.cpp / target_ring.cpp).
-void **const kSelf = reinterpret_cast<void **>(0xDD2630);        // local player entity
-void **const kControlled = reinterpret_cast<void **>(0xDD2644);  // controlled entity (self or a charm/merc)
+void **const kSelf = reinterpret_cast<void **>(::Rcp::eqva(0xDD2630));        // local player entity
+void **const kControlled = reinterpret_cast<void **>(::Rcp::eqva(0xDD2644));  // controlled entity (self or a charm/merc)
 constexpr int kEntPos0 = 0x64;           // renderer position floats, memory order (EQ Y).
 constexpr int kEntPos1 = 0x68;           // (EQ X)
 constexpr int kEntPos2 = 0x6c;           // vertical (EQ Z)
@@ -76,8 +77,8 @@ constexpr int kEntMasterId = 0x38c;  // uint32 pet-owner spawn id (0 if not a pe
 // PlayerManagerClient::GetSpawnByID(int) @0x5996E0, this = pinstSpawnManager @0xE641D0. The vendored
 // Rcp::Game::get_entity_by_id (flat EntityIdArray@0x0078c47c) is a STALE TAKP address that returns a
 // garbage pointer on RoF2 - do not use it.
-void **const kSpawnManager = reinterpret_cast<void **>(0xE641D0);
-constexpr uintptr_t kGetSpawnByID = 0x5996E0;
+void **const kSpawnManager = reinterpret_cast<void **>(::Rcp::eqva(0xE641D0));
+const uintptr_t kGetSpawnByID = ::Rcp::eqva(0x5996E0);
 void *get_spawn_by_id(int id) {
   void *mgr = *kSpawnManager;
   if (!mgr) return nullptr;

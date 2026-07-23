@@ -10,6 +10,7 @@
 //   Auto Fire, Auto Inventory, Buy/Sell Stack (merchant), Assist, Loot Target,
 //   Toggle Nameplate Colors / Con Colors / Hide Self.
 #include "keybinds.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -31,22 +32,22 @@
 // ---------------------------------------------------------------------------
 // Stock RoF2 addresses (eqlib offsets/eqgame.h + disasm, May 10 2013 build).
 // ---------------------------------------------------------------------------
-static char **const kBindList = reinterpret_cast<char **>(0xACBEE8);  // char*[479] mappable-command names (.data)
+static char **const kBindList = reinterpret_cast<char **>(::Rcp::eqva(0xACBEE8));  // char*[479] mappable-command names (.data)
 static constexpr int kNumNamedCommands = 479;                         // dense 0..478; 479-499 are dispatch-only
-static constexpr uintptr_t kExecuteCmd = 0x4D7230;                    // __cdecl ExecuteCmd(cmd, keydown, data, combo)
-static constexpr uintptr_t kInitKeyboardAssignments = 0x7046C0;       // __thiscall COptionsWnd::InitKeyboardAssignments
-static void **const kKeypressHandler = reinterpret_cast<void **>(0xE639B0);  // KeypressHandler* singleton
-static constexpr uintptr_t kLoadAndSetKeymappings = 0x55B100;         // __thiscall KeypressHandler::LoadAndSetKeymappings
-static constexpr uintptr_t kResetKeysToEqDefaults = 0x5598D0;         // __thiscall KeypressHandler::ResetKeysToEqDefaults
-static constexpr uintptr_t kSaveKeymapping = 0x55AC50;                // __thiscall KeypressHandler::SaveKeymapping(cmd, KeyCombo&, map)
-static constexpr uintptr_t kDeleteAllKeymappings = 0x55B020;          // __thiscall KeypressHandler::DeleteAllKeymappings
+static const uintptr_t kExecuteCmd = ::Rcp::eqva(0x4D7230);                    // __cdecl ExecuteCmd(cmd, keydown, data, combo)
+static const uintptr_t kInitKeyboardAssignments = ::Rcp::eqva(0x7046C0);       // __thiscall COptionsWnd::InitKeyboardAssignments
+static void **const kKeypressHandler = reinterpret_cast<void **>(::Rcp::eqva(0xE639B0));  // KeypressHandler* singleton
+static const uintptr_t kLoadAndSetKeymappings = ::Rcp::eqva(0x55B100);         // __thiscall KeypressHandler::LoadAndSetKeymappings
+static const uintptr_t kResetKeysToEqDefaults = ::Rcp::eqva(0x5598D0);         // __thiscall KeypressHandler::ResetKeysToEqDefaults
+static const uintptr_t kSaveKeymapping = ::Rcp::eqva(0x55AC50);                // __thiscall KeypressHandler::SaveKeymapping(cmd, KeyCombo&, map)
+static const uintptr_t kDeleteAllKeymappings = ::Rcp::eqva(0x55B020);          // __thiscall KeypressHandler::DeleteAllKeymappings
 // KeypressHandler layout: KeyCombo NormalKey[500] @+0, AltKey[500] @+0x7D0,
 // char CommandState[500] @+0xFA0. KeyCombo = {u8 Alt, u8 Ctrl, u8 Shift, u8 DIK}.
 static constexpr uintptr_t kAltKeyOffset = 0x7D0;
-static void **const kCEverQuest = reinterpret_cast<void **>(0xE67CCC);  // CEverQuest* (pinstCEverQuest)
-static void **const kSelf = reinterpret_cast<void **>(0xDD2630);        // local PlayerClient*
+static void **const kCEverQuest = reinterpret_cast<void **>(::Rcp::eqva(0xE67CCC));  // CEverQuest* (pinstCEverQuest)
+static void **const kSelf = reinterpret_cast<void **>(::Rcp::eqva(0xDD2630));        // local PlayerClient*
 static constexpr int kOffName = 0xA4;                                   // PlayerBase::Name (char[0x40])
-static uint8_t *const kCmdStates = reinterpret_cast<uint8_t *>(0xDCEF08);  // g_eqCommandStates[500] (0 = suppressed)
+static uint8_t *const kCmdStates = reinterpret_cast<uint8_t *>(::Rcp::eqva(0xDCEF08));  // g_eqCommandStates[500] (0 = suppressed)
 
 // The stock Options window Keys tab data: COptionsWnd holds an 8-byte-stride
 // {CXStr desc, int category} array at this+0x40C indexed by command id (dense,
@@ -54,9 +55,9 @@ static uint8_t *const kCmdStates = reinterpret_cast<uint8_t *>(0xDCEF08);  // g_
 // our hijacked rows after the original runs. The key-capture path only allows
 // command ids <= 463 (cmp at 0x70ACCB), which our block satisfies.
 static constexpr uintptr_t kOptionsBindsOffset = 0x40C;
-static constexpr uintptr_t kCXStrAssignCharPtr = 0x805DE0;  // __thiscall CXStr::operator=(const char*)
-static void **const kOptionsWnd = reinterpret_cast<void **>(0xD1FC6C);  // COptionsWnd* (null until built)
-static constexpr uintptr_t kRefreshKeyboardAssignmentList = 0x70A560;   // __thiscall COptionsWnd::Refresh...List()
+static const uintptr_t kCXStrAssignCharPtr = ::Rcp::eqva(0x805DE0);  // __thiscall CXStr::operator=(const char*)
+static void **const kOptionsWnd = reinterpret_cast<void **>(::Rcp::eqva(0xD1FC6C));  // COptionsWnd* (null until built)
+static const uintptr_t kRefreshKeyboardAssignmentList = ::Rcp::eqva(0x70A560);   // __thiscall COptionsWnd::Refresh...List()
 
 // Keys-tab category BITMASKS (filter combobox: bit i == choice i; "All" =
 // 0x7FFFF). Disasm of 0x7046C0 / the filter test at 0x70A6B4.
@@ -72,16 +73,16 @@ static constexpr char kKeyMapsSection[] = "KeyMaps";
 // CQuantityWnd::Open reads the wnd-manager shift flag and, when set, commits
 // the max quantity immediately without showing the dialog - the same path a
 // native shift-click takes - so we fake shift and click the buy/sell handler.
-static void **const kMerchantWnd = reinterpret_cast<void **>(0xD1FCA4);      // CMerchantWnd* (null until built)
-static void **const kActiveMerchant = reinterpret_cast<void **>(0xDD264C);   // entity we are trading with
-static void **const kWndManager = reinterpret_cast<void **>(0x15D3D00);      // CXWndManager*
+static void **const kMerchantWnd = reinterpret_cast<void **>(::Rcp::eqva(0xD1FCA4));      // CMerchantWnd* (null until built)
+static void **const kActiveMerchant = reinterpret_cast<void **>(::Rcp::eqva(0xDD264C));   // entity we are trading with
+static void **const kWndManager = reinterpret_cast<void **>(::Rcp::eqva(0x15D3D00));      // CXWndManager*
 static constexpr int kOffWndMgrShift = 0x9D;      // CXWndManager bool: shift held
 static constexpr int kOffMerchantLocation = 0x23C;  // ItemGlobalIndex.Location of the selected slot
 static constexpr int kOffMerchantSelItem = 0x248;   // ItemPtr pSelectedItem
 static constexpr int kLocMerchant = 9;   // eItemContainerMerchant -> buying
 static constexpr int kLocPossessions = 0;  // eItemContainerPossessions -> selling
-static constexpr uintptr_t kHandleBuy = 0x6F2620;   // __thiscall CMerchantWnd::HandleBuy(int qty; -1 = quantity flow)
-static constexpr uintptr_t kHandleSell = 0x6F29C0;  // __thiscall CMerchantWnd::HandleSell(int qty)
+static const uintptr_t kHandleBuy = ::Rcp::eqva(0x6F2620);   // __thiscall CMerchantWnd::HandleBuy(int qty; -1 = quantity flow)
+static const uintptr_t kHandleSell = ::Rcp::eqva(0x6F29C0);  // __thiscall CMerchantWnd::HandleSell(int qty)
 
 // Hijacked command indices: the CMD_REAL_ESTATE_* block (429-446) is the RoF2
 // housing UI, absent on emu servers, and sits below the options page's <=463

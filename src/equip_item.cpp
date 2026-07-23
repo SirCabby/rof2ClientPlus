@@ -1,5 +1,6 @@
 // rof2ClientPlus - right-click to equip (RoF2-native). See equip_item.h.
 #include "equip_item.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -23,18 +24,18 @@ bool g_enabled = false;
 
 // ---- stock RoF2 addresses/offsets (eqlib, build 2013-05-10 == ours; verified clean prologues) ----
 // void __thiscall CInvSlot::HandleRButtonUp(const CXPoint& pt).
-constexpr int kCInvSlot_HandleRButtonUp = 0x697250;
+const int kCInvSlot_HandleRButtonUp = ::Rcp::eqva(0x697250);
 // ItemPtr __thiscall CInvSlot::GetItem(); returns an 8-byte SoeUtil::SharedPtr by hidden return ptr.
-constexpr int kCInvSlot_GetItem = 0x694780;
+const int kCInvSlot_GetItem = ::Rcp::eqva(0x694780);
 // bool __thiscall CInvSlotMgr::MoveItem(const ItemGlobalIndex& from, const ItemGlobalIndex& to,
 //                                       bool bDebugOut, bool CombineIsOk, bool MoveFromIntoToBag, bool MoveToIntoFromBag).
-constexpr int kCInvSlotMgr_MoveItem = 0x698D80;
-void **const kInvSlotMgr = reinterpret_cast<void **>(0xD1FD80);  // pinstCInvSlotMgr
+const int kCInvSlotMgr_MoveItem = ::Rcp::eqva(0x698D80);
+void **const kInvSlotMgr = reinterpret_cast<void **>(::Rcp::eqva(0xD1FD80));  // pinstCInvSlotMgr
 
 // pinstCXWndManager + its cached keyboard-flag bytes (read by GetKeyboardFlags): /*0x9d*/ Shift,
 // /*0x9e*/ Ctrl, /*0x9f*/ LAlt, /*0xa0*/ RAlt. We read the Alt bytes to tell an equip (Alt) from a
 // plain right-click (which lets a clicky cast natively).
-void **const kCXWndManager = reinterpret_cast<void **>(0x15D3D00);
+void **const kCXWndManager = reinterpret_cast<void **>(::Rcp::eqva(0x15D3D00));
 constexpr int kOffKb_LAlt = 0x9f;
 constexpr int kOffKb_RAlt = 0xa0;
 

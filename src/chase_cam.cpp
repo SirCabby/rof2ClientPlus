@@ -1,6 +1,7 @@
 // rof2ClientPlus - third-person chase camera (ZealCam Phase 2), stock RoF2 port.
 // See chase_cam.h and PORTING_NOTES.md (Phase 2) for the mechanism + full RE.
 #include "chase_cam.h"
+#include "rebase.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -18,7 +19,7 @@
 // zoom accumulator (CEverQuest+0x5EC) against. Native value 53.0 (verified in the
 // exe). Patching it raises/lowers how far the wheel can zoom out while leaving the
 // wheel itself fully functional - which is exactly what a "max distance" should do.
-static constexpr uintptr_t kMaxZoomFloat = 0x9D0DE4;
+static const uintptr_t kMaxZoomFloat = ::Rcp::eqva(0x9D0DE4);
 static constexpr float kNativeMaxZoom = 53.0f;
 
 // ---- Live settings (persisted to rof2ClientPlus.ini [Chase]). Off by default so

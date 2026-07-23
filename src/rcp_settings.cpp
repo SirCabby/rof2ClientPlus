@@ -1,4 +1,5 @@
 #include "rcp_settings.h"
+#include "rebase.h"
 
 #include "callbacks.h"
 #include "game_addresses.h"
@@ -70,7 +71,7 @@ static const char *get_character_name() {
         index = Rcp::Game::Windows->CharacterSelect->SelectIndex;
       }
     } else {
-      int old_char_select = *reinterpret_cast<int *>(0x007f959c);
+      int old_char_select = *reinterpret_cast<int *>(::Rcp::eqva(0x007f959c));
       if (old_char_select) index = *reinterpret_cast<short *>(old_char_select + 0x80);
     }
     if (index >= 0 && index < 8) {

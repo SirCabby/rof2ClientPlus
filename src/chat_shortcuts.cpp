@@ -1,5 +1,6 @@
 // rof2ClientPlus - Zeal-style chat token shortcuts. See chat_shortcuts.h.
 #include "chat_shortcuts.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -22,7 +23,7 @@ namespace {
 // it to expand our own tokens first. Address confirmed against the 2013-05-10 binary and eqlib
 // (CEverQuest__DoPercentConvert_x = 0x51B600); the 0x538110 that game_functions.h/game_structures.h
 // used to carry is a stale TAKP offset (that address is mid-function in RoF2).
-constexpr uintptr_t kDoPercentConvert = 0x51B600;
+const uintptr_t kDoPercentConvert = ::Rcp::eqva(0x51B600);
 typedef void(__fastcall *DoPercentConvertFn)(void *game, int edx, char *line, int b_outgoing);
 DoPercentConvertFn g_orig = nullptr;
 
@@ -30,18 +31,18 @@ DoPercentConvertFn g_orig = nullptr;
 // the same ones target_ring.cpp / nameplate.cpp read directly. NOTE: do NOT use Rcp::Game::get_self()
 // / get_target() here - those go through the STALE TAKP game_addresses.h globals (Self 0x7F94CC,
 // Target 0x7F94EC) and return null on this client (that was the "%loc/%thp read 0" bug).
-void **const kSelfPtr = reinterpret_cast<void **>(0xDD2630);    // pinstLocalPlayer
-void **const kTargetPtr = reinterpret_cast<void **>(0xDD2648);  // pinstTarget
+void **const kSelfPtr = reinterpret_cast<void **>(::Rcp::eqva(0xDD2630));    // pinstLocalPlayer
+void **const kTargetPtr = reinterpret_cast<void **>(::Rcp::eqva(0xDD2648));  // pinstTarget
 
 // Local player character-stat accessors (same mechanism the billboard nameplates use in
 // font_overlay.cpp, proven in-game). pLocalPC + 0x2DC8 is the CharacterZoneClient the client's own
 // Cur_/Max_ accessor functions expect as `this`.
-void **const kLocalPC = reinterpret_cast<void **>(0xDD261C);
+void **const kLocalPC = reinterpret_cast<void **>(::Rcp::eqva(0xDD261C));
 constexpr int kCzcOffset = 0x2DC8;
 typedef int(__thiscall *StatFn2)(void *, int, bool);  // Cur_HP(0x449E00), Max_HP(0x443FA0): (0, true)
 typedef int(__thiscall *StatFn1b)(void *, bool);      // Cur_Mana(0x4442E0): (true)
 typedef int(__thiscall *StatFn1i)(void *, int);       // Max_Mana(0x581E60): (0)
-constexpr uintptr_t kCurHP = 0x449E00, kMaxHP = 0x443FA0, kCurMana = 0x4442E0, kMaxMana = 0x581E60;
+const uintptr_t kCurHP = ::Rcp::eqva(0x449E00), kMaxHP = ::Rcp::eqva(0x443FA0), kCurMana = ::Rcp::eqva(0x4442E0), kMaxMana = ::Rcp::eqva(0x581E60);
 
 // Entity field offsets (disasm-confirmed; shared with nameplate.cpp / target_ring.cpp).
 constexpr int kEntY = 0x64, kEntX = 0x68, kEntZ = 0x6c;  // position floats (EQ order Y, X, Z)

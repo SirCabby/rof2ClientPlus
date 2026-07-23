@@ -19,6 +19,7 @@
 
 #define NOMINMAX
 #include "bitmap_font.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -72,8 +73,8 @@ static constexpr char kSpriteFontMagic[] = "DXTKfont";
 
 // Confirmed stock-RoF2 screen resolution globals (see game_functions.h). Only used for the
 // optional full-screen viewport override, which the nameplate path leaves disabled.
-inline int screen_resolution_x() { return *reinterpret_cast<int *>(0x00798564); }
-inline int screen_resolution_y() { return *reinterpret_cast<int *>(0x00798568); }
+inline int screen_resolution_x() { return *reinterpret_cast<int *>(::Rcp::eqva(0x00798564)); }
+inline int screen_resolution_y() { return *reinterpret_cast<int *>(::Rcp::eqva(0x00798568)); }
 
 // The fonts directory lives next to the game exe: "<game>/uifiles/rcp/fonts".
 std::filesystem::path get_fonts_dir() {

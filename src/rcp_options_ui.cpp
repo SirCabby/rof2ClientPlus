@@ -1,5 +1,6 @@
 // rof2ClientPlus - options-window UI (stock RoF2 SIDL/EQUI port), tabbed build.
 #include "rcp_options_ui.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -34,12 +35,12 @@
 #include "window_watch.h"
 
 // ---- stock RoF2 addresses (eqlib offsets + disasm of the client's own usage) ----
-static constexpr int kCreateXWnd = 0x870400;              // CSidlManagerBase::CreateXWndFromTemplate(parent,name)
-static constexpr int kGetChildItem = 0x85CFD0;            // CSidlScreenWnd::GetChildItem(name, flag)
-static constexpr int kSliderGetValue = 0x895FE0;          // CSliderWnd::GetValue()
-static constexpr int kSliderSetValue = 0x8961B0;          // CSliderWnd::SetValue(int)
-static constexpr int kCXStrCtor = 0x805C20;               // CXStr::CXStr(const char*)
-static void **const kSidlManager = reinterpret_cast<void **>(0x15D3D08);  // pinstCSidlManager
+static const int kCreateXWnd = ::Rcp::eqva(0x870400);              // CSidlManagerBase::CreateXWndFromTemplate(parent,name)
+static const int kGetChildItem = ::Rcp::eqva(0x85CFD0);            // CSidlScreenWnd::GetChildItem(name, flag)
+static const int kSliderGetValue = ::Rcp::eqva(0x895FE0);          // CSliderWnd::GetValue()
+static const int kSliderSetValue = ::Rcp::eqva(0x8961B0);          // CSliderWnd::SetValue(int)
+static const int kCXStrCtor = ::Rcp::eqva(0x805C20);               // CXStr::CXStr(const char*)
+static void **const kSidlManager = reinterpret_cast<void **>(::Rcp::eqva(0x15D3D08));  // pinstCSidlManager
 static constexpr int kShowVtOffset = 0xD8;                // CXWnd vtable Show() slot
 static constexpr int kCheckedOffset = 0x1E4;              // CButtonWnd::Checked
 static constexpr int kDShowOffset = 0x196;                // CXWnd::dShow (visible flag)
@@ -48,8 +49,8 @@ static constexpr int kCRNormalOffset = 0x12C;             // CXWnd::CRNormal (AR
 // Stock color picker (eqlib CColorPickerWnd + disasm of the client's own Open
 // call sites, e.g. 0x63fc3f: mov ecx,[0xD1FC64]; push color; push caller;
 // call 0x659AF0). Open = __thiscall(this, CXWnd* caller, D3DCOLOR), ret 0x8.
-static void **const kColorPicker = reinterpret_cast<void **>(0xD1FC64);  // pinstCColorPickerWnd
-static constexpr int kColorPickerOpen = 0x659AF0;
+static void **const kColorPicker = reinterpret_cast<void **>(::Rcp::eqva(0xD1FC64));  // pinstCColorPickerWnd
+static const int kColorPickerOpen = ::Rcp::eqva(0x659AF0);
 static constexpr int kPickerCallerOffset = 0x22C;  // CColorPickerWnd::pwndCaller
 static constexpr int kPickerRedOffset = 0x270;     // CColorPickerWnd::RedSliderValue
 static constexpr int kPickerGreenOffset = 0x27C;   // CColorPickerWnd::GreenSliderValue
@@ -57,10 +58,10 @@ static constexpr int kPickerBlueOffset = 0x288;    // CColorPickerWnd::BlueSlide
 
 // CComboWnd (eqlib UI.h + offsets/eqgame.h; this eqlib build matches ours - CreateXWnd/GetChildItem/
 // slider/color-picker addresses all line up). Used to drive the ring-graphic dropdown by polling.
-static constexpr int kComboDeleteAll = 0x86A960;     // CComboWnd::DeleteAll()  __thiscall(this)
-static constexpr int kComboInsertChoice = 0x86AE50;  // int InsertChoice(const CXStr&, uint32 data=0)
-static constexpr int kComboGetCurChoice = 0x86A780;  // int GetCurChoice() const  __thiscall(this)
-static constexpr int kComboSetChoice = 0x86A740;     // void SetChoice(int)  __thiscall(this, int)
+static const int kComboDeleteAll = ::Rcp::eqva(0x86A960);     // CComboWnd::DeleteAll()  __thiscall(this)
+static const int kComboInsertChoice = ::Rcp::eqva(0x86AE50);  // int InsertChoice(const CXStr&, uint32 data=0)
+static const int kComboGetCurChoice = ::Rcp::eqva(0x86A780);  // int GetCurChoice() const  __thiscall(this)
+static const int kComboSetChoice = ::Rcp::eqva(0x86A740);     // void SetChoice(int)  __thiscall(this, int)
 // CComboWnd::pListWnd. Every method above does `mov reg,[this+0x1d8]` and derefs it with NO null
 // check (disasm-verified), so calling any of them with a null list crashes. These run on the main
 // thread (not rcp_guard-wrapped), so we gate on pListWnd being present.
@@ -69,11 +70,11 @@ static constexpr int kComboListWndOffset = 0x1d8;
 // CListWnd (eqlib UI.h + offsets/eqgame.h; disasm-verified against OUR build: GetCurSel@0x853430 reads
 // CurSel@[this+0x1f8] and compares it to the row count at [this+0x1d8] = ItemsArray.m_length, exactly as
 // eqlib describes). Drives the scrollable tracked-sound list on the Sounds tab.
-static constexpr int kListAddString = 0x8580C0;   // int AddString(const CXStr&, COLORREF, uint32 data, void* pTa, char* tip)
-static constexpr int kListGetCurSel = 0x853430;   // int GetCurSel() const  __thiscall(this)
-static constexpr int kListSetCurSel = 0x853470;   // void SetCurSel(int)  __thiscall(this, int)
-static constexpr int kListSetItemText = 0x8575B0; // void SetItemText(int row, int col, const CXStr&)  __thiscall
-static constexpr int kListRemoveLine = 0x8582A0;  // void RemoveLine(int)  __thiscall(this, int)
+static const int kListAddString = ::Rcp::eqva(0x8580C0);   // int AddString(const CXStr&, COLORREF, uint32 data, void* pTa, char* tip)
+static const int kListGetCurSel = ::Rcp::eqva(0x853430);   // int GetCurSel() const  __thiscall(this)
+static const int kListSetCurSel = ::Rcp::eqva(0x853470);   // void SetCurSel(int)  __thiscall(this, int)
+static const int kListSetItemText = ::Rcp::eqva(0x8575B0); // void SetItemText(int row, int col, const CXStr&)  __thiscall
+static const int kListRemoveLine = ::Rcp::eqva(0x8582A0);  // void RemoveLine(int)  __thiscall(this, int)
 static constexpr int kListItemsCountOffset = 0x1d8;    // CListWnd::ItemsArray -> ArrayClass m_length @ +0 = row count
 static constexpr int kListHeaderHeightOffset = 0x208;  // CListWnd::HeaderHeight (scrollbar-rect header inset)
 // CListWnd::ListWndStyle @ this+0x274; bit 0x200000 = "has column header". Both GetItemRect (item layout /
@@ -115,7 +116,7 @@ static void slider_set_range(void *slider, int max_inclusive) {
 // CXWnd::SetWindowText is virtual at vtable offset 0x124 - the cache-correct way
 // to set a label's text (it marks the label dirty so it re-draws).
 static constexpr int kSetWindowTextVtOffset = 0x124;
-static constexpr int kCXStrDtor = 0x465AE0;  // CXStr::~CXStr (thiscall, no args), pairs with kCXStrCtor.
+static const int kCXStrDtor = ::Rcp::eqva(0x465AE0);  // CXStr::~CXStr (thiscall, no args), pairs with kCXStrCtor.
 static void set_label_text(void *label, const char *text) {
   if (!label) return;
   uint32_t cxstr;
@@ -1562,7 +1563,7 @@ RcpOptionsUI::RcpOptionsUI(RcpService *rcp) {
   // old UIManager that used to host it is never instantiated) -- so drop_handles() runs on any
   // UI (re)load incl. /loadskin. NOTE: do NOT use rcp->callbacks: CallbackManager is not
   // instantiated in this build (rcp->callbacks is null; dereferencing it crashed char-select).
-  rcp->hooks->Add("LoadSidl", 0x5992c0, LoadSidl_dropwnd_hk, hook_type_detour);
+  rcp->hooks->Add("LoadSidl", ::Rcp::eqva(0x5992c0), LoadSidl_dropwnd_hk, hook_type_detour);
   rcp->commands_hook->Add("/rcpoptions", {"/rcpo"}, "Opens or closes the rof2ClientPlus options window.",
                           [this](std::vector<std::string> &args) {
                             (void)args;

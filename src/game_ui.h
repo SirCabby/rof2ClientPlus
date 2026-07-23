@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "rebase.h"
 #include <windows.h>
 
 #include "game_structures.h"
@@ -7,7 +8,7 @@
 
 namespace Rcp {
 namespace GameUI {
-static HANDLE *Heap = (HANDLE *)0x0080b420;
+static HANDLE *Heap = (HANDLE *)::Rcp::eqva(0x0080b420);
 
 struct BaseVTable  // Equivalent to CXWnd's VTable in client.
 {
@@ -133,39 +134,39 @@ struct CXSTR {
   // These constructors are explicit since currently the destructor is commented out so
   // that any implicit construction will likely cause a reference count leak.
   explicit CXSTR(const char *data) {
-    reinterpret_cast<void(__thiscall *)(const CXSTR *, const char *)>(0x575F30)(this, data);
+    reinterpret_cast<void(__thiscall *)(const CXSTR *, const char *)>(::Rcp::eqva(0x575F30))(this, data);
   }
 
   explicit CXSTR(std::string data) {
-    reinterpret_cast<void(__thiscall *)(const CXSTR *, const char *)>(0x575F30)(this, data.c_str());
+    reinterpret_cast<void(__thiscall *)(const CXSTR *, const char *)>(::Rcp::eqva(0x575F30))(this, data.c_str());
   }
 
   void Assure(int length, int encoding) {
-    reinterpret_cast<void(__thiscall *)(const CXSTR *, int, int)>(0x575A60)(this, length, encoding);
+    reinterpret_cast<void(__thiscall *)(const CXSTR *, int, int)>(::Rcp::eqva(0x575A60))(this, length, encoding);
   }
 
   void FreeRep() {
-    if (Data) reinterpret_cast<void(__thiscall *)(const CXSTR *, pCXSTR *)>(0x575DC0)(this, Data);
+    if (Data) reinterpret_cast<void(__thiscall *)(const CXSTR *, pCXSTR *)>(::Rcp::eqva(0x575DC0))(this, Data);
     Data = nullptr;
   }
 
-  char *CastToCharPtr() const { return reinterpret_cast<char *(__thiscall *)(const CXSTR *)>(0x577E80)(this); }
+  char *CastToCharPtr() const { return reinterpret_cast<char *(__thiscall *)(const CXSTR *)>(::Rcp::eqva(0x577E80))(this); }
 
   void Append(const std::string data) {
-    reinterpret_cast<void(__thiscall *)(const CXSTR *, const char *)>(0x577310)(this, data.c_str());
+    reinterpret_cast<void(__thiscall *)(const CXSTR *, const char *)>(::Rcp::eqva(0x577310))(this, data.c_str());
   }
 
   void Set(const std::string data) {
-    reinterpret_cast<void(__thiscall *)(const CXSTR *, const char *)>(0x576190)(this, data.c_str());
+    reinterpret_cast<void(__thiscall *)(const CXSTR *, const char *)>(::Rcp::eqva(0x576190))(this, data.c_str());
   }
 
   void Set(const char *data) {
-    reinterpret_cast<void(__thiscall *)(const CXSTR *, const char *)>(0x576190)(this, data);
+    reinterpret_cast<void(__thiscall *)(const CXSTR *, const char *)>(::Rcp::eqva(0x576190))(this, data);
   }
 
   CXSTR &operator=(const CXSTR &other) {
     // Client operator= handles nullptrs, reference counting, and FreeRep() of old value.
-    reinterpret_cast<pCXSTR *(__thiscall *)(CXSTR *, const CXSTR *)>(0x576140)(this, &other);
+    reinterpret_cast<pCXSTR *(__thiscall *)(CXSTR *, const CXSTR *)>(::Rcp::eqva(0x576140))(this, &other);
     return *this;
   }
 
@@ -227,9 +228,9 @@ struct BasicWnd  // Equivalent to CXWnd in client.
     reinterpret_cast<void(__thiscall *)(const BasicWnd *, bool delete_me)>(vtbl->Deconstructor)(this, delete_me);
   }
 
-  void SetFocus() { reinterpret_cast<void(__thiscall *)(const BasicWnd *)>(0x572290)(this); }
+  void SetFocus() { reinterpret_cast<void(__thiscall *)(const BasicWnd *)>(::Rcp::eqva(0x572290))(this); }
 
-  void BringToFront() { reinterpret_cast<void(__thiscall *)(const BasicWnd *, int)>(0x573a80)(this, 1); }
+  void BringToFront() { reinterpret_cast<void(__thiscall *)(const BasicWnd *, int)>(::Rcp::eqva(0x573a80))(this, 1); }
 
   // The client BasicWnd constructor (CXWnd::CXWnd()) sets the vtbl to point at a default
   // BaseVTable located at 0x005eaa94. The constructors of other BasicWnd derived classes
@@ -244,19 +245,19 @@ struct BasicWnd  // Equivalent to CXWnd in client.
 
   void DeleteCustomVTable(BaseVTable *original = nullptr) {
     delete[] reinterpret_cast<BYTE *>(vtbl);
-    vtbl = original ? original : reinterpret_cast<BaseVTable *>(0x005eaa94);  // ~CXWnd().
+    vtbl = original ? original : reinterpret_cast<BaseVTable *>(::Rcp::eqva(0x005eaa94));  // ~CXWnd().
   }
 
   void show(int make_visible_flag, bool bring_to_top) {
-    reinterpret_cast<void(__thiscall *)(const BasicWnd *, int, bool)>(0x572310)(this, make_visible_flag, bring_to_top);
+    reinterpret_cast<void(__thiscall *)(const BasicWnd *, int, bool)>(::Rcp::eqva(0x572310))(this, make_visible_flag, bring_to_top);
   }
 
  protected:  // Block external use of the CXSTR argument version to "encourage" std::string.
   // Note: This is actually CSidlScreenWnd::GetChildItem() but that internally calls CXWnd::GetChildItem().
   BasicWnd *GetChildItem(CXSTR name, bool log_error = true) {
-    if (!log_error) mem::write<BYTE>(0x570378, 0xEB);  // jump passed the ui error logging
-    BasicWnd *wnd = reinterpret_cast<BasicWnd *(__thiscall *)(const BasicWnd *, CXSTR)>(0x570320)(this, name);
-    if (!log_error) mem::write<BYTE>(0x570378, 0x75);  // restore the ui error logging
+    if (!log_error) mem::write<BYTE>(::Rcp::eqva(0x570378), 0xEB);  // jump passed the ui error logging
+    BasicWnd *wnd = reinterpret_cast<BasicWnd *(__thiscall *)(const BasicWnd *, CXSTR)>(::Rcp::eqva(0x570320))(this, name);
+    if (!log_error) mem::write<BYTE>(::Rcp::eqva(0x570378), 0x75);  // restore the ui error logging
     return wnd;
   }
 
@@ -267,7 +268,7 @@ struct BasicWnd  // Equivalent to CXWnd in client.
     return result;
   }
 
-  void CreateChildren() { reinterpret_cast<BasicWnd *(__thiscall *)(const BasicWnd *)>(0x56f4f0)(this); }
+  void CreateChildren() { reinterpret_cast<BasicWnd *(__thiscall *)(const BasicWnd *)>(::Rcp::eqva(0x56f4f0))(this); }
 
   int WndNotification(int sender, int event, int userdata) {
     return reinterpret_cast<int(__thiscall *)(const BasicWnd *, int, int, int)>(vtbl->WndNotification)(this, sender,
@@ -276,10 +277,10 @@ struct BasicWnd  // Equivalent to CXWnd in client.
 
   void MinimizeToggle() { reinterpret_cast<void(__thiscall *)(const BasicWnd *)>(vtbl->OnMinimizeBox)(this); }
 
-  CXRect GetScreenRect() { return reinterpret_cast<CXRect(__thiscall *)(const BasicWnd *)>(0x005751C0)(this); }
+  CXRect GetScreenRect() { return reinterpret_cast<CXRect(__thiscall *)(const BasicWnd *)>(::Rcp::eqva(0x005751C0))(this); }
 
   void DrawTooltipAtPoint(int left, int top) {
-    reinterpret_cast<void(__thiscall *)(const BasicWnd *, int, int)>(0x00574800)(this, left, top);
+    reinterpret_cast<void(__thiscall *)(const BasicWnd *, int, int)>(::Rcp::eqva(0x00574800))(this, left, top);
   }
 
   void LeftClickDown(int mouse_x, int mouse_y, unsigned int flags = 0) {
@@ -396,7 +397,7 @@ struct SidlWnd : BasicWnd {
   void SetupCustomVTable() { BasicWnd::SetupCustomVTable(sizeof(SidlScreenWndVTable)); }
 
   static SidlScreenWndVTable *GetDefaultVTable() {
-    auto *sidl_default_vtbl = reinterpret_cast<SidlScreenWndVTable *>(0x005ea98c);
+    auto *sidl_default_vtbl = reinterpret_cast<SidlScreenWndVTable *>(::Rcp::eqva(0x005ea98c));
     return sidl_default_vtbl;
   }
 
@@ -486,21 +487,21 @@ struct RaidWnd : SidlWnd {
 };
 
 struct HotButton : SidlWnd {
-  int GetPage() { return *(int *)0x7f69f6; }
+  int GetPage() { return *(int *)::Rcp::eqva(0x7f69f6); }
 
-  BYTE GetType(int button_index) { return *(BYTE *)(0x7f6862 + (button_index + (GetPage() * 0xA))); }
+  BYTE GetType(int button_index) { return *(BYTE *)(::Rcp::eqva(0x7f6862) + (button_index + (GetPage() * 0xA))); }
 };
 
 struct ComboWnd : BasicWnd  // Uses a BaseVTable.
 {
-  void DeleteAll() { reinterpret_cast<int(__thiscall *)(const ComboWnd *)>(0x5a18e0)(this); }
+  void DeleteAll() { reinterpret_cast<int(__thiscall *)(const ComboWnd *)>(::Rcp::eqva(0x5a18e0))(this); }
 
   void InsertChoice(const std::string &text) {
     CXSTR data(text);  // InsertChoice calls FreeRep() internally.
-    reinterpret_cast<void(__thiscall *)(const ComboWnd *, CXSTR)>(0x5A1750)(this, data);
+    reinterpret_cast<void(__thiscall *)(const ComboWnd *, CXSTR)>(::Rcp::eqva(0x5A1750))(this, data);
   }
 
-  void SetChoice(int index) { reinterpret_cast<void(__thiscall *)(const ComboWnd *, int)>(0x5A1860)(this, index); }
+  void SetChoice(int index) { reinterpret_cast<void(__thiscall *)(const ComboWnd *, int)>(::Rcp::eqva(0x5A1860))(this, index); }
 };
 
 struct ListWnd : BasicWnd  // Note ListWnd has same vtable structure as ContextMenu, so this declaration is incomplete.
@@ -509,25 +510,25 @@ struct ListWnd : BasicWnd  // Note ListWnd has same vtable structure as ContextM
 
   int AddString(std::string str) {
     CXSTR str_cxstr(str);  // AddString calls FreeRep() internally.
-    return reinterpret_cast<int(__thiscall *)(const ListWnd *, CXSTR, UINT, UINT, UINT)>(0x5797A0)(this, str_cxstr,
+    return reinterpret_cast<int(__thiscall *)(const ListWnd *, CXSTR, UINT, UINT, UINT)>(::Rcp::eqva(0x5797A0))(this, str_cxstr,
                                                                                                    0xffffffff, 0, 0);
   }
 
   void SetItemText(std::string str, int row, int column) {
     CXSTR str_cxstr(str);  // SetItemText calls FreeRep() internally.
-    reinterpret_cast<void(__thiscall *)(const ListWnd *, int, int, CXSTR)>(0x579DC0)(this, row, column, str_cxstr);
+    reinterpret_cast<void(__thiscall *)(const ListWnd *, int, int, CXSTR)>(::Rcp::eqva(0x579DC0))(this, row, column, str_cxstr);
   }
 
   void SetItemData(int row)  // not sure why this is needed
   {
-    reinterpret_cast<void(__thiscall *)(const ListWnd *, int, int)>(0x579D70)(this, row, row);
+    reinterpret_cast<void(__thiscall *)(const ListWnd *, int, int)>(::Rcp::eqva(0x579D70))(this, row, row);
   }
 
-  void Sort(int col) { reinterpret_cast<void(__thiscall *)(const ListWnd *, int)>(0x57cb00)(this, col); }
+  void Sort(int col) { reinterpret_cast<void(__thiscall *)(const ListWnd *, int)>(::Rcp::eqva(0x57cb00))(this, col); }
 
-  void DeleteAll() { reinterpret_cast<void(__thiscall *)(const ListWnd *)>(0x579530)(this); }
+  void DeleteAll() { reinterpret_cast<void(__thiscall *)(const ListWnd *)>(::Rcp::eqva(0x579530))(this); }
 
-  int GetItemData(int row) { return reinterpret_cast<int(__thiscall *)(const ListWnd *, int)>(0x578E80)(this, row); }
+  int GetItemData(int row) { return reinterpret_cast<int(__thiscall *)(const ListWnd *, int)>(::Rcp::eqva(0x578E80))(this, row); }
 
   std::string GetItemText(int row, int col) {
     Rcp::GameUI::CXSTR text;
@@ -539,7 +540,7 @@ struct ListWnd : BasicWnd  // Note ListWnd has same vtable structure as ContextM
 
  protected:  // Allow only internal use of the CXSTR* parameter verison.
   ListWnd *GetItemText(CXSTR *buffer, int row, int col) {
-    return reinterpret_cast<ListWnd *(__thiscall *)(const ListWnd *, CXSTR *, int, int)>(0x578ed0)(this, buffer, row,
+    return reinterpret_cast<ListWnd *(__thiscall *)(const ListWnd *, CXSTR *, int, int)>(::Rcp::eqva(0x578ed0))(this, buffer, row,
                                                                                                    col);
   }
 
@@ -554,13 +555,13 @@ struct ItemDisplayWnd : SidlWnd {
   ItemDisplayWnd(){};  // Either use Create() or assign a pointer to an existing class.
 
  public:
-  static constexpr uint32_t kDefaultVTableAddr = 0x005e5a98;
+  static inline const uint32_t kDefaultVTableAddr = ::Rcp::eqva(0x005e5a98);
 
   // Inspired by ui_manager::create_sidl to use the same heap for destructor deletion support.
   static ItemDisplayWnd *Create(BasicWnd *parent_wnd = nullptr) {
     ItemDisplayWnd *wnd = reinterpret_cast<ItemDisplayWnd *>(HeapAlloc(*Rcp::GameUI::Heap, 0, sizeof(ItemDisplayWnd)));
     mem::set((int)wnd, 0, sizeof(ItemDisplayWnd));
-    reinterpret_cast<void(__fastcall *)(ItemDisplayWnd *, int, BasicWnd *)>(0x00423331)(wnd, 0, parent_wnd);
+    reinterpret_cast<void(__fastcall *)(ItemDisplayWnd *, int, BasicWnd *)>(::Rcp::eqva(0x00423331))(wnd, 0, parent_wnd);
     return wnd;
   }
 
@@ -600,15 +601,15 @@ struct ItemDisplayWnd : SidlWnd {
 
 struct InvSlotWnd : BasicWnd  // Operator new of 0x12C bytes.
 {
-  static inline BaseVTable *default_vtable = reinterpret_cast<BaseVTable *>(0x005eb774);
+  static inline BaseVTable *default_vtable = reinterpret_cast<BaseVTable *>(::Rcp::eqva(0x005eb774));
 
   int HandleLButtonUp(int mouse_x, int mouse_y, unsigned int flags) {
-    return reinterpret_cast<int(__thiscall *)(InvSlotWnd *, int, int, unsigned int)>(0x005a7b10)(this, mouse_x, mouse_y,
+    return reinterpret_cast<int(__thiscall *)(InvSlotWnd *, int, int, unsigned int)>(::Rcp::eqva(0x005a7b10))(this, mouse_x, mouse_y,
                                                                                                  flags);
   }
 
   int HandleRButtonUp(int mouse_x, int mouse_y, unsigned int flags) {
-    return reinterpret_cast<int(__thiscall *)(InvSlotWnd *, int, int, unsigned int)>(0x005a7e80)(this, mouse_x, mouse_y,
+    return reinterpret_cast<int(__thiscall *)(InvSlotWnd *, int, int, unsigned int)>(::Rcp::eqva(0x005a7e80))(this, mouse_x, mouse_y,
                                                                                                  flags);
   }
   /* 0x0114 */ BYTE Unknown0114;
@@ -626,7 +627,7 @@ struct InvSlot  // Operator new of 0x14 bytes.
 {
   int HandleLButtonUp() {
     int flag = this->invSlotWnd ? this->invSlotWnd->Unknown0015 : 0;
-    return reinterpret_cast<int(__thiscall *)(InvSlot *, int unused_x, int unused_y, BYTE flag)>(0x421E48)(this, 0, 0,
+    return reinterpret_cast<int(__thiscall *)(InvSlot *, int unused_x, int unused_y, BYTE flag)>(::Rcp::eqva(0x421E48))(this, 0, 0,
                                                                                                            flag);
   }
 
@@ -689,7 +690,7 @@ struct TradeWnd : public SidlWnd {
 
 struct LootWnd : public SidlWnd {
   void RequestLootSlot(UINT slot, BYTE inventory) {
-    reinterpret_cast<void(__thiscall *)(const LootWnd *, UINT, bool)>(0x426b02)(this, slot, inventory);
+    reinterpret_cast<void(__thiscall *)(const LootWnd *, UINT, bool)>(::Rcp::eqva(0x426b02))(this, slot, inventory);
   }
 
   /* 0x0134 */ DWORD Unk1;
@@ -708,18 +709,18 @@ struct EditWnd : public BasicWnd  // Note: this definition has a truncated vtbl.
   // }
   void ReplaceSelection(const char *data, bool filter_input) {
     CXSTR data_cxstr(data);  // ReplaceSelection calls FreeRep() internally.
-    reinterpret_cast<void(__thiscall *)(const EditWnd *, CXSTR, int)>(0x5a3f00)(this, data_cxstr, filter_input);
+    reinterpret_cast<void(__thiscall *)(const EditWnd *, CXSTR, int)>(::Rcp::eqva(0x5a3f00))(this, data_cxstr, filter_input);
   }
 
   int GetInputLength() { return this->InputText.Data->Length - (this->item_link_count * 9); }
 
   void SetText(const std::string &text) {
     CXSTR data(text);  // SetText calls FreeRep() internally.
-    reinterpret_cast<void(__thiscall *)(const EditWnd *, CXSTR)>(0x5a3d00)(this, data);
+    reinterpret_cast<void(__thiscall *)(const EditWnd *, CXSTR)>(::Rcp::eqva(0x5a3d00))(this, data);
   }
 
   void AddItemTag(int item_id, const char *name) {
-    reinterpret_cast<void(__thiscall *)(const EditWnd *, int, const char *)>(0x5a2920)(this, item_id, name);
+    reinterpret_cast<void(__thiscall *)(const EditWnd *, int, const char *)>(::Rcp::eqva(0x5a2920))(this, item_id, name);
   }
 
   /* 0x0114 */ DWORD LinkStartIndex[10];
@@ -768,22 +769,22 @@ class ContainerMgr {
                                                       /*0x054*/
 
   void OpenContainer(Rcp::GameStructures::GAMEITEMINFO *container, int index) {
-    reinterpret_cast<void(__thiscall *)(ContainerMgr *, Rcp::GameStructures::GAMEITEMINFO *, int)>(0x004168bd)(
+    reinterpret_cast<void(__thiscall *)(ContainerMgr *, Rcp::GameStructures::GAMEITEMINFO *, int)>(::Rcp::eqva(0x004168bd))(
         this, container, index);
   }
 
   void CloseContainer(Rcp::GameStructures::GAMEITEMINFO *container, bool close_window) {
-    reinterpret_cast<void(__thiscall *)(ContainerMgr *, Rcp::GameStructures::GAMEITEMINFO *, bool)>(0x004169e5)(
+    reinterpret_cast<void(__thiscall *)(ContainerMgr *, Rcp::GameStructures::GAMEITEMINFO *, bool)>(::Rcp::eqva(0x004169e5))(
         this, container, close_window);
   }
 
-  int CloseAllContainers() { return reinterpret_cast<int(__thiscall *)(ContainerMgr *)>(0x00416a43)(this); }
+  int CloseAllContainers() { return reinterpret_cast<int(__thiscall *)(ContainerMgr *)>(::Rcp::eqva(0x00416a43))(this); }
 };
 
 struct CInvSlotMgr {
  public:
   InvSlot *FindInvSlot(int slot_id) {
-    return reinterpret_cast<InvSlot *(__thiscall *)(CInvSlotMgr *, int)>(0x423010)(this, slot_id);
+    return reinterpret_cast<InvSlot *(__thiscall *)(CInvSlotMgr *, int)>(::Rcp::eqva(0x423010))(this, slot_id);
   }
 
   /* 0x000 */ DWORD *Unknonwn0000;
@@ -793,11 +794,11 @@ struct CInvSlotMgr {
 
 struct ColorPickerWnd : public SidlWnd {
   void Activate(BasicWnd *wnd, DWORD color) {
-    reinterpret_cast<void(__thiscall *)(const ColorPickerWnd *, BasicWnd *, DWORD)>(0x414F2A)(this, wnd, color);
+    reinterpret_cast<void(__thiscall *)(const ColorPickerWnd *, BasicWnd *, DWORD)>(::Rcp::eqva(0x414F2A))(this, wnd, color);
   };
 
   void SetCurrentcolor(DWORD color) {
-    reinterpret_cast<void(__thiscall *)(const ColorPickerWnd *, DWORD)>(0x414F87)(this, color);
+    reinterpret_cast<void(__thiscall *)(const ColorPickerWnd *, DWORD)>(::Rcp::eqva(0x414F87))(this, color);
   };
 };
 
@@ -813,7 +814,7 @@ struct CTextureFont {
   // Internal use only method for passing CXSTR through.
   int DrawWrappedText(CXSTR str, CXRect rect1, CXRect rect2, unsigned long color, unsigned short unk1, int unk2) const {
     return reinterpret_cast<int(__thiscall *)(const CTextureFont *, CXSTR, CXRect, CXRect, unsigned long,
-                                              unsigned short, int)>(0x005a4a30)(this, str, rect1, rect2, color, unk1,
+                                              unsigned short, int)>(::Rcp::eqva(0x005a4a30))(this, str, rect1, rect2, color, unk1,
                                                                                 unk2);
   }
 
@@ -824,13 +825,13 @@ struct CTextureFont {
     return this->DrawWrappedText(str, rect1, rect2, color, unk1, unk2);
   }
 
-  int GetHeight() { return reinterpret_cast<int(__thiscall *)(const CTextureFont *)>(0x5A4930)(this); }
+  int GetHeight() { return reinterpret_cast<int(__thiscall *)(const CTextureFont *)>(::Rcp::eqva(0x5A4930))(this); }
 };
 
 struct CXWndManager {
   // get font
   CTextureFont *GetFont(int index) {
-    return reinterpret_cast<CTextureFont *(__thiscall *)(const CXWndManager *, int)>(0x538EAA)(this, index);
+    return reinterpret_cast<CTextureFont *(__thiscall *)(const CXWndManager *, int)>(::Rcp::eqva(0x538EAA))(this, index);
   }
 
   /* 0x0000 */ DWORD Unknown0x0;
@@ -871,7 +872,7 @@ class ContextMenu {
   static void __fastcall CustomDestructor(void *menu, int unusedEDX, bool delete_me) {
     BasicWnd *wnd = reinterpret_cast<BasicWnd *>(menu);  // ContextMenu inherits from BasicWnd.
     delete reinterpret_cast<ContextMenuVTable *>(wnd->vtbl);
-    wnd->vtbl = reinterpret_cast<BaseVTable *>(0x005e4a24);  // Set back to default ContextMenu::vtable.
+    wnd->vtbl = reinterpret_cast<BaseVTable *>(::Rcp::eqva(0x005e4a24));  // Set back to default ContextMenu::vtable.
     reinterpret_cast<void(__thiscall *)(const BasicWnd *, bool)>(wnd->vtbl->Deconstructor)(wnd, delete_me);
   };
 
@@ -882,7 +883,7 @@ class ContextMenu {
     ContextMenu *menu = reinterpret_cast<ContextMenu *>(HeapAlloc(*Rcp::GameUI::Heap, 0, sizeof(ContextMenu)));
     if (!menu) return nullptr;
     mem::set((int)menu, 0, sizeof(ContextMenu));
-    reinterpret_cast<void(__fastcall *)(ContextMenu *, int, int, int, CXRect)>(0x417785)(menu, 0, cxwnd, a1, r);
+    reinterpret_cast<void(__fastcall *)(ContextMenu *, int, int, int, CXRect)>(::Rcp::eqva(0x417785))(menu, 0, cxwnd, a1, r);
     ContextMenuVTable *newtbl = new ContextMenuVTable();
     if (!newtbl) return nullptr;
     mem::copy((int)newtbl, (int)menu->fnTable, sizeof(ContextMenuVTable));
@@ -896,33 +897,33 @@ class ContextMenu {
     reinterpret_cast<void(__thiscall *)(const ContextMenu *, bool)>(this->fnTable->Deconstructor)(this, true);
   }
 
-  void AddSeparator() const { reinterpret_cast<void(__thiscall *)(const ContextMenu *)>(0x417A41)(this); }
+  void AddSeparator() const { reinterpret_cast<void(__thiscall *)(const ContextMenu *)>(::Rcp::eqva(0x417A41))(this); }
 
   void EnableMenuItem(int index, bool toggle) {
-    reinterpret_cast<void(__thiscall *)(const ContextMenu *, int, bool)>(0x417a93)(this, index, toggle);
+    reinterpret_cast<void(__thiscall *)(const ContextMenu *, int, bool)>(::Rcp::eqva(0x417a93))(this, index, toggle);
   }
 
   void EnableLine(int index, bool toggle)  // this one doesn't forcibly change the color
   {
-    reinterpret_cast<void(__thiscall *)(const ContextMenu *, int, bool)>(0x579f90)(this, index, toggle);
+    reinterpret_cast<void(__thiscall *)(const ContextMenu *, int, bool)>(::Rcp::eqva(0x579f90))(this, index, toggle);
   }
 
   int AddMenuItem(const std::string &data, int index, bool disp_activated = false, bool has_children = false) const {
     CXSTR data_cxstr(data);  // AddMenuItem calls FreeRep() internally.
-    int result = reinterpret_cast<int(__thiscall *)(const ContextMenu *, CXSTR, int, bool)>(0x417910)(
+    int result = reinterpret_cast<int(__thiscall *)(const ContextMenu *, CXSTR, int, bool)>(::Rcp::eqva(0x417910))(
         this, data_cxstr, has_children ? index | 0x80000000 : index, disp_activated);
     return result;
   }
 
   void SetItemColor(int index, ARGBCOLOR color) {
-    reinterpret_cast<void(__thiscall *)(const ContextMenu *, int, int, ARGBCOLOR)>(0x579eb0)(this, index, 0x1, color);
-    reinterpret_cast<void(__thiscall *)(const ContextMenu *, int, int, ARGBCOLOR)>(0x579eb0)(this, index, 0x2, color);
+    reinterpret_cast<void(__thiscall *)(const ContextMenu *, int, int, ARGBCOLOR)>(::Rcp::eqva(0x579eb0))(this, index, 0x1, color);
+    reinterpret_cast<void(__thiscall *)(const ContextMenu *, int, int, ARGBCOLOR)>(::Rcp::eqva(0x579eb0))(this, index, 0x2, color);
   }
 
-  void RemoveAllMenuItems() { reinterpret_cast<void(__thiscall *)(const ContextMenu *)>(0x417a7f)(this); }
+  void RemoveAllMenuItems() { reinterpret_cast<void(__thiscall *)(const ContextMenu *)>(::Rcp::eqva(0x417a7f))(this); }
 
   void CheckMenuItem(int row, bool check, bool uncheck_other_rows = false) {
-    reinterpret_cast<void(__thiscall *)(const ContextMenu *, int, bool, bool)>(0x417ae8)(this, row, check,
+    reinterpret_cast<void(__thiscall *)(const ContextMenu *, int, bool, bool)>(::Rcp::eqva(0x417ae8))(this, row, check,
                                                                                          uncheck_other_rows);
   }
 
@@ -1054,19 +1055,19 @@ class CChatManager  // : public SidlWnd
 {
  public:  // this class is a complete hack lol
   struct ChatWnd *GetActiveChatWindow() const {
-    return reinterpret_cast<struct ChatWnd *(__thiscall *)(const CChatManager *)>(0x41114A)(this);
+    return reinterpret_cast<struct ChatWnd *(__thiscall *)(const CChatManager *)>(::Rcp::eqva(0x41114A))(this);
   }
 
-  void CreateChatWindow() const { reinterpret_cast<void(__thiscall *)(const CChatManager *)>(0x410C5A)(this); }
+  void CreateChatWindow() const { reinterpret_cast<void(__thiscall *)(const CChatManager *)>(::Rcp::eqva(0x410C5A))(this); }
 
   void FreeChatWindow(struct ChatWnd *wnd) const {
-    reinterpret_cast<void(__thiscall *)(const CChatManager *, struct ChatWnd *)>(0x41110C)(this, wnd);
+    reinterpret_cast<void(__thiscall *)(const CChatManager *, struct ChatWnd *)>(::Rcp::eqva(0x41110C))(this, wnd);
   }
 
   void CreateChatWindow(const char *name, int language, int default_channel, int chat_channel, const char *tell_target,
                         int font) const {
     reinterpret_cast<void(__thiscall *)(const CChatManager *, const char *name, int language, int default_channel,
-                                        int chat_channel, const char *tell_target, int font)>(0x410e84)(
+                                        int chat_channel, const char *tell_target, int font)>(::Rcp::eqva(0x410e84))(
         this, name, language, default_channel, chat_channel, tell_target, font);
   }
 
@@ -1087,21 +1088,21 @@ class CChatManager  // : public SidlWnd
 class CContextMenuManager {
  public:  // this class is a complete hack lol
   int GetDefaultMenuIndex() const {
-    return reinterpret_cast<int(__thiscall *)(const CContextMenuManager *)>(0x4137C2)(this);
+    return reinterpret_cast<int(__thiscall *)(const CContextMenuManager *)>(::Rcp::eqva(0x4137C2))(this);
   }
 
   int AddMenu(ContextMenu *context_menu) const {
-    return reinterpret_cast<int(__thiscall *)(const CContextMenuManager *, ContextMenu *)>(0x417ED4)(this,
+    return reinterpret_cast<int(__thiscall *)(const CContextMenuManager *, ContextMenu *)>(::Rcp::eqva(0x417ED4))(this,
                                                                                                      context_menu);
   }
 
   int PopupMenu(int index, CXPoint pt, ContextMenu *menu) {
-    return reinterpret_cast<int(__thiscall *)(const CContextMenuManager *, int, CXPoint, ContextMenu *)>(0x41822D)(
+    return reinterpret_cast<int(__thiscall *)(const CContextMenuManager *, int, CXPoint, ContextMenu *)>(::Rcp::eqva(0x41822D))(
         this, index, pt, menu);
   }
 
   int RemoveMenu(int menu_index, bool remove_children) {
-    return reinterpret_cast<int(__thiscall *)(const CContextMenuManager *, int, bool)>(0x417E1B)(this, menu_index,
+    return reinterpret_cast<int(__thiscall *)(const CContextMenuManager *, int, bool)>(::Rcp::eqva(0x417E1B))(this, menu_index,
                                                                                                  remove_children);
   }
 
@@ -1112,7 +1113,7 @@ class CContextMenuManager {
 
 class OptionsWnd : public SidlWnd {
  public:
-  static inline SidlScreenWndVTable *default_vtable = reinterpret_cast<SidlScreenWndVTable *>(0x005e60f0);
+  static inline SidlScreenWndVTable *default_vtable = reinterpret_cast<SidlScreenWndVTable *>(::Rcp::eqva(0x005e60f0));
 
   struct KeyMapPair {
     CXSTR name;    // Descriptive name show in UI.
@@ -1120,7 +1121,7 @@ class OptionsWnd : public SidlWnd {
   };
 
   // Maps the KeyMapPairs to keyboard page lists of rows and columns per category.
-  void UpdateKeyboardAssignmentList() { reinterpret_cast<void(__thiscall *)(const OptionsWnd *)>(0x0042b07b)(this); }
+  void UpdateKeyboardAssignmentList() { reinterpret_cast<void(__thiscall *)(const OptionsWnd *)>(::Rcp::eqva(0x0042b07b))(this); }
 
   /*0x134*/ void *Subwindows;
   /*0x138*/ void *GeneralPage;
@@ -1198,29 +1199,29 @@ class OptionsWnd : public SidlWnd {
 
 class SpellBookWnd : public SidlWnd {
  public:
-  static inline SidlScreenWndVTable *default_vtable = reinterpret_cast<SidlScreenWndVTable *>(0x005e6e48);
+  static inline SidlScreenWndVTable *default_vtable = reinterpret_cast<SidlScreenWndVTable *>(::Rcp::eqva(0x005e6e48));
 
   void BeginMemorize(int book_index, int gem_index, bool unsure) const {
-    reinterpret_cast<void(__thiscall *)(const SidlWnd *, int, int, bool)>(0x434a05)(this, book_index, gem_index,
+    reinterpret_cast<void(__thiscall *)(const SidlWnd *, int, int, bool)>(::Rcp::eqva(0x434a05))(this, book_index, gem_index,
                                                                                     unsure);
   }
 
   void StopSpellBookAction() const  // Aborts memorization or scribing.
   {
-    reinterpret_cast<void(__thiscall *)(const SidlWnd *)>(0x00435531)(this);
+    reinterpret_cast<void(__thiscall *)(const SidlWnd *)>(::Rcp::eqva(0x00435531))(this);
   }
 
-  void Activate() const { reinterpret_cast<void(__thiscall *)(const SidlWnd *)>(0x0043441f)(this); }
+  void Activate() const { reinterpret_cast<void(__thiscall *)(const SidlWnd *)>(::Rcp::eqva(0x0043441f))(this); }
 
-  void Deactivate() const { reinterpret_cast<void(__thiscall *)(const SidlWnd *)>(0x0043450a)(this); }
+  void Deactivate() const { reinterpret_cast<void(__thiscall *)(const SidlWnd *)>(::Rcp::eqva(0x0043450a))(this); }
 
   int WndNotification(const BasicWnd *src_wnd, int param_2, void *param_3) {
-    return reinterpret_cast<int(__thiscall *)(SpellBookWnd *, const BasicWnd *, int, void *)>(0x004345cb)(
+    return reinterpret_cast<int(__thiscall *)(SpellBookWnd *, const BasicWnd *, int, void *)>(::Rcp::eqva(0x004345cb))(
         this, src_wnd, param_2, param_3);
   }
 
   void DisplaySpellInfo(const BasicWnd *src_wnd) {
-    reinterpret_cast<int(__thiscall *)(SpellBookWnd *, const BasicWnd *)>(0x00435234)(this, src_wnd);
+    reinterpret_cast<int(__thiscall *)(SpellBookWnd *, const BasicWnd *)>(::Rcp::eqva(0x00435234))(this, src_wnd);
   }
 
   /*0x134*/ BYTE Activated;  // Set to 1 when activated and 0 in Deactivate().
@@ -1241,10 +1242,10 @@ class SpellBookWnd : public SidlWnd {
 // the necessary fields and methods in SpellGemWnd to enable recast time tip functionality.
 struct SpellGemWnd {  // Total allocated size of 0x188 bytes.
 
-  CXRect GetScreenRect() { return reinterpret_cast<CXRect(__thiscall *)(const SpellGemWnd *)>(0x005751C0)(this); }
+  CXRect GetScreenRect() { return reinterpret_cast<CXRect(__thiscall *)(const SpellGemWnd *)>(::Rcp::eqva(0x005751C0))(this); }
 
   void DrawTooltipAtPoint(int left, int top) {
-    reinterpret_cast<void(__thiscall *)(const SpellGemWnd *, int, int)>(0x00574800)(this, left, top);
+    reinterpret_cast<void(__thiscall *)(const SpellGemWnd *, int, int)>(::Rcp::eqva(0x00574800))(this, left, top);
   }
 
   /*0x000*/ BaseVTable *vtbl;
@@ -1277,23 +1278,23 @@ struct SpellGemWnd {  // Total allocated size of 0x188 bytes.
 class CastSpellWnd : public SidlWnd  // Aka CastSpellWnd in client.
 {
  public:
-  static inline SidlScreenWndVTable *default_vtable = reinterpret_cast<SidlScreenWndVTable *>(0x005e41ac);
+  static inline SidlScreenWndVTable *default_vtable = reinterpret_cast<SidlScreenWndVTable *>(::Rcp::eqva(0x005e41ac));
 
   void Forget(int index) const {
-    reinterpret_cast<void(__thiscall *)(const CastSpellWnd *, int)>(0x40a662)(this, index);
+    reinterpret_cast<void(__thiscall *)(const CastSpellWnd *, int)>(::Rcp::eqva(0x40a662))(this, index);
   }
 
   void UpdateSpellGems(int index) const {
-    reinterpret_cast<void(__thiscall *)(const CastSpellWnd *, int)>(0x40a8b7)(this, index);
+    reinterpret_cast<void(__thiscall *)(const CastSpellWnd *, int)>(::Rcp::eqva(0x40a8b7))(this, index);
   }
 
   int WndNotification(const BasicWnd *src_wnd, int param_2, void *param_3) {
-    return reinterpret_cast<int(__thiscall *)(CastSpellWnd *, const BasicWnd *, int, void *)>(0x0040a32a)(
+    return reinterpret_cast<int(__thiscall *)(CastSpellWnd *, const BasicWnd *, int, void *)>(::Rcp::eqva(0x0040a32a))(
         this, src_wnd, param_2, param_3);
   }
 
   void HandleSpellInfoDisplay(const BasicWnd *src_wnd) {
-    reinterpret_cast<int(__thiscall *)(CastSpellWnd *, const BasicWnd *)>(0x0040a480)(this, src_wnd);
+    reinterpret_cast<int(__thiscall *)(CastSpellWnd *, const BasicWnd *)>(::Rcp::eqva(0x0040a480))(this, src_wnd);
   }
 
   /*0x134*/ BYTE Unknown0x134[0x08];
@@ -1315,7 +1316,7 @@ class QuantityWnd : public SidlWnd {
 
 class BazaarSearchWnd : public SidlWnd {
  public:
-  void doQuery() { reinterpret_cast<void(__thiscall *)(BazaarSearchWnd *)>(0x0040614c)(this); }
+  void doQuery() { reinterpret_cast<void(__thiscall *)(BazaarSearchWnd *)>(::Rcp::eqva(0x0040614c))(this); }
 
   /*0x0134*/ BYTE Activated;  // Set to 1 when activated and 0 in Deactivate().
   /*0x0135*/ BYTE Unknown0x135[3];

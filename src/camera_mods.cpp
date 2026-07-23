@@ -1,4 +1,5 @@
 #include "camera_mods.h"
+#include "rebase.h"
 
 #include <algorithm>
 #include <thread>
@@ -20,7 +21,7 @@
 // #define debug_cam
 
 // ExecuteCmd keeps an array (at least through [0xcd]) of key states.
-static int *const kKeyDownStates = reinterpret_cast<int *>(0x007ce04c);
+static int *const kKeyDownStates = reinterpret_cast<int *>(::Rcp::eqva(0x007ce04c));
 const int CMD_RIGHT = 5;
 const int CMD_LEFT = 6;
 const int CMD_PITCH_UP = 15;
@@ -154,7 +155,7 @@ bool CameraMods::handle_proc_mouse() {
   static float smoothMouseDeltaX = 0;
   static float smoothMouseDeltaY = 0;
   Rcp::GameStructures::CameraInfo *cam = Rcp::Game::get_camera();
-  Rcp::GameStructures::MouseDelta *delta = (Rcp::GameStructures::MouseDelta *)0x798586;
+  Rcp::GameStructures::MouseDelta *delta = (Rcp::GameStructures::MouseDelta *)::Rcp::eqva(0x798586);
   bool lbutton = *Rcp::Game::is_left_mouse_down;
   bool rbutton = *Rcp::Game::is_right_mouse_look_down;
 
@@ -171,7 +172,7 @@ bool CameraMods::handle_proc_mouse() {
   delta->y = 0;  // May not be necessary but just in case reset to avoid downstream usage.
   delta->x = 0;
 
-  if (*(BYTE *)0x7985E8)  // invert
+  if (*(BYTE *)::Rcp::eqva(0x7985E8))  // invert
     smoothMouseDeltaY = -smoothMouseDeltaY;
 
   // Right button has highest priority to control direction (when not stunned).
@@ -237,9 +238,9 @@ static bool is_over_client_rect(void) {
 
 // Setting enable allows the game to control the display or hiding of the game cursor.
 static void set_internal_cursor_enable(bool enable) {
-  const int draw_cursor_jump_addr = 0x0053edef;
+  const int draw_cursor_jump_addr = ::Rcp::eqva(0x0053edef);
   BYTE opcode = enable ? 0x75 : 0xEB;  // Toggle conditional vs unconditional jump past draw cursor.
-  if (*(BYTE *)draw_cursor_jump_addr != opcode) mem::write<BYTE>(0x53edef, opcode);
+  if (*(BYTE *)draw_cursor_jump_addr != opcode) mem::write<BYTE>(::Rcp::eqva(0x53edef), opcode);
 }
 
 // Sets all internal absolute mouse position state to (x,y).
@@ -273,8 +274,8 @@ void set_win32_cursor_to_client_position(POINT pt) {
   if (!hwnd || !::ClientToScreen(hwnd, &offset) || !::GetClientRect(hwnd, &rect))
     return;  // Bail out and don't touch the cursor since something went wrong.
 
-  long *const g_mouse_screen_res_x = (long *)0x00798564;  // Use full resolution for scaling.
-  long *const g_mouse_screen_res_y = (long *)0x00798568;
+  long *const g_mouse_screen_res_x = (long *)::Rcp::eqva(0x00798564);  // Use full resolution for scaling.
+  long *const g_mouse_screen_res_y = (long *)::Rcp::eqva(0x00798568);
   int width = max(*g_mouse_screen_res_x, 640);  // Ensure always non-zero.
   int height = max(*g_mouse_screen_res_y, 480);
 
@@ -419,7 +420,7 @@ void CameraMods::update_fps_sensitivity() {
     }
   }
 
-  float current_sens = (float)(*(BYTE *)0x798b0c);
+  float current_sens = (float)(*(BYTE *)::Rcp::eqva(0x798b0c));
   float multiplier = current_sens / 4.0f;
   sensitivity_x *= multiplier;
   sensitivity_y *= multiplier;
@@ -690,7 +691,7 @@ bool CameraMods::callback_packet(UINT opcode, char *buffer, UINT len) {
 }
 
 CameraMods::CameraMods(RcpService *rcp) {
-  mem::write<BYTE>(0x4db8d9, 0xEB);  // Unconditional jump to skip an optional bad camera position debug message.
+  mem::write<BYTE>(::Rcp::eqva(0x4db8d9), 0xEB);  // Unconditional jump to skip an optional bad camera position debug message.
 
   lastTime = std::chrono::steady_clock::now();
   rcp->callbacks->AddGeneric([this]() { ui_active = true; }, callback_type::InitUI);
@@ -713,15 +714,15 @@ CameraMods::CameraMods(RcpService *rcp) {
     return false;
   });
 
-  rcp->hooks->Add("ProcessMouseAndGetKey", 0x0052437f, ProcessMouseAndGetKey, hook_type_detour);
-  rcp->hooks->Add("HandleMouseWheel", 0x55B2E0, HandleMouseWheel, hook_type_detour);
-  rcp->hooks->Add("procMouse", 0x537707, procMouse, hook_type_detour);
-  rcp->hooks->Add("RMouseDown", 0x54699d, RMouseDown, hook_type_detour);
-  rcp->hooks->Add("DoCamAI", 0x4db384, DoCamAI, hook_type_detour);
-  rcp->hooks->Add("GetClickedActor", 0x004b008a, GetClickedActor, hook_type_detour);
-  rcp->hooks->Add("EQ3DView_MouseUp", 0x0043c8af, EQ3DView_MouseUp, hook_type_detour);
-  rcp->hooks->Add("LeftClickedOnPlayer", 0x0053271e, LeftClickedOnPlayer, hook_type_detour);
-  rcp->hooks->Add("MountEQPlayer", 0x0051fd83, MountEQPlayer, hook_type_detour);
+  rcp->hooks->Add("ProcessMouseAndGetKey", ::Rcp::eqva(0x0052437f), ProcessMouseAndGetKey, hook_type_detour);
+  rcp->hooks->Add("HandleMouseWheel", ::Rcp::eqva(0x55B2E0), HandleMouseWheel, hook_type_detour);
+  rcp->hooks->Add("procMouse", ::Rcp::eqva(0x537707), procMouse, hook_type_detour);
+  rcp->hooks->Add("RMouseDown", ::Rcp::eqva(0x54699d), RMouseDown, hook_type_detour);
+  rcp->hooks->Add("DoCamAI", ::Rcp::eqva(0x4db384), DoCamAI, hook_type_detour);
+  rcp->hooks->Add("GetClickedActor", ::Rcp::eqva(0x004b008a), GetClickedActor, hook_type_detour);
+  rcp->hooks->Add("EQ3DView_MouseUp", ::Rcp::eqva(0x0043c8af), EQ3DView_MouseUp, hook_type_detour);
+  rcp->hooks->Add("LeftClickedOnPlayer", ::Rcp::eqva(0x0053271e), LeftClickedOnPlayer, hook_type_detour);
+  rcp->hooks->Add("MountEQPlayer", ::Rcp::eqva(0x0051fd83), MountEQPlayer, hook_type_detour);
 
   FARPROC gfx_dx8 = GetProcAddress(GetModuleHandleA("eqgfx_dx8.dll"), "t3dSetCameraLens");
   if (gfx_dx8 != NULL) rcp->hooks->Add("SetCameraLens", (int)gfx_dx8, SetCameraLens, hook_type_detour);

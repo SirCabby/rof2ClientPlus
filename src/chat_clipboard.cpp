@@ -1,5 +1,6 @@
 // rof2ClientPlus - clipboard copy/paste in chat + edit boxes. See chat_clipboard.h.
 #include "chat_clipboard.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -25,7 +26,7 @@ namespace {
 // scan (`test eax,eax; je past-keymap`). So returning 0 swallows the key; any
 // non-zero value lets the keymap run. It routes the key to the focused window
 // and to record modifier state.
-constexpr uintptr_t kHandleKeyboardMsg = 0x876530;
+const uintptr_t kHandleKeyboardMsg = ::Rcp::eqva(0x876530);
 
 // CXWndManager data members (disasm of 0x876530). The Ctrl byte is set by the
 // LCONTROL(0x1d)/RCONTROL(0x9d) scancode handlers; Focus is the window the msg
@@ -62,13 +63,13 @@ constexpr uint32_t kEncodingUtf16 = 1;
 // paste by feeding one char at a time; the first call replaces the selection,
 // each next inserts at the advancing caret. (Passing a char* here is the bug
 // that pasted a single "(" - the pointer's low byte.)
-constexpr uintptr_t kReplaceSelChar = 0x87d0e0;
+const uintptr_t kReplaceSelChar = ::Rcp::eqva(0x87d0e0);
 
 // CEditWnd::ReplaceSelection(CXStr, bool bFilter) @ 0x87cd30 - the CXStr overload.
 // A null rep == empty string, so it deletes the current selection; it null-checks
 // the rep and no-ops on read-only edits (style bit ewsReadOnly 0x200000). We use
 // it only for cut's delete, so no CXStr allocation/refcount is needed.
-constexpr uintptr_t kReplaceSelStr = 0x87cd30;
+const uintptr_t kReplaceSelStr = ::Rcp::eqva(0x87cd30);
 
 // Safety caps: the chat input's own MaxChars/bFilter already bound growth, these
 // just stop a pathological clipboard from looping forever / copying megabytes.
@@ -88,12 +89,12 @@ constexpr uint32_t kDikV = 0x2f;  // paste
 // drag-tracking field can be left unset under Wine (so a click positions the
 // caret but a drag never highlights). We track the press->release ourselves and
 // set CurrDraggedWindow transiently around the native move so the extend runs.
-constexpr uintptr_t kLButtonDown = 0x87db80;
-constexpr uintptr_t kLButtonUp = 0x87b340;
-constexpr uintptr_t kMouseMove = 0x87dc40;
+const uintptr_t kLButtonDown = ::Rcp::eqva(0x87db80);
+const uintptr_t kLButtonUp = ::Rcp::eqva(0x87b340);
+const uintptr_t kMouseMove = ::Rcp::eqva(0x87dc40);
 constexpr int kMgrCurrDragged = 0x68;  // CXWndManager::CurrDraggedWindow
 // The native check reads *(*(0xb648fc)) to get the CXWndManager, then +0x68.
-void **const kWndMgrChain = reinterpret_cast<void **>(0xb648fc);
+void **const kWndMgrChain = reinterpret_cast<void **>(::Rcp::eqva(0xb648fc));
 
 typedef int(__fastcall *HandleKeyboardMsgFn)(void *mgr, int edx, uint32_t dik, uint32_t down);
 typedef void *(__thiscall *GetActiveEditWndFn)(void *self);

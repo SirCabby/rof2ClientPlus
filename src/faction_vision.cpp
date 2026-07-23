@@ -1,5 +1,6 @@
 // rof2ClientPlus - faction vision. See faction_vision.h.
 #include "faction_vision.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -23,7 +24,7 @@ namespace {
 // Same central chat-display choke ChatTimestamp detours; we install AFTER it so we run outermost and
 // see the raw server text. The 4-stack-arg __fastcall(this, edx, ...) shape matches the rest of the
 // codebase (chat_timestamp.cpp / chat_shortcuts.cpp).
-constexpr uintptr_t kDspChat = 0x51F1A0;
+const uintptr_t kDspChat = ::Rcp::eqva(0x51F1A0);
 typedef void(__fastcall *DspChatFn)(void *game, int edx, char *text, int color, bool log_ok, bool convert_pct);
 DspChatFn g_orig = nullptr;
 

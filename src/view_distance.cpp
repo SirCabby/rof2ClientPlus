@@ -1,5 +1,6 @@
 // rof2ClientPlus - raise the world/terrain and actor view distance. See view_distance.h.
 #include "view_distance.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -30,11 +31,11 @@ namespace {
 // zone load), never per frame, so poking the source ini ints does nothing. We set
 // the fields directly and call the projection rebuild, and re-assert on drift
 // (a fresh zone resets them to stock).
-constexpr uintptr_t kCameraPtr = 0x00DD2660;      // -> camera/view object (may be null off-scene).
+const uintptr_t kCameraPtr = ::Rcp::eqva(0x00DD2660);      // -> camera/view object (may be null off-scene).
 constexpr uintptr_t kCamGfxOffset = 0x118;        // -> graphics-engine camera sub-object (null off-scene).
 constexpr uintptr_t kFarClipOffset = 0x8;         // float: terrain far clip (raw world units).
 constexpr uintptr_t kActorClipOffset = 0x2d78;    // int: actor clip; world units = int*10 + 50.
-constexpr uintptr_t kRebuildProjection = 0x0048F290;  // void __thiscall(camera): rebuild + re-push all clips.
+const uintptr_t kRebuildProjection = ::Rcp::eqva(0x0048F290);  // void __thiscall(camera): rebuild + re-push all clips.
 
 // Rebuild the projection so field changes reach the graphics engine.
 inline void rebuild_projection(void *camera) {

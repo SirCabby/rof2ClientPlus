@@ -1,4 +1,5 @@
 #include "binds.h"
+#include "rebase.h"
 
 #include "callbacks.h"
 #include "game_addresses.h"
@@ -57,11 +58,11 @@ void Binds::update_ini_section_name() {
 void Binds::read_ini() {
   // First call default_key_bindings() to reset state. For some reason that code also resets the
   // mouse y invert global and sensitivity, so we cache and restore them.
-  BYTE *const g_mouse_y_invert = reinterpret_cast<BYTE *>(0x007985e8);
-  DWORD *const g_mouse_sensitivity = reinterpret_cast<DWORD *>(0x0079858a);
+  BYTE *const g_mouse_y_invert = reinterpret_cast<BYTE *>(::Rcp::eqva(0x007985e8));
+  DWORD *const g_mouse_sensitivity = reinterpret_cast<DWORD *>(::Rcp::eqva(0x0079858a));
   BYTE invert = *g_mouse_y_invert;
   DWORD sensitivity = *g_mouse_sensitivity;
-  const int kDefaultKeyBindingsAddr = 0x0055a83b;
+  const int kDefaultKeyBindingsAddr = ::Rcp::eqva(0x0055a83b);
   reinterpret_cast<void (*)()>(kDefaultKeyBindingsAddr)();  // Restore to defaults.
   *g_mouse_y_invert = invert;
   *g_mouse_sensitivity = sensitivity;
@@ -155,18 +156,18 @@ Binds::Binds(RcpService *rcp) {
                               callback_type::ExecuteCmd);
   update_ini_section_name();               // Initializes to default.
   const int kNumOriginalShortNames = 128;  // Length of initialized pointer array in the client.
-  char **const kOriginalShortNames = reinterpret_cast<char **const>(0x611220);
+  char **const kOriginalShortNames = reinterpret_cast<char **const>(::Rcp::eqva(0x611220));
   for (int i = 0; i < kNumOriginalShortNames; i++)
     KeyMapNames[i] = kOriginalShortNames[i];     // copy the original short names to the new array
-  mem::write(0x52507A, (int)KeyMapNames);        // write ini keymap
-  mem::write(0x525477, (int)&ini_section_name);  // write ini section name
-  mem::write(0x5254D9, (int)KeyMapNames);        // clear ini keymap
-  mem::write(0x525514, (int)&ini_section_name);  // clear ini section name
-  mem::write(0x525544, (int)KeyMapNames);        // read ini keymap
-  mem::write(0x525596, (int)&ini_section_name);  // read ini section name
-  mem::write(0x42C52F, (BYTE)0xEB);              // remove the check for max index of 116 being stored in client ini
-  mem::write(0x52485A, (int)kNumBinds);          // increase this for loop to look through all 256
-  mem::write(0x52591C, (int)(&Rcp::Game::ptr_AlternateKeyMap[kNumBinds]));  // also loop through 256
+  mem::write(::Rcp::eqva(0x52507A), (int)KeyMapNames);        // write ini keymap
+  mem::write(::Rcp::eqva(0x525477), (int)&ini_section_name);  // write ini section name
+  mem::write(::Rcp::eqva(0x5254D9), (int)KeyMapNames);        // clear ini keymap
+  mem::write(::Rcp::eqva(0x525514), (int)&ini_section_name);  // clear ini section name
+  mem::write(::Rcp::eqva(0x525544), (int)KeyMapNames);        // read ini keymap
+  mem::write(::Rcp::eqva(0x525596), (int)&ini_section_name);  // read ini section name
+  mem::write(::Rcp::eqva(0x42C52F), (BYTE)0xEB);              // remove the check for max index of 116 being stored in client ini
+  mem::write(::Rcp::eqva(0x52485A), (int)kNumBinds);          // increase this for loop to look through all 256
+  mem::write(::Rcp::eqva(0x52591C), (int)(&Rcp::Game::ptr_AlternateKeyMap[kNumBinds]));  // also loop through 256
   rcp->hooks->Add("InitKeyboardAssignments", Rcp::Game::GameInternal::fn_initkeyboardassignments,
                    InitKeyboardAssignments, hook_type_detour);
 }

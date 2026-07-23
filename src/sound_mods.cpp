@@ -1,5 +1,6 @@
 // rof2ClientPlus - disable / adjust game sounds by name. See sound_mods.h.
 #include "sound_mods.h"
+#include "rebase.h"
 
 #include <windows.h>
 
@@ -31,7 +32,7 @@ namespace {
 // silently when it is <= 0 - so scaling it attenuates just this one play, and returning 0 (the value
 // the function's own early-outs return) suppresses the sound entirely. Both act only on this call, so
 // mute / volume take effect instantly and reverse with no data destruction and no zoning.
-constexpr uintptr_t kAssetPlay = 0x5BFBD0;
+const uintptr_t kAssetPlay = ::Rcp::eqva(0x5BFBD0);
 constexpr int kOffAssetName = 0x8;
 
 typedef int(__fastcall *AssetPlayFn)(void *asset, int edx, void *param);

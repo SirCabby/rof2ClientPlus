@@ -31,6 +31,7 @@
 // same frame - and every callback is wrapped in directx's rcp_guard, so a
 // mid-/loadskin race degrades to one skipped frame, re-validated the next.
 #include "spell_icons.h"
+#include "rebase.h"
 
 #include <windows.h>
 #include <d3d9.h>
@@ -56,7 +57,7 @@ constexpr char kIniKey[] = "Classic";
 constexpr char kAssetSubDir[] = "spellicons";  // uifiles/rcp/spellicons/*.tga
 
 // ---- CEQSuiteTextureLoader / bitmap layout (see header comment; eqlib-confirmed). ----
-constexpr uintptr_t kSuiteTextureLoader = 0xB64CEC;  // static instance (the object itself)
+const uintptr_t kSuiteTextureLoader = ::Rcp::eqva(0xB64CEC);  // static instance (the object itself)
 constexpr int kLoaderArrayLen = 0x04;                // ArrayClass: int m_length
 constexpr int kLoaderArrayPtr = 0x08;                // ArrayClass: _SuiteTexture* m_array
 constexpr int kSuiteEntrySize = 0x10;
@@ -78,7 +79,7 @@ constexpr int kSuiteEntryName = 0x04;  // _SuiteTexture: CXStr Name (the loader'
 // FindAnimation1@0x86E010, whose CXStr temp would allocate on the game's string
 // pool from the wrong thread; that function hashes over this same array
 // (disasm: ArrayClass at mgr+0x94).
-static void **const kSidlManager = reinterpret_cast<void **>(0x15D3D08);  // pinstCSidlManager
+static void **const kSidlManager = reinterpret_cast<void **>(::Rcp::eqva(0x15D3D08));  // pinstCSidlManager
 constexpr int kMgrAnimsLen = 0x94;    // CSidlManagerBase: ArrayClass<CTextureAnimation*> {len@+0x94, arr@+0x98}
 constexpr int kMgrAnimsArr = 0x98;
 constexpr int kAnimName = 0x04;       // CTextureAnimation: vtable@0, CXStr Name@4
