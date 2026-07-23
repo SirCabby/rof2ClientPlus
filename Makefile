@@ -114,7 +114,9 @@ install: $(TARGET)
 	mkdir -p "$(GAME_DIR)/maps"; \
 	for f in maps/*.txt; do [ -e "$$f" ] || continue; acp "$$f" "$(GAME_DIR)/maps/$${f##*/}"; done; \
 	echo ">> Installed (atomic) classic zone maps to $(GAME_DIR)/maps/ (bazaar/lavastorm/nektulos _classic)"; \
-	if [ -f $(HOSTFIX) ]; then acp $(HOSTFIX) "$(GAME_DIR)/eq-window-fix"; echo ">> Installed (atomic) eq-window-fix (windowed-mode watcher)"; fi
+	if [ -f $(HOSTFIX) ]; then acp $(HOSTFIX) "$(GAME_DIR)/eq-window-fix"; echo ">> Installed (atomic) eq-window-fix (windowed-mode watcher)"; fi; \
+	for f in launcher/*.sh; do [ -e "$$f" ] || continue; acp "$$f" "$(GAME_DIR)/$${f##*/}"; chmod +x "$(GAME_DIR)/$${f##*/}"; done; \
+	echo ">> Installed (atomic) Linux/Wine launch scripts (launcher/*.sh; WINEDLLOVERRIDES + patchme baked in)"
 
 # --- Classic model archives (the model-swap feature's runtime data) ------------------
 # The 29 rcp*.s3d classic-model archives (59 MB) are NOT part of `make install`: they are

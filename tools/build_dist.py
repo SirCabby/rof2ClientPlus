@@ -6,6 +6,8 @@ Produces (default ./dist):
   dist/
     rof2ClientPlus.asi            -> <RoF2>/                 (the mod DLL)
     eq-window-fix                 -> <RoF2>/                 (optional Linux windowed-mode helper)
+    launch-eq*.sh                 -> <RoF2>/                 (optional Linux/Wine launch scripts)
+    patch_4gb.py                                             (one-time eqgame.exe 4GB/LAA patcher)
     rcp*.s3d  (29 archives)       -> <RoF2>/                 (classic model archives)
     Resources/GlobalLoad.txt      -> <RoF2>/Resources/       (manifest, stock + the mod's lines)
     uifiles/rcp/**                -> <RoF2>/uifiles/rcp/      (fonts, target-rings, classic spell icons)
@@ -58,6 +60,9 @@ What lands where:
                                                         zones (bazaar/lavastorm/nektulos); the stock
                                                         maps are the revamped layouts and do not fit
   eq-window-fix              -> <RoF2>/                 OPTIONAL, Linux/Wine windowed-mode helper only
+  launch-eq.sh /             -> <RoF2>/                 OPTIONAL, Linux/Wine launch scripts (see the
+  launch-eq-gamescope.sh                                "Linux launch + client prep" section)
+  patch_4gb.py               -> (tool, run once)        eqgame.exe 4GB/LAA patcher (see below)
 
 Requirements:
   * Sound must be enabled (Sound=TRUE in eqclient.ini) -- that is how the .asi gets loaded.
@@ -68,13 +73,30 @@ NOTE - uifiles/default/ (the /rcpoptions window):
   These go into the DEFAULT skin so the mod UI loads no matter which skin you run -- you can
   install and select your own custom UI skin on top.
     * EQUI_RcpOptions.xml  = the mod's options window (a new standalone skin file).
-    * EQUI.xml             = stock + ONE <Include> line that loads EQUI_RcpOptions.xml.
+    * EQUI_RcpSpellBook.xml = the new-spellbook window (a new standalone skin file).
+    * EQUI.xml             = stock + the <Include> lines that load the two files above.
     * EQUI_OptionsWindow.xml / EQUI_AdvancedDisplayOptionsWnd.xml = widened copies of stock
                              (clipped option text fixed).
-  Copying OVERWRITES three stock files (EQUI.xml + the two option windows). `make install`
-  saves the pristine originals once as *.rcpbak; a plain copy does not, so back them up first
-  if you want them. A custom skin that ships its OWN EQUI.xml would need this one <Include>
-  line added to it to load /rcpoptions.
+    * EQUI_SpellBookWnd.xml = stock with the page-number labels widened so the new
+                             spellbook's 3-digit page counts are not clipped.
+  Copying OVERWRITES four stock files (EQUI.xml, the two option windows, and
+  EQUI_SpellBookWnd.xml). `make install` saves the pristine originals once as *.rcpbak; a
+  plain copy does not, so back them up first if you want them (vendored stock reference
+  copies also live in the repo under tools/stock-uifiles/). A custom skin that ships its
+  OWN EQUI.xml would need the two <Include> lines added to it.
+
+Linux launch + client prep (all optional, Wine/Proton oriented):
+  * launch-eq.sh runs the client under Wine with the required overrides baked in
+    (WINEDLLOVERRIDES="mscoree=;mshtml=;dinput8=n,b" -- loads a native dinput8.dll proxy
+    if one is installed, harmless otherwise; forces X11/GLX to dodge a Wayland/NVIDIA
+    EGL failure; starts eq-window-fix; always passes 'patchme' so the client NEVER
+    patches). launch-eq-gamescope.sh is the same idea inside a gamescope window.
+    chmod +x both after copying. They expect eqhost.txt to already point at your
+    server's login host (save the stock file first, e.g. as eqhost.txt.orig).
+  * 4GB patch (recommended): python3 patch_4gb.py --game-dir <RoF2>
+    sets the standard LARGE_ADDRESS_AWARE flag on eqgame.exe (a modded 32-bit client
+    can exhaust the default 2 GB). The pristine exe is saved once as eqgame.exe.pre4gb;
+    --revert restores it, --check just reports.
 
 IMPORTANT - Resources/GlobalLoad.txt:
   This is the STANDARD RoF2 manifest with the mod's lines added; for a normal client it is
@@ -146,6 +168,7 @@ def main():
     uifiles = opt("--uifiles", os.path.join(REPO, "uifiles"))
     maps = opt("--maps", os.path.join(REPO, "maps"))
     eqwf = opt("--eq-window-fix", os.path.join(build_dir, "eq-window-fix"))
+    launcher = opt("--launcher", os.path.join(REPO, "launcher"))
     stock = opt("--stock", os.path.join(HERE, "GlobalLoad.stock.txt"))
 
     if not os.path.isfile(asi):
@@ -161,6 +184,15 @@ def main():
     # 2. optional windowed-mode helper
     if os.path.isfile(eqwf):
         shutil.copyfile(eqwf, os.path.join(out, "eq-window-fix"))
+    # 2b. optional Linux/Wine launch scripts (shutil.copy keeps the +x bit)
+    launcher_n = 0
+    if os.path.isdir(launcher):
+        for f in sorted(os.listdir(launcher)):
+            if f.endswith(".sh"):
+                shutil.copy(os.path.join(launcher, f), os.path.join(out, f))
+                launcher_n += 1
+    # 2c. the one-time eqgame.exe 4GB/LAA patcher, runnable straight from the dist folder
+    shutil.copy(os.path.join(HERE, "patch_4gb.py"), os.path.join(out, "patch_4gb.py"))
     # 3. uifiles tree, preserving structure: default/*.xml (option-window overrides that
     #    load under every skin) + rcp/{fonts,targetrings,spellicons} (mod assets loaded by path).
     ui_n = copy_tree_files(uifiles, os.path.join(out, "uifiles"),
@@ -190,6 +222,7 @@ def main():
     total = sum(os.path.getsize(os.path.join(r, f)) for r, _d, fs in os.walk(out) for f in fs)
     print(f">> dist assembled at {out}")
     print(f"   .asi + {'eq-window-fix + ' if os.path.isfile(os.path.join(out,'eq-window-fix')) else ''}"
+          f"{launcher_n} launch scripts + patch_4gb.py + "
           f"{len(S3D_NAMES)} .s3d ({how}) + {ui_n} uifiles + {maps_n} maps + Resources/GlobalLoad.txt + Resources/moddat.ini + INSTALL.txt")
     print(f"   total {total/1e6:.1f} MB. Install: copy the contents of {out}/ into <RoF2>/")
 

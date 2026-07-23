@@ -52,21 +52,18 @@ EQUIP_ANCHOR = "gatesequip"      # insert EQUIP_BLOCK after the line containing 
 CHR_ANCHOR = "Global_chr"        # insert CHR_BLOCK after the "3,1,...,Global_chr,..." line
 
 
-def detect_eol(raw):
-    return "\r\n" if b"\r\n" in raw else "\n"
-
-
 def load(path):
+    # The stock RoF2 file ships with MIXED line endings (48 CRLF + 36 LF lines), so
+    # per-file EOL detection can't round-trip it. We canonicalize to LF: splitlines()
+    # here, save() joins with "\n". The client reads either form, output is
+    # deterministic (byte-reproducible by build_dist.py), and the byte-true stock is
+    # preserved by the .rcpbak backup, not by EOL bookkeeping. eol is kept in the
+    # signature for compatibility and is always "\n".
     with open(path, "rb") as f:
         raw = f.read()
-    eol = detect_eol(raw)
-    text = raw.decode("latin-1")
-    lines = text.split("\r\n" if eol == "\r\n" else "\n")
-    # drop a single trailing empty element from a final newline; remember it existed
-    trailing_nl = bool(lines) and lines[-1] == ""
-    if trailing_nl:
-        lines = lines[:-1]
-    return lines, eol, trailing_nl
+    lines = raw.decode("latin-1").splitlines()
+    trailing_nl = raw.endswith((b"\n", b"\r"))
+    return lines, "\n", trailing_nl
 
 
 def save(path, lines, eol, trailing_nl):
