@@ -108,6 +108,9 @@ std::map<std::string, bool> g_on;               // catalog display name -> rever
 // modern: ELE -> typed by its texture byte. Persisted as [NpcModels] "Elemental".
 bool g_elem_classic = false;
 std::map<std::string, std::string> g_manual;    // /rcpbody discovery redirects (session only)
+// Per PC race AND GENDER (see the PC section below for the full story). Key = (race<<1)|gender;
+// declared up here with the rest of the toggle state so storm_fingerprint() can read it.
+std::map<int, bool> g_pc_classic;  // pc_key -> force classic (true) / force Luclin (false). Persisted.
 std::set<int> g_spawn_ids;                      // spawn ids BuildActor has seen -> live-refresh targets
 bool g_log = false;
 int g_log_count = 0;
@@ -134,6 +137,53 @@ const NpcRevamp *find_revamp(const std::string &name) {
   for (const auto &r : kNpcRevamps)
     if (name == r.name) return &r;
   return nullptr;
+}
+
+// DUPLICATE-ACTIVATION DEBOUNCE for the rebuild storms (Windows field report 2026-07-23).
+// The options-UI "All classic/new" buttons can activate twice for one user click on native
+// Windows (double-click / latch-vs-programmatic-unlatch message ordering), which ran
+// refresh_world + pc_reapply TWICE ~400ms apart. The second storm re-rebuilds actors that
+// are only ~200ms old and re-creates the just-invalidated alias defs by introspecting those
+// immature instances - observed damage: F_48ff's teardown leaks the mid-pipeline old actor
+// (creature ghosts standing until zone) and alias defs come out with incomplete anim tracks
+// (modern bodies T-pose/slide). Wine only ever delivered single activations, which is why
+// the single-storm flow is proven there. Suppress a storm that starts within the window
+// with a toggle-state fingerprint IDENTICAL to the previous storm's - a duplicate
+// activation by definition changes nothing, so skipping it restores exact single-storm
+// semantics. Distinct rapid toggles (different fingerprint) still run normally.
+constexpr DWORD kStormDebounceMs = 1500;
+// Caller holds g_mu.
+std::string storm_fingerprint() {
+  std::string f;
+  for (const auto &kv : g_on)
+    if (kv.second) { f += kv.first; f += ';'; }
+  f += g_elem_classic ? "E;" : "";
+  for (const auto &kv : g_manual) { f += kv.first; f += '>'; f += kv.second; f += ';'; }
+  for (const auto &kv : g_pc_classic) {
+    char b[16];
+    std::snprintf(b, sizeof(b), "%d=%d;", kv.first, kv.second ? 1 : 0);
+    f += b;
+  }
+  return f;
+}
+// Returns true when this storm is a duplicate activation and must be skipped. Each storm
+// entry point passes its own statics so refresh_world and pc_reapply debounce separately
+// (set_all legitimately runs one of each back-to-back).
+bool storm_debounced(const char *what, DWORD *last_ms, std::string *last_fp) {
+  std::string fp;
+  {
+    std::lock_guard<std::mutex> lk(g_mu);
+    fp = storm_fingerprint();
+  }
+  const DWORD now = GetTickCount();
+  if (*last_ms && now - *last_ms < kStormDebounceMs && fp == *last_fp) {
+    logger::logf("[npcbody] %s storm debounced (duplicate activation %lums after previous)", what,
+                 (unsigned long)(now - *last_ms));
+    return true;
+  }
+  *last_ms = now;
+  *last_fp = std::move(fp);
+  return false;
 }
 
 void add_pc_redirects();    // PC-race alias redirects (defined with the PC section below)
@@ -221,6 +271,9 @@ void release_actor(void *actor) {
 //   (3) For PC-race spawns, DESTROY the leftover actor after the rebuild (release_actor) -- the old PC
 //       actor keeps an extra ref and would otherwise ghost + leak until zone (creatures self-clean).
 void refresh_world() {
+  static DWORD s_last_ms = 0;
+  static std::string s_last_fp;
+  if (storm_debounced("refresh_world", &s_last_ms, &s_last_fp)) return;
   void *mgr = nullptr;
   void *local = nullptr;
   rcp_guard::run("npcbody.mgr", [&] {
@@ -700,7 +753,7 @@ const PcRace kPcRaces[] = {
 };
 // Per race AND GENDER (the client's own split: UseLuclin%sMale / UseLuclin%sFemale are the only per-race
 // ini literals). Key = (race<<1)|gender, gender 0=male 1=female (kPcRaces codes[] order).
-std::map<int, bool> g_pc_classic;  // pc_key -> force classic (true) / force Luclin (false). Persisted.
+// (g_pc_classic itself is declared with the shared toggle state near the top of the file.)
 constexpr char kPcIniSection[] = "PcModels";
 int pc_key(int race, int gender) { return (race << 1) | (gender & 1); }
 const char *kGenderName[2] = {"Male", "Female"};
@@ -1051,6 +1104,11 @@ void invalidate_alias_defs() {
 }
 
 void pc_reapply() {
+  // Debounce BEFORE any side effect: a suppressed duplicate must not re-run
+  // invalidate_alias_defs (unlinking defs the first storm's fresh actors reference).
+  static DWORD s_last_ms = 0;
+  static std::string s_last_fp;
+  if (storm_debounced("pc_reapply", &s_last_ms, &s_last_fp)) return;
   void *mgr = nullptr, *local = nullptr;
   rcp_guard::run("pc.mgr", [&] {
     mgr = *kRenderMgr;

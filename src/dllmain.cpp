@@ -61,6 +61,12 @@ static int __cdecl ProcessGameEvents_hk() {
     if (crash_handler::shutting_down())
         return g_boot->hook_map["ProcessGameEvents"]->original(ProcessGameEvents_hk)();
 
+    // Native Windows keeps per-device-class d3d9 vtables, so install()'s throwaway-
+    // device patch may never reach the game's real device (Wine/DXVK's shared vtable
+    // masked this). Re-check each tick until the real device's vtable carries our
+    // hooks; a cheap no-op once confirmed (and always a no-op under Wine).
+    directx::ensure_game_device();
+
     // Install the mouse hook once in-game (kept off the login/char-select input
     // path), then drive the options-window UI poll. The cursor-lock re-clip runs
     // every frame regardless of game state (it is a pure Win32 no-op when off), so

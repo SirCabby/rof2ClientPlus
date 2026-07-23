@@ -2,6 +2,7 @@
 #include "crash_handler.h"
 #include "hooks.h"
 #include "logger.h"
+#include "rebase.h"  // eqva() for the game-device locator (ensure_game_device)
 
 #include <windows.h>
 #include <d3d9.h>
@@ -31,6 +32,24 @@ static HWND g_focus_hwnd = nullptr;  // The game's main render window (see get_f
 static std::vector<std::function<void(IDirect3DDevice9*)>>* g_callbacks = nullptr;
 static std::vector<std::function<void(IDirect3DDevice9*)>>* g_pre_callbacks = nullptr;
 static std::vector<std::function<void(IDirect3DDevice9*)>>* g_reset_callbacks = nullptr;
+
+// The vtable our hooks are confirmed to own for the GAME's device (set by
+// ensure_game_device). Null until the real device has been seen once.
+static void** g_game_vtable = nullptr;
+// install()'s dummy-device patch bookkeeping, so ensure_game_device can revert it
+// when the game's device turns out to use a DIFFERENT vtable (native Windows):
+// leaving hooks on a foreign device class's vtable would chain them into the
+// wrong class's methods if anything in-process ever created such a device.
+static void** g_dummy_vtable = nullptr;
+static void* g_dummy_prev_es = nullptr;
+static void* g_dummy_prev_bs = nullptr;
+static void* g_dummy_prev_rs = nullptr;
+
+// Game-side locator for the real device: eqlib pinstRenderInterface ->
+// CRender::pD3DDevice. The same pair the nameplate pre-UI seam reads
+// (font_overlay.cpp), disasm-verified on the May-2013 build.
+static const uintptr_t kRenderInterfacePtr = ::Rcp::eqva(0x15D46A4);
+static const int kRenderDeviceOffset = 0xF08;
 
 IDirect3DDevice9* directx::get_device() { return g_device; }
 void* directx::get_focus_window() { return g_focus_hwnd; }
@@ -185,13 +204,88 @@ bool directx::install() {
                                                  reinterpret_cast<void*>(&hkReset));
         logger::logf("directx: Reset vtable swap %s", prev_rs ? "OK" : "FAILED");
         if (!prev_rs) g_original_reset = nullptr;
+        // Remember what we patched so ensure_game_device can revert it if the game's
+        // device turns out to live on a different vtable (native Windows).
+        if (ok) {
+            g_dummy_vtable = vtable;
+            g_dummy_prev_es = prev;
+            g_dummy_prev_bs = prev_bs;
+            g_dummy_prev_rs = prev_rs;
+        }
         dev->Release();
     }
 
     // The patched vtable is static in d3d9.dll and survives teardown of the
-    // throwaway device/window - the game's device will use it.
+    // throwaway device/window. On shared-vtable runtimes (Wine/DXVK) the game's
+    // device uses this same vtable, so the seam is live from here; on native
+    // Windows the game's device class has its own vtable and ensure_game_device
+    // finishes the job.
     DestroyWindow(hwnd);
     UnregisterClassA(wc.lpszClassName, wc.hInstance);
     d3d->Release();
     return ok;
+}
+
+// Native-Windows completion of the seam (called once per ProcessGameEvents tick).
+// Windows' d3d9.dll keeps separate static vtables per device class, so the game's
+// device - created by EQGraphicsDX9 with different flags than install()'s dummy -
+// can bypass the dummy-patched vtable entirely: EndScene/BeginScene/Reset never
+// fire and every render-callback feature (fog removal, view distance, billboard
+// nameplates, ...) silently starves while game-side detours keep working. Wine/
+// DXVK shares one vtable across devices, which masked all of this.
+//
+// Resolve the REAL device through the client (pinstRenderInterface ->
+// CRender::pD3DDevice) and make sure ITS vtable carries our hooks. Under Wine the
+// first call just records the already-patched vtable and it is a no-op from then
+// on. Runs on the main thread, which is also the thread that calls EndScene, so
+// re-pointing the g_original_* chain here cannot race a hooked call.
+void directx::ensure_game_device() {
+    if (crash_handler::shutting_down()) return;
+    rcp_guard::run("directx.ensure_game_device", [] {
+        void* pRender = *reinterpret_cast<void**>(kRenderInterfacePtr);
+        if (!pRender) return;  // graphics engine not up yet - retry next tick
+        IDirect3DDevice9* dev = *reinterpret_cast<IDirect3DDevice9**>(
+            reinterpret_cast<char*>(pRender) + kRenderDeviceOffset);
+        if (!dev) return;
+        void** vt = *reinterpret_cast<void***>(dev);
+        if (!vt || vt == g_game_vtable) return;  // already confirmed (the steady state)
+
+        if (vt[VTBL_ENDSCENE] == reinterpret_cast<void*>(&hkEndScene)) {
+            // Shared-vtable runtime (Wine/DXVK): the dummy patch already covers the game.
+            g_game_vtable = vt;
+            logger::logf("directx: game device %p uses the patched vtable %p (shared-vtable runtime)",
+                         (void*)dev, (void*)vt);
+            return;
+        }
+
+        // Distinct vtable: the dummy patch never reached the game (native Windows).
+        // Undo it first so no foreign-class vtable keeps chaining into the originals
+        // we are about to re-point, then hook the game's vtable directly.
+        if (g_dummy_vtable && g_dummy_vtable != vt) {
+            if (g_dummy_prev_es) hooks::swap_vtable_entry(g_dummy_vtable, VTBL_ENDSCENE, g_dummy_prev_es);
+            if (g_dummy_prev_bs) hooks::swap_vtable_entry(g_dummy_vtable, VTBL_BEGINSCENE, g_dummy_prev_bs);
+            if (g_dummy_prev_rs) hooks::swap_vtable_entry(g_dummy_vtable, VTBL_RESET, g_dummy_prev_rs);
+            logger::logf("directx: dummy-device vtable %p patch reverted (game vtable differs)",
+                         (void*)g_dummy_vtable);
+            g_dummy_vtable = nullptr;
+        }
+
+        g_original_endscene = reinterpret_cast<EndScene_t>(vt[VTBL_ENDSCENE]);
+        g_original_beginscene = reinterpret_cast<BeginScene_t>(vt[VTBL_BEGINSCENE]);
+        g_original_reset = reinterpret_cast<Reset_t>(vt[VTBL_RESET]);
+        void* prev_es = hooks::swap_vtable_entry(vt, VTBL_ENDSCENE, reinterpret_cast<void*>(&hkEndScene));
+        if (!prev_es) {
+            // VirtualProtect refused - leave g_game_vtable null so the next tick retries.
+            logger::logf("directx: game vtable %p EndScene swap FAILED", (void*)vt);
+            g_original_endscene = nullptr;
+            return;
+        }
+        void* prev_bs = hooks::swap_vtable_entry(vt, VTBL_BEGINSCENE, reinterpret_cast<void*>(&hkBeginScene));
+        if (!prev_bs) g_original_beginscene = nullptr;
+        void* prev_rs = hooks::swap_vtable_entry(vt, VTBL_RESET, reinterpret_cast<void*>(&hkReset));
+        if (!prev_rs) g_original_reset = nullptr;
+        g_game_vtable = vt;
+        logger::logf("directx: game device %p vtable %p hooked directly (EndScene%s%s)",
+                     (void*)dev, (void*)vt, prev_bs ? "/BeginScene" : "", prev_rs ? "/Reset" : "");
+    });
 }
