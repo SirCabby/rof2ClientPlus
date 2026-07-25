@@ -16,7 +16,6 @@
 
 #include "commands.h"
 #include "crash_handler.h"
-#include "font_overlay.h"    // add_scene_draw (self-diag tick rides the proven pre-UI seam)
 #include "game_functions.h"  // Rcp::Game::print_chat
 #include "hook_wrapper.h"
 #include "io_ini.h"
@@ -37,7 +36,6 @@ namespace {
 // it renders. Rewriting +0xEBA at entry is safe: the internal name-rebuild (SetActorDefName@0x59e4d0)
 // is COLD on the normal path (confirmed zero in-game hits), so it never clobbers our value.
 const uintptr_t kBuildActor = ::Rcp::eqva(0x48f4b0);          // __thiscall(mgr; spawn,p2,p3,p4,p5,p6) 6 stack args, ret 0x18
-const uintptr_t kFindActorDefByName = ::Rcp::eqva(0x4066f0);  // Node* __stdcall(char* name) ret 4; registry @0xDD260C
 constexpr int kEntName = 0xA4;       // char[] spawn name
 constexpr int kEntRace = 0xEB4;      // int race
 constexpr int kEntActorDef = 0xEBA;  // char[64] actordef name -- the field the build consumes
@@ -58,8 +56,6 @@ constexpr size_t kMaxSpawns = 4096;
 typedef int(__fastcall *BuildActorFn)(void *mgr, int edx, void *spawn, void *p2, int p3, int p4, int p5,
                                       int p6);
 BuildActorFn g_build_orig = nullptr;
-typedef void *(__stdcall *FindActorDefFn)(char *name);
-FindActorDefFn g_find_orig = nullptr;
 
 constexpr char kIniSection[] = "NpcModels";
 
@@ -100,7 +96,6 @@ std::set<std::string> g_persistent_subs;        // redirect TARGETS that must ST
                                                 // build (PC aliases): runtime anim/appearance lookups key
                                                 // off the spawn's actordef name, so restoring the native
                                                 // code T-poses a new-style alias body. Guarded by g_mu.
-int g_pc_log_count = 0;  // cap for PC-race diagnostics ([pcargs]/[pcmodel] lines)
 std::map<std::string, bool> g_on;               // catalog display name -> reverted to classic (persisted)
 // ELEMENTAL split (the native UseLuclinElementals equivalent, ini-independent). Typed Luclin elementals
 // (races 209-212 -> EEL/AEL/WEL/FEL in global5_chr) vs the classic generic ELE (global_chr, tint by body
@@ -444,27 +439,6 @@ int __fastcall BuildActor_hk(void *mgr, int edx, void *spawn, void *p2, int p3, 
         else
           logger::logf("[npcbody] build '%s' race=%d actordef='%s' -> '%s'", ename, race, name, sub.c_str());
       }
-      // Capture the NATURAL build args for PC-race spawns (login/zone spawn-adds): our manual rebuild must
-      // replicate these exactly -- the guessed (p2=+0x2bc, 1,2,1,0) call rebuilds the body but loses the
-      // dressed look, so one of these differs. Logged once per session start (cap shared w/ pc logs).
-      if (race >= 1 && race <= 12 && g_pc_log_count < 120) {
-        ++g_pc_log_count;
-        rcp_guard::run("npcbody.state", [&] {
-          char *base = reinterpret_cast<char *>(spawn);
-          uint8_t bt = *reinterpret_cast<uint8_t *>(base + 0xeb9);   // body texture
-          uint8_t ea8 = *reinterpret_cast<uint8_t *>(base + 0xea8);  // ActorBase.TextureType
-          uint32_t src[9], wrk[9];  // Equipment@0x1da0 vs ActorEquipment@0xf30 -- .type @+0 (the field the
-                                    // wire material actually lands in; +8 was the wrong dword)
-          for (int s = 0; s < 9; ++s) {
-            src[s] = *reinterpret_cast<uint32_t *>(base + 0x1da0 + s * 0x14);
-            wrk[s] = *reinterpret_cast<uint32_t *>(base + 0xf30 + s * 0x14);
-          }
-          logger::logf("[pcargs] BUILD-TIME id=%d race=%d local=%d bt=%d ea8=0x%02x ret=%p src=%u,%u,%u,%u,%u,%u,%u,%u,%u wrk=%u,%u,%u,%u,%u,%u,%u,%u,%u",
-                       sid, race, (int)is_local, (int)bt, ea8, __builtin_return_address(0), src[0], src[1],
-                       src[2], src[3], src[4], src[5], src[6], src[7], src[8], wrk[0], wrk[1], wrk[2],
-                       wrk[3], wrk[4], wrk[5], wrk[6], wrk[7], wrk[8]);
-        });
-      }
       if (!sub.empty() && sub.size() < static_cast<size_t>(kActorDefCap)) {
         // Hand the build the substitute. Creature subs are RESTORED afterward (so a later toggle-off
         // rebuilds from the true code); PC-alias subs are PERSISTENT (see g_persistent_subs) -- the
@@ -516,14 +490,6 @@ int __fastcall BuildActor_hk(void *mgr, int edx, void *spawn, void *p2, int p3, 
 // 2026-07-15 log), silently leaving the table unswapped.
 const uintptr_t kResolveModelCode = ::Rcp::eqva(0x50a2d0);  // __thiscall(mgr; char* out, int race, int gender) ret4
 
-int g_table_dumped = 0;  // (retained: referenced by the resolver log cap)
-// TEMP freeze-hunt probes (/rcppc probe <n>). The record is no longer mutated at all, so most are inert;
-// kept so the existing /rcppc probe handler still compiles.
-bool g_probe_skip_code = false;
-bool g_probe_skip_flags = false;
-bool g_probe_skip_unlink = false;  // don't unlink alias defs from the registry
-bool g_probe_skip_table = false;   // skip the toggle-time def invalidation
-bool g_probe_skip_storm = false;   // skip the per-spawn rebuild loop
 // Registry unlink (proven-safe walk): free an actordef NAME so the next build re-creates its def against
 // the current settings.
 void unlink_actordef_name(const std::string &full) {
@@ -545,94 +511,12 @@ void unlink_actordef_name(const std::string &full) {
   });
 }
 
-// LEARN-HOOK #3 (temporary): sprintf@0x8dc12f tap, logging every material-name construction ("_MDF") with
-// its caller -- answers which code prefix the face/hair texture swap requests for alias actors. cdecl, so
-// forwarding a fixed arg window is safe (caller cleans its own pushes).
-typedef int(__cdecl *SprintfFn)(char *dst, const char *fmt, uint32_t a, uint32_t b, uint32_t c, uint32_t d);
-SprintfFn g_sprintf_orig = nullptr;
-int g_mdf_log = 0;
-int __cdecl Sprintf_hk(char *dst, const char *fmt, uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
-  int r = g_sprintf_orig(dst, fmt, a, b, c, d);
-  if (g_mdf_log < 400 && dst && fmt && dst[0] && dst[1] && dst[2]) {
-    // log ONLY alias-prefixed constructions (HU7/HU6/BA7/... = toggle-time activity; login noise excluded)
-    static const char *kAliases[] = {"HU7", "HU6", "BA7", "BA6", "ER7", "ER6", "EL7", "EL6",
-                                     "HI7", "HI6", "DA7", "DA6", "HA7", "HA6", "DW7", "DW6",
-                                     "TR7", "TR6", "OG7", "OG6", "HO7", "HO6", "GN7", "GN6"};
-    bool interesting = false;
-    for (const char *a : kAliases)
-      if (dst[0] == a[0] && dst[1] == a[1] && dst[2] == a[2]) interesting = true;
-    if (interesting) {
-      ++g_mdf_log;
-      logger::logf("[mdf] '%s' (fmt '%s') ret=%p", dst, fmt, __builtin_return_address(0));
-    }
-  }
-  return r;
-}
-
-// LEARN-HOOKS #2 (temporary): which def-build path does an alias take? 0x407800 = classic build (0x18-anim
-// bank, ret 8), 0x407dc0 = new-style build (0x7A-anim bank, ret 0xC). CreateActorDefinition branches on the
-// source object's IsNewStyle -- if HU7 lands in the classic builder, that's the T-pose/no-hair root.
-typedef int(__fastcall *DefB2Fn)(void *self, int edx, int a1, int a2);
-typedef int(__fastcall *DefB3Fn)(void *self, int edx, int a1, int a2, int a3);
-DefB2Fn g_defb_classic = nullptr;
-DefB3Fn g_defb_new = nullptr;
-int g_defb_log = 0;
-std::map<void *, void *> g_def_src;  // def -> the source object the def-build introspected (its a1);
-                                     // the vt[0x19C]/vt[0x1A4] attach-slot API lives on THIS object.
-int __fastcall DefBuildClassic_hk(void *self, int edx, int a1, int a2) {
-  {
-    std::lock_guard<std::mutex> lk(g_mu);
-    if (g_def_src.size() > 4096) g_def_src.clear();
-    g_def_src[self] = reinterpret_cast<void *>(a1);
-  }
-  if (g_defb_log < 60) {
-    ++g_defb_log;
-    char nm[24] = {0};
-    read_cstr(reinterpret_cast<void *>(a2), nm, sizeof(nm));
-    // hair lead: capture the source object's vtable + the attach-slot API impls (vt[0x19C]=register by dag
-    // name, vt[0x1A4]=slot valid?) WHILE a1 is alive -- these are the fns to detour to see why the alias
-    // TUNIC probe fails (def+0x34 stays 0 -> no head/hair). Do NOT call them post-build (object transient).
-    void *vt = nullptr, *f19c = nullptr, *f1a4 = nullptr;
-    rcp_guard::run("defb.vt", [&] {
-      void **v = *reinterpret_cast<void ***>(a1);
-      vt = v;
-      f19c = v[0x19c / 4];
-      f1a4 = v[0x1a4 / 4];
-    });
-    logger::logf("[defb] CLASSIC build def=%p a1=%x a2='%s' vt=%p reg19c=%p chk1a4=%p ret=%p", self, a1, nm,
-                 vt, f19c, f1a4, __builtin_return_address(0));
-  }
-  return g_defb_classic(self, edx, a1, a2);
-}
-int __fastcall DefBuildNew_hk(void *self, int edx, int a1, int a2, int a3) {
-  if (g_defb_log < 60) {
-    ++g_defb_log;
-    logger::logf("[defb] NEW build def=%p a1=%x a2=%x a3=%x ret=%p", self, a1, a2, a3,
-                 __builtin_return_address(0));
-  }
-  return g_defb_new(self, edx, a1, a2, a3);
-}
-
 // DRESS-CHAIN detours: originally learn-hooks; now ALSO the alias-window carriers -- armor material
 // names are built from the model-table code at these entry points, so for alias-bodied spawns the call
 // runs inside enter/leave (table shows the alias code only for the duration).
 typedef void(__fastcall *Apply1Fn)(void *self, int edx, int slot);
-typedef int(__fastcall *Set6Fn)(void *self, int edx, int a1, int a2, int a3, int a4, int a5, int a6);
-// TRUE signature of RefreshEquipSlot@0x594e50 (ret 0x20 = 8 stack args), verified from its caller's
-// pushes @0x595c9c..0x595cca: (slot, props[5] = the slot's 5-dword ArmorProperties BY VALUE, tintARGB,
-// local_only). The old 1-arg detour only survived because gcc emitted the passthrough as a TAIL JUMP
-// (caller's frame reached the original untouched); with the real signature it is robust either way.
-// (This wrong-arg-count call is also what the old "0x594e50 AV'd when called out of context" note was.)
-typedef int(__fastcall *SlotRefreshFn)(void *self, int edx, int slot, uint32_t p0, uint32_t p1,
-                                       uint32_t p2, uint32_t p3, uint32_t p4, uint32_t tint, int local);
 Apply1Fn g_apply_orig = nullptr;
-Set6Fn g_set6_orig = nullptr;
-SlotRefreshFn g_slotref_orig = nullptr;
-int g_learn_count = 0;
-// These dress-chain detours are now LOG-ONLY again: the resolver detour supplies alias names at the
-// resolver seam, so no per-call table window is needed here.
-//
-// EXCEPT ApplyArmorTexture, which also carries the CLASSIC-HELM GATE (2026-07-16). Its WLD head-slot
+// ApplyArmorTexture carries the CLASSIC-HELM GATE (2026-07-16). Its WLD head-slot
 // path (0x40e656..0x40e6c9) maps helm materials straight to the Luclin 3D helm attach pieces -- material
 // 1/2/3 -> IT(5000+mat) plus the 0x40a290 race/gender offset, Velious 240/241 -> IT5028/5029, all living
 // in lgequip_amr*.s3d -- gated ONLY on bShowHelm@ActorClient+0x7c. There is NO classic-vs-Luclin body
@@ -647,10 +531,6 @@ int g_learn_count = 0;
 // (def34=1) keep their 3D helms. The -1 all-slots call recurses per-slot through this same detour; the
 // nested calls read saved==0 and pass through, the outermost call restores.
 void __fastcall ApplyArmor_hk(void *self, int edx, int slot) {
-  if (g_learn_count < 300) {
-    ++g_learn_count;
-    logger::logf("[learn] apply this=%p slot=%d ret=%p", self, slot, __builtin_return_address(0));
-  }
   constexpr int kAcShowHelm = 0x7c;  // ActorClient bShowHelm (eqlib graphics/Actors.h)
   uint8_t *show_helm = nullptr;
   uint8_t saved = 0;
@@ -672,46 +552,10 @@ void __fastcall ApplyArmor_hk(void *self, int edx, int slot) {
   }
   g_apply_orig(self, edx, slot);
 }
-int __fastcall Set6_hk(void *self, int edx, int a1, int a2, int a3, int a4, int a5, int a6) {
-  if (g_learn_count < 300) {
-    ++g_learn_count;
-    logger::logf("[learn] set6 spawn=%p args=%d,%d,%d,%d,%d,%d ret=%p", self, a1, a2, a3, a4, a5, a6,
-                 __builtin_return_address(0));
-  }
-  return g_set6_orig(self, edx, a1, a2, a3, a4, a5, a6);
-}
-int __fastcall SlotRefresh_hk(void *self, int edx, int slot, uint32_t p0, uint32_t p1, uint32_t p2,
-                              uint32_t p3, uint32_t p4, uint32_t tint, int local) {
-  if (g_learn_count < 300) {
-    ++g_learn_count;
-    logger::logf("[learn] slotref spawn=%p slot=%d props=%u,%u,%u,%u,%u ret=%p", self, slot, p0, p1, p2,
-                 p3, p4, __builtin_return_address(0));
-  }
-  return g_slotref_orig(self, edx, slot, p0, p1, p2, p3, p4, tint, local);
-}
 // (The natural spawn-add / illusion visual-init tail @0x595ED0 was briefly detoured to open an alias
 //  window around its head/face/hair styling, but its arg count is ambiguous -- callers push 3 vs 4 -- so
 //  a fixed-signature detour crashed at char-select. The resolver detour covers its internal name
 //  construction, so no hook here is needed.)
-
-// Log-only detour on the read-side lookup: shows whether a name resolves in the registry, so we can
-// watch a freshly-redirected alias go MISSING (first build) -> resident (subsequent builds).
-void *__stdcall FindActorDef_hk(char *name) {
-  if (crash_handler::shutting_down() || !name) return g_find_orig(name);
-  char nm[kActorDefCap] = {0};
-  rcp_guard::run("npcbody.find", [&] { read_cstr(name, nm, sizeof(nm)); });
-  bool do_log = false;
-  {
-    std::lock_guard<std::mutex> lk(g_mu);
-    if (g_log && g_log_count < kLogCap) {
-      do_log = true;
-      ++g_log_count;
-    }
-  }
-  void *r = g_find_orig(name);
-  if (do_log) logger::logf("[npcbody] Find '%s' : %s", nm, r ? "resident" : "MISSING");
-  return r;
-}
 
 // ---- PLAYER-RACE classic<->Luclin via the client's OWN mechanism (NOT the actordef alias-redirect above,
 // which can't render PC worn-armor/faces). ShouldUseLuclinModel F_48e510@0x48e510 (__thiscall(mgr; race,
@@ -843,7 +687,6 @@ void ensure_dagreg_hook() {
 }
 
 
-int g_pc_hook_hits = 0;  // DIAGNOSTIC: count/log hook fires so we can see if the config re-runs on zone.
 // ALWAYS answers "classic" for the 12 managed races (Native=1 debug leaves the map empty = passthrough).
 // This is load-bearing now that the hook is armed at DllMain: the ONE consult is the init-time
 // ConfigureLuclinModels@0x491c20 (it never re-runs on zone -- zero FIRED lines in-world), and answering
@@ -857,11 +700,6 @@ int __fastcall ShouldUseLuclin_hk(void *mgr, int edx, int race, int gender) {
     rcp_guard::run("pcluclin.decide", [&] {
       std::lock_guard<std::mutex> lk(g_mu);
       have = g_pc_classic.find(pc_key(race, gender)) != g_pc_classic.end();
-      if (g_pc_hook_hits < 400) {
-        ++g_pc_hook_hits;
-        logger::logf("[pcmodel] ShouldUseLuclin FIRED race=%d gender=%d managed=%d -> %s", race, gender,
-                     (int)have, have ? "classic" : "ini");
-      }
     });
     if (have) return 0;  // managed race: force classic global_chr, ini ignored
   }
@@ -1020,19 +858,6 @@ constexpr int kEntAnimActor = 0x1020;  // render anim/pose actor (from 0x48b270)
 const uintptr_t kSetViewActor = ::Rcp::eqva(0x48F030);
 void **const kViewActor = reinterpret_cast<void **>(::Rcp::eqva(0xD1FD88));  // pinstViewActor (eqlib)
 
-// DIAGNOSTIC: dump the appearance obj + material records (spawn+0xEA4..+0xFA4) so a before/after diff shows
-// exactly which fields F_48ff resets (the armor re-dress reads these).
-void dump_wear(void *spawn, const char *tag, int id) {
-  rcp_guard::run("pc.dump", [&] {
-    for (int row = 0; row < 4; ++row) {
-      uint32_t *p = reinterpret_cast<uint32_t *>(reinterpret_cast<char *>(spawn) + kEntWearObj + row * 0x40);
-      logger::logf("[pcdump] id=%d %s +%03x: %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x "
-                   "%08x %08x %08x %08x",
-                   id, tag, row * 0x40, p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10],
-                   p[11], p[12], p[13], p[14], p[15]);
-    }
-  });
-}
 constexpr int kEntAppearance = 0x2bc;  // appearance/equipment source object -- F_48ff's p2 (natural build
                                        // passes it; a null p2 rebuilds a BARE body, stripping worn armor).
 
@@ -1099,7 +924,7 @@ void invalidate_alias_defs() {
   for (const auto &r : kPcRaces)
     for (int g = 0; g < 2; ++g) {
       if (!r.alias[g]) continue;
-      if (!g_probe_skip_unlink) unlink_actordef_name(std::string(r.alias[g]) + "_ACTORDEF");
+      unlink_actordef_name(std::string(r.alias[g]) + "_ACTORDEF");
     }
 }
 
@@ -1122,8 +947,7 @@ void pc_reapply() {
     std::lock_guard<std::mutex> lk(g_mu);
     rebuild_redirect();
   }
-  if (!g_probe_skip_table) invalidate_alias_defs();
-  if (g_probe_skip_storm) return;  // probe: settings-only apply, leave every spawn's body as-is
+  invalidate_alias_defs();
   // 2) Rebuild visible PC-race spawns (BuildActor_hk applies/clears the alias per the map), passing the
   //    spawn's appearance object as p2 (the natural build's parameter). Destroy the leftover actor, then
   //    RE-DRESS the new one (ApplyArmorTexture) -- dressing is a separate pass the rebuild always strips.
@@ -1327,7 +1151,7 @@ void pc_reapply() {
       });
       if (ov && ov == nv) rcp_guard::run("pc.posedestroy", [&] { release_actor(old_pose); });
     }
-    if (reapply_logged < 40) {  // per-call cap (the shared g_pc_log_count gets eaten by login builds)
+    if (reapply_logged < 40) {  // per-call cap
       ++reapply_logged;
       rcp_guard::run("pc.log", [&] {
         char *base = reinterpret_cast<char *>(spawn);
@@ -1349,76 +1173,6 @@ void pc_reapply() {
     std::lock_guard<std::mutex> lk(g_mu);
     for (int id : dead) g_spawn_ids.erase(id);
   }
-}
-
-// ---- TEMPORARY diagnostic (modern-self freeze hunt): log the LOCAL player's movement/model state
-// every 2s. A frozen-vs-working diff pins which layer dies: input (pos static, run>0, v==0), physics
-// (v nonzero or floor/coll odd while pos static), or camera-only (pos MOVES while the screen looks
-// frozen). Offsets are eqlib exact-build PlayerBase fields. Read-only; runs on the render thread via
-// the shared pre-UI seam (same proven pattern as nameplates). Strip with the other learn-hooks.
-void self_diag_tick() {
-  static DWORD s_last = 0;
-  DWORD now = GetTickCount();
-  if (now - s_last < 2000) return;
-  s_last = now;
-  if (crash_handler::shutting_down()) return;
-  rcp_guard::run("pc.selfdiag", [&] {
-    char *self = *reinterpret_cast<char **>(kLocalPlayer);
-    if (!self) return;
-    float py = *reinterpret_cast<float *>(self + 0x64);  // PlayerBase Y/X/Z
-    float px = *reinterpret_cast<float *>(self + 0x68);
-    float pz = *reinterpret_cast<float *>(self + 0x6c);
-    float vy = *reinterpret_cast<float *>(self + 0x70);  // SpeedY/X/Z
-    float vx = *reinterpret_cast<float *>(self + 0x74);
-    float vz = *reinterpret_cast<float *>(self + 0x78);
-    float run = *reinterpret_cast<float *>(self + 0x7c);    // SpeedRun
-    float mult = *reinterpret_cast<float *>(self + 0x18);   // SpeedMultiplier
-    float hd = *reinterpret_cast<float *>(self + 0x80);     // Heading
-    float floorh = *reinterpret_cast<float *>(self + 0x28);  // FloorHeight
-    int coll = *reinterpret_cast<int *>(self + 0x24);        // CollidingType
-    unsigned pstate = *reinterpret_cast<unsigned *>(self + 0x14c);  // PlayerState (0x20=stunned)
-    uint8_t stand = *reinterpret_cast<uint8_t *>(self + 0x35c);     // StandState
-    float avh = *reinterpret_cast<float *>(self + 0x138);           // AvatarHeight
-    char code[24] = {0};
-    read_cstr(self + kEntActorDef, code, sizeof(code));
-    void *def = *reinterpret_cast<void **>(self + 0x1024);
-    int d34 = def ? *reinterpret_cast<uint8_t *>(reinterpret_cast<char *>(def) + 0x34) : -1;
-    float fpc = def ? *reinterpret_cast<float *>(reinterpret_cast<char *>(def) + 0x40) : -99.f;  // FPCOffset
-    void *actor = *reinterpret_cast<void **>(self + kEntActor);
-    // The render actor's OWN world position (vtable[0x7c] GetPosition(CVector3*)). If the entity p=(...)
-    // moves with input but THIS stays frozen, the rebuilt actor is detached from the entity (not the
-    // camera); if both move together, the model follows and the camera reads something else.
-    float ax = -9999, ay = -9999, az = -9999;
-    if (actor) {
-      float v3[3] = {0, 0, 0};
-      void **avt = *reinterpret_cast<void ***>(actor);
-      reinterpret_cast<void(__thiscall *)(void *, float *)>(avt[0x7c / 4])(actor, v3);
-      ax = v3[0];
-      ay = v3[1];
-      az = v3[2];
-    }
-    void *anim = *reinterpret_cast<void **>(self + kEntAnimActor);
-    // pinstControlledPlayer (eqlib 0xDD2644): keyboard/mouse input drives THIS spawn. If it diverges
-    // from pinstLocalPlayer, input goes elsewhere = exactly a "can't move or turn" freeze.
-    void *controlled = *reinterpret_cast<void **>(::Rcp::eqva(0xDD2644));
-    float anim_walk = *reinterpret_cast<float *>(self + 0x330);  // walk/run anim speed thresholds (0x592xxx)
-    float anim_run = *reinterpret_cast<float *>(self + 0x350);
-    // Registry state for the local player's CURRENT actordef name: after a toggle's unlink, a by-name
-    // resolve can return a DIFFERENT def object than the spawn's cached one (or null) -- if the frozen
-    // state correlates with reg != def, the per-tick gate is a name-resolve identity check.
-    void *reg = nullptr;
-    if (g_find_orig && code[0]) {
-      char full[kActorDefCap];
-      std::snprintf(full, sizeof(full), "%s", code);
-      reg = g_find_orig(full);
-    }
-    logger::logf("[selfdiag] p=(%.1f,%.1f,%.1f) actorpos=(%.1f,%.1f,%.1f) hd=%.1f actor=%p anim=%p ctl=%p%s "
-                 "def=%p d34=%d code='%s'",
-                 px, py, pz, ax, ay, az, hd, actor, anim, controlled,
-                 controlled == self ? "(=self)" : "(!SELF)", def, d34, code);
-    (void)vx; (void)vy; (void)vz; (void)run; (void)mult; (void)floorh; (void)coll; (void)pstate;
-    (void)stand; (void)avh; (void)fpc; (void)anim_walk; (void)anim_run; (void)reg;
-  });
 }
 
 }  // namespace
@@ -1502,7 +1256,7 @@ void set_all(bool on) {
 // AND the preview player -- is built during startup ("Starting char select" in dbg.txt precedes the
 // first ProcessGameEvents tick where RcpService constructs), so ctor-time detours miss it entirely and
 // char select ignored every model setting (session forensics: preview actor resident by the first
-// selfdiag tick with ZERO [resolve]/[pcargs] lines until world entry). With these four seams armed at
+// render tick with ZERO [resolve] lines until world entry). With these four seams armed at
 // attach the preview build takes the exact proven world path: BuildActor rewrites spawn+0xEBA to the
 // alias, the resolver feeds alias dress names, ShouldUseLuclin keeps the init config classic-native,
 // and the helm gate keeps Luclin IT pieces off classic bodies. The rcp alias archives are
@@ -1540,24 +1294,12 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
     rcp->hooks->Add("rcp_npc_build", static_cast<int>(kBuildActor), BuildActor_hk, hook_type_detour);
     g_build_orig = rcp->hooks->hook_map["rcp_npc_build"]->original(BuildActor_hk);
   }
-  rcp->hooks->Add("rcp_npc_find", static_cast<int>(kFindActorDefByName), FindActorDef_hk, hook_type_detour);
-  g_find_orig = rcp->hooks->hook_map["rcp_npc_find"]->original(FindActorDef_hk);
-  rcp->hooks->Add("rcp_mdf", static_cast<int>(::Rcp::eqva(0x8dc12f)), Sprintf_hk, hook_type_detour);
-  g_sprintf_orig = rcp->hooks->hook_map["rcp_mdf"]->original(Sprintf_hk);
-  rcp->hooks->Add("rcp_defb_c", static_cast<int>(::Rcp::eqva(0x407800)), DefBuildClassic_hk, hook_type_detour);
-  g_defb_classic = rcp->hooks->hook_map["rcp_defb_c"]->original(DefBuildClassic_hk);
-  rcp->hooks->Add("rcp_defb_n", static_cast<int>(::Rcp::eqva(0x407dc0)), DefBuildNew_hk, hook_type_detour);
-  g_defb_new = rcp->hooks->hook_map["rcp_defb_n"]->original(DefBuildNew_hk);
-  // dress-chain detours: set6/slotref are temporary learn-hooks; the apply hook ALSO carries the
-  // permanent classic-helm gate (suppress Luclin 3D helm pieces on classic WLD bodies -- see ApplyArmor_hk)
+  // ApplyArmorTexture carries the permanent classic-helm gate (suppress Luclin 3D helm pieces on classic
+  // WLD bodies -- see ApplyArmor_hk).
   if (!g_early_installed) {
     rcp->hooks->Add("rcp_learn_apply", static_cast<int>(kApplyArmor), ApplyArmor_hk, hook_type_detour);
     g_apply_orig = rcp->hooks->hook_map["rcp_learn_apply"]->original(ApplyArmor_hk);
   }
-  rcp->hooks->Add("rcp_learn_set6", static_cast<int>(::Rcp::eqva(0x594de0)), Set6_hk, hook_type_detour);
-  g_set6_orig = rcp->hooks->hook_map["rcp_learn_set6"]->original(Set6_hk);
-  rcp->hooks->Add("rcp_learn_slotref", static_cast<int>(kRefreshEquipSlot), SlotRefresh_hk, hook_type_detour);
-  g_slotref_orig = rcp->hooks->hook_map["rcp_learn_slotref"]->original(SlotRefresh_hk);
   // Resolver detour: rewrites the model-table code STRING (not the record) to the alias for modern races,
   // so all dress-time name construction (body/armor/hair/metrics) resolves alias-keyed with the record
   // resting native (no movement freeze). Replaces the old table-record swap + the crashing visinit hook.
@@ -1567,15 +1309,14 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
   }
   logger::logf("[pcmodel] resolver detour @0x%x%s", (unsigned)kResolveModelCode,
                g_early_installed ? " (attach)" : "");
-  logger::logf("[npcbody] BuildActor detour @0x%x%s + Find @0x%x", (unsigned)kBuildActor,
-               g_early_installed ? " (attach)" : "", (unsigned)kFindActorDefByName);
+  logger::logf("[npcbody] BuildActor detour @0x%x%s", (unsigned)kBuildActor,
+               g_early_installed ? " (attach)" : "");
 
   // Player-race classic<->Luclin via the native ShouldUseLuclinModel decision (correct armor/face).
   if (!g_early_installed) {
     rcp->hooks->Add("rcp_pc_luclin", static_cast<int>(kShouldUseLuclin), ShouldUseLuclin_hk, hook_type_detour);
     g_pc_orig = rcp->hooks->hook_map["rcp_pc_luclin"]->original(ShouldUseLuclin_hk);
   }
-  font_overlay::add_scene_draw([](IDirect3DDevice9 *) { self_diag_tick(); });  // TEMP freeze-hunt diag
   pc_load();
   logger::logf("[pcmodel] ShouldUseLuclin detour @0x%x%s (%d PC races, ini-ignored)",
                (unsigned)kShouldUseLuclin, g_early_installed ? " (attach)" : "",
@@ -1680,46 +1421,6 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
         const std::string sub = upper(args[1]);
         if (sub == "LIST") {
           show();
-          return true;
-        }
-        if (sub == "PROBE") {  // TEMP freeze bisection: self-resetting modern-human partial applies
-          int n = args.size() >= 3 ? std::atoi(args[2].c_str()) : 0;
-          auto set_human = [](bool classic) {
-            std::lock_guard<std::mutex> lk(g_mu);
-            g_pc_classic[pc_key(1, 0)] = classic;  // human m+f (not persisted)
-            g_pc_classic[pc_key(1, 1)] = classic;
-          };
-          // FULL classic reset first so each probe starts from the known-good state.
-          g_probe_skip_code = g_probe_skip_flags = g_probe_skip_unlink = false;
-          g_probe_skip_table = g_probe_skip_storm = false;
-          set_human(true);
-          pc_reapply();
-          // Then modern with the selected parts disabled.
-          const char *desc = "FULL modern (control)";
-          switch (n) {
-            case 1:  // table CODE swap only -- no flags, no unlink, no spawn rebuilds
-              g_probe_skip_flags = g_probe_skip_unlink = g_probe_skip_storm = true;
-              desc = "table CODE swap only (no flags/unlink/rebuilds)";
-              break;
-            case 2:  // table FLAGS only
-              g_probe_skip_code = g_probe_skip_unlink = g_probe_skip_storm = true;
-              desc = "table FLAGS only (no code/unlink/rebuilds)";
-              break;
-            case 3:  // registry UNLINK only
-              g_probe_skip_code = g_probe_skip_flags = g_probe_skip_storm = true;
-              desc = "registry UNLINK only (no code/flags/rebuilds)";
-              break;
-            case 4:  // spawn REBUILD STORM only (redirect active, table untouched)
-              g_probe_skip_table = true;
-              desc = "spawn REBUILDS only (table untouched)";
-              break;
-          }
-          set_human(false);
-          pc_reapply();
-          g_probe_skip_code = g_probe_skip_flags = g_probe_skip_unlink = false;
-          g_probe_skip_table = g_probe_skip_storm = false;  // one-shot
-          Rcp::Game::print_chat("rof2ClientPlus PC probe %d: classic reset, then %s", n, desc);
-          Rcp::Game::print_chat("  -> try to move now; run the next probe directly (no manual reset needed)");
           return true;
         }
         if (sub == "NATIVE") {  // DEBUG: disable our PC control entirely -> hook falls through to the ini
