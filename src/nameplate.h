@@ -55,9 +55,13 @@ void set(int role, int rgb);  // Set + persist a role's color (applies live).
 // Helpers the custom-font billboard nameplates (font_overlay, N4c) reuse so the billboards match
 // native content: the display text (name line per /shownames level - title/first/last/guild/AFK)
 // and the con/state color. These read the same entity fields the native nameplate uses.
+// Because the billboards REPLACE the native sprites (set_suppress_native blanks them all), both
+// helpers honor every nameplate_settings option - target marker/health/hide-self in the text,
+// con/state/target color + target blink in the color - so the options behave identically in both
+// modes. Anything added to the native transform/tint path must be mirrored here.
 namespace nameplate {
-std::string billboard_text(void *entity);  // Name line; empty if the entity has no drawable name.
-int billboard_color(void *entity);         // 0xRRGGBB, con/state colored; client-like default otherwise.
+std::string billboard_text(void *entity);  // Name line (+ target marker/health); empty if not drawable.
+int billboard_color(void *entity);         // 0xRRGGBB per the enabled coloring options; client-like default otherwise.
 // Pure con-level color for an entity vs the local player, ALWAYS computed (independent of the
 // con-colors setting). Uses the user-editable con palette (Colors tab). For the target ring.
 int con_color_for(void *entity);           // 0xRRGGBB.

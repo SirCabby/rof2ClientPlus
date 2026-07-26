@@ -637,31 +637,78 @@ static const char *lookup_np_text(void *entity) {
 // Text the billboard should draw for an entity: for players, the full generated name line
 // (title/first/last/guild/AFK per shownames). For NPCs/corpses, the client's own captured full
 // text (keeps the pet-owner line etc.), falling back to the plain display name until it is cached.
+//
+// The billboards REPLACE the native name sprites (font_overlay suppresses them wholesale), so this
+// has to reproduce the text options the native transform_entity() path applies - hide-self and the
+// target marker / target health - or those settings do nothing while billboards are on.
 std::string nameplate::billboard_text(void *entity) {
   if (!entity) return {};
   char *ent = static_cast<char *>(entity);
   const uint8_t type = *reinterpret_cast<uint8_t *>(ent + kEntType);
   if (is_hidden_npc(ent, type)) return {};  // Untargetable controller/trigger NPC: no billboard.
-  if (type == kTypePlayer) return generate_player_name(ent);
-  if (const char *cached = lookup_np_text(entity)) return cached;
-  return std::string(ent + kEntDisplayedName);
+
+  // /shownames off must hide billboards exactly like it hides native plates. Disasm of
+  // SetNameSpriteState (0x58e5aa) shows the client's rule: when __ShowNames is 0 it clears the name
+  // sprite UNLESS the entity is an NPC (Type==1) - i.e. "off" kills player + corpse names only, NPC
+  // names have their own control. Mirror that branch here (native gets it from the client for free).
+  const int lvl = (g_shownames_level >= 0) ? g_shownames_level : *kShowNamesLevel;
+  if (lvl <= 0 && type != kTypeNPC) return {};
+
+  const bool is_target = (entity == *kTarget);
+  const bool is_self = (entity == *kSelf);
+  if (g_hide_self && is_self && !is_target) return {};  // Hide your own plate (never when targeted).
+
+  std::string base;
+  if (type == kTypePlayer)
+    base = generate_player_name(ent);
+  else if (const char *cached = lookup_np_text(entity))
+    base = cached;
+  else
+    base = ent + kEntDisplayedName;
+  if (base.empty()) return base;
+
+  // Target embellishments: >>Name NN%<<. Decorate ONLY the first line so any extra client line
+  // (a pet's owner line, etc.) stays after the "<<" - same rule as the native transform.
+  if (is_target && (g_target_marker || g_target_health)) {
+    const size_t nl = base.find('\n');
+    const std::string first = (nl == std::string::npos) ? base : base.substr(0, nl);
+    const std::string rest = (nl == std::string::npos) ? std::string() : base.substr(nl);
+    const char *pre = g_target_marker ? ">>" : "";
+    const char *post = g_target_marker ? "<<" : "";
+    char buf[320];
+    if (g_target_health && (type == kTypePlayer || type == kTypeNPC))
+      std::snprintf(buf, sizeof(buf), "%s%s %d%%%s", pre, first.c_str(), hp_percent(ent, type), post);
+    else
+      std::snprintf(buf, sizeof(buf), "%s%s%s", pre, first.c_str(), post);
+    base = std::string(buf) + rest;
+  }
+  return base;
 }
 
-// Color the billboard name should use: the same con/state palette the tint feature uses (so
-// billboards are con-colored like native), always applied (not gated on the tint options),
-// with a client-like default (cyan PC / white NPC / gray corpse) when nothing special applies.
+// Color the billboard name should use. Mirrors handle_tint()'s priority exactly (target color ->
+// state color -> con color -> client-like default, then the target pulse), so every coloring option
+// behaves the same whether the native name sprites or the billboards are drawing. Previously con and
+// state colors were applied unconditionally here, which made those checkboxes look dead while
+// billboards were on, and target color / target blink never applied at all.
 int nameplate::billboard_color(void *entity) {
   if (!entity) return 0xffffff;
   char *ent = static_cast<char *>(entity);
   const uint8_t type = *reinterpret_cast<uint8_t *>(ent + kEntType);
-  int rgb = state_color(ent, type);  // guild/group/raid/pvp/afk/ld/lfg/roleplay/corpse
-  if (!rgb && type == kTypeNPC) {
+  const bool is_target = (entity == *kTarget);
+
+  int rgb = 0;  // 0 = no custom color chosen yet.
+  if (g_target_color && is_target) rgb = g_colors[kRoleTarget];
+  if (!rgb && g_state_colors) rgb = state_color(ent, type);  // guild/group/raid/pvp/afk/ld/lfg/roleplay/corpse
+  if (!rgb && g_con_colors && type == kTypeNPC) {             // Con colors apply to NPCs only.
     void *self = *kSelf;
     const int my_level = self ? *reinterpret_cast<uint8_t *>(static_cast<char *>(self) + kEntLevel) : 0;
     rgb = con_color(my_level, *reinterpret_cast<uint8_t *>(ent + kEntLevel));
   }
-  // Default (no con/state): the customizable Player color for players, Corpse gray for corpses.
+  // Default (no con/state/target): the customizable Player color for players, Corpse gray for
+  // corpses, near-white for NPCs - the client's own look.
   if (!rgb) rgb = (type == kTypePlayer) ? g_colors[kRolePlayer] : (type == kTypeCorpse ? g_colors[kRoleCorpse] : 0xffffff);
+  // Target blink pulses whatever color the plate ended up with, in every mode (PCs + NPCs alike).
+  if (g_target_blink && is_target) rgb = blink(rgb);
   return rgb;
 }
 
