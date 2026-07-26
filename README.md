@@ -35,6 +35,18 @@ A client-side mod for the EverQuest **Rain of Fear 2** client, in the spirit of
   the loaded textures in memory). The classic sheets ship in
   `uifiles/rcp/spellicons/` (see its README for provenance); also a **Classic
   spell icons** checkbox on the `/rcpoptions` Display tab.
+- **`/rcpcopylayout`** — makes Options → General → **Copy Layout** copy the
+  **chat setup** too: window count, names, per-window filter routing
+  (`ChannelMap0..56`), hit modes, default channels and fonts from the picked
+  character's `UI_<char>_<server>.ini`. Stock `CopyLayout` transfers only
+  window geometry — the `[ChatManager]` section is never copied. The mod
+  merges it into the current character's UI ini through the client's own
+  cached ini object *before* the copy runs, one-shot-suppresses the client's
+  chat-settings save so the merge survives, and triggers the client's own
+  full UI reload (the normal Copy Layout path never reloads), which rebuilds
+  every chat window from the merged spec (windows the target character never
+  had are created natively). Copying your own layout is left stock. On by
+  default; `/rcpcopylayout on|off`.
 - `/rcp` lists all commands. `/uierrors on|off` toggles UI skin error reporting.
 
 > **Attribution:** large portions of this project are adapted from Zeal

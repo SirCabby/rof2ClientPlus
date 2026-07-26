@@ -14,6 +14,7 @@
 #include "chat_shortcuts.h"
 #include "chat_stml_select.h"
 #include "chat_timestamp.h"
+#include "copy_layout_chat.h"
 #include "faction_vision.h"
 #include "commands.h"
 #include "entity_manager.h"
@@ -87,6 +88,8 @@ RcpService::RcpService() {
   chat_timestamp = std::make_unique<ChatTimestamp>(this);  // /timestamp: Zeal-style chat timestamps via dsp_chat detour.
   logger::log("  -> FactionVision");
   faction_vision = std::make_unique<FactionVision>(this);  // /rcpfaction: rewrite server [RcpFac] faction id/value lines (chains dsp_chat outermost, after ChatTimestamp).
+  logger::log("  -> CopyLayoutChat");
+  copy_layout_chat = std::make_unique<CopyLayoutChat>(this);  // /rcpcopylayout: Copy Layout also copies chat windows/filters/names ([ChatManager] pre-merge + save suppression).
   logger::log("  -> ChatClipboard");
   chat_clipboard = std::make_unique<ChatClipboard>(this);  // Always-on Ctrl+C/X/V clipboard copy/paste (CXWndManager::HandleKeyboardMsg detour).
   logger::log("  -> ChatStmlSelect");
