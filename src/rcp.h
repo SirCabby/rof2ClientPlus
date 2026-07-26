@@ -62,6 +62,7 @@ class RcpService {
   std::unique_ptr<class SoundMods> sound_mods;        // The /rcpsound sound muting (Asset::Play detour; e.g. thunder).
   std::unique_ptr<class FloatingDamage> floating_damage; // The /rcpfcd floating combat damage (Zeal floating_damage port).
   std::unique_ptr<class HideCorpse> hide_corpse;      // Extra /hidecorpses options: always + showlast continuous NPC-corpse hiding.
+  std::unique_ptr<class RespawnClose> respawn_close;  // Auto-closes the lingering death/respawn window once the player is alive again.
   std::unique_ptr<class AaExp> aa_exp;                // The /rcpaaexp automatic AA-experience gating (by current-level XP%).
   std::unique_ptr<class ModelSwap> model_swap;        // Live classic/new model-version toggle (Items/NPCs); Phase-0 probe.
   std::unique_ptr<class NpcModelSwap> npc_model_swap;  // NPC/creature body-model swap (Phase 2); /rcpbody probe + redirect.

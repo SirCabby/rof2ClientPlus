@@ -30,6 +30,7 @@
 #include "nameplate.h"
 #include "no_fog.h"
 #include "rcp_options_ui.h"
+#include "respawn_close.h"
 #include "sound_mods.h"
 #include "spell_icons.h"
 #include "spellbook_ui.h"
@@ -96,6 +97,8 @@ RcpService::RcpService() {
   floating_damage = std::make_unique<FloatingDamage>(this);  // /rcpfcd: floating combat damage numbers (ReportSuccessfulHit detour + billboard).
   logger::log("  -> HideCorpse");
   hide_corpse = std::make_unique<HideCorpse>(this);  // /hidecorpses always + showlast: continuous NPC-corpse hiding (render-callback re-assert).
+  logger::log("  -> RespawnClose");
+  respawn_close = std::make_unique<RespawnClose>(this);  // Auto-closes the lingering death/respawn window once the player is alive again (on_frame-driven).
   logger::log("  -> AaExp");
   aa_exp = std::make_unique<AaExp>(this);  // /rcpaaexp: auto-gate AA experience % by current-level XP (writes PercentEXPtoAA + server sync).
   logger::log("  -> ModelSwap");
