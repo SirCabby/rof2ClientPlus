@@ -1,4 +1,5 @@
 // rof2ClientPlus - raise the world/terrain and actor view distance. See view_distance.h.
+#include "rcp_profiles.h"
 #include "view_distance.h"
 #include "rebase.h"
 
@@ -201,6 +202,11 @@ void set_actor_clip(int clip) { set_layer(&g_actor, clip); }
 
 ViewDistance::ViewDistance(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
   logger::logf("[viewdist] settings loaded: far=%d actor=%d (applies on first world frame)", g_far, g_actor);
 
   directx::add_render_callback(on_render);

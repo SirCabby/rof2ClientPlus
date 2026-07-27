@@ -50,6 +50,34 @@ model-swap assets or the server-side changes. The complete map:
 | **Server-side faction-vision** rule + impl + migration | `~/workspace/GitHub/akk-stack` (see below) | ✅ (other repos) | rebuild EQEmu + run migration | branches pushed to SirCabby GitHub forks |
 | `rof2ClientPlus.ini` (tuned settings) | game dir | ❌ (per-machine) | written by the mod at runtime | backed up in the local backup; regenerated with defaults if absent |
 
+### Settings profiles (`src/rcp_profiles.*`)
+
+Named profiles of the mod's settings (main vs. trimmed alt), switched from the **General**
+tab of `/rcpoptions` or `/rcpprofile`. **Every character remembers its profile** and loads it
+at world entry — always on, no opt-in.
+
+- **Storage, all in `rof2ClientPlus.ini`:** bookkeeping in a `[Profiles]` section (`Active`,
+  `List`, `Char_<Name>=<profile>`); the **Default** profile IS the plain sections the mod
+  always wrote (no migration), every other profile prefixes them — `[Alt.Nameplate]`.
+- **One choke point:** `IO_ini::sec()` → `rcp_profiles::map_ini_section()`. Feature code keeps
+  writing its own plain section name and never knows profiles exist. `IO_ini(path, false)`
+  opts out (raw section access; used by the profile module itself).
+- **Scope = two allowlists** in `rcp_profiles.cpp`, the single knob for what a profile covers:
+  `kProfiledSections` (whole sections — `Models`/`NpcModels`/`PcModels`) and `kProfiledKeys`
+  (individual keys — `[Font] MaxDist` nameplate draw distance, `[Fog] RemoveDistanceFog`,
+  `[ViewDistance] FarClip`/`ActorClip`, `[FloatingDamage] Enabled`). Everything else is global,
+  shared by every profile. Per-key granularity is why `IO_ini` has two `sec()` forms: the
+  section-only one (bulk `getSection`/`deleteSection`) maps only fully-profiled sections, or a
+  bulk read of a mixed section would lose its global keys.
+- **Switching** re-points the mapping, then runs each module's `rcp_profiles::add_reload_handler`
+  callback (re-read + re-apply live), then the single `set_reload_finished_handler` slot, which
+  is the options window repainting itself (it must run last, whatever the construction order).
+  Any key the incoming profile does not define is first copied from the outgoing one, because
+  every module's `load_settings()` only overwrites when the key exists.
+- **`rcp_profiles::init()` runs at DllMain attach** (dllmain.cpp), before `window_watch` /
+  `model_swap` / `npc_model_swap` `install_early()` read the ini; `RcpService`'s later call
+  no-ops. Adding a module: register a reload handler in its ctor next to its `load_settings()`.
+
 ### UI overrides & skins (skin-independent as of 2026-07-17)
 
 The mod's option windows live in the client's **`uifiles/default/`** (base skin), so `/rcpoptions`

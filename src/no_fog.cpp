@@ -14,6 +14,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 // Standard IDirect3DDevice9 vtable layout: EndScene is slot 42 (see directx.cpp,
 // where that index is verified live), which places SetRenderState at slot 57.
@@ -83,6 +84,11 @@ static void print_status() {
 
 NoFog::NoFog(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
   logger::logf("[fog] settings loaded: remove_distance_fog=%d (filter installs on first frame)", (int)g_enabled);
 
   // Watch each EndScene for the live device; ensure_hooked installs once then no-ops.

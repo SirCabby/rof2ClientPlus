@@ -23,6 +23,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 #include "vectors.h"
 
 namespace {
@@ -406,6 +407,11 @@ void set_color_crit(int rgb) {
 
 FloatingDamage::FloatingDamage(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
   logger::logf("[fcd] settings loaded: enabled=%d mine=%d incoming=%d others=%d melee=%d spells=%d bighit=%d",
                (int)g_enabled, (int)g_show_mine, (int)g_show_incoming, (int)g_show_others, (int)g_show_melee,
                (int)g_show_spells, g_big_hit);

@@ -28,6 +28,7 @@
 // icon cell attaches the spell to the cursor (type eCursorAttachment_MemorizeSpell,
 // index = spell book slot); dropping it on a cast-bar gem runs the client's
 // native memorize (animation, server round-trip, gem refresh) untouched.
+#include "rcp_profiles.h"
 #include "spellbook_ui.h"
 #include "rebase.h"
 
@@ -2163,6 +2164,11 @@ void SpellBookUI::on_frame() {
 
 SpellBookUI::SpellBookUI(RcpService *rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
   rcp->commands_hook->Add(
       "/rcpbook", {"/rcpsb"},
       "Spell book window: '/rcpbook' opens/closes the new spell-list window. 'on'/'off' = replace the stock "

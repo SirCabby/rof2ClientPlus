@@ -15,6 +15,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 #include "spellbook_ui.h"  // spellbook_scribe: right-click a scroll -> auto-scribe
 
 namespace {
@@ -192,6 +193,11 @@ void set_enabled(bool on) {
 
 EquipItem::EquipItem(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
 
   rcp->hooks->Add("equip_rbtn", kCInvSlot_HandleRButtonUp, CInvSlot_HandleRButtonUp, hook_type_detour);
 

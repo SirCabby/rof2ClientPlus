@@ -22,6 +22,7 @@
 #include "logger.h"
 #include "model_swap.h"  // model_swap_api::reattach_held -- rebuilt actors lose their held-item attachments
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 namespace {
 
@@ -1290,6 +1291,13 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
   g_rcp_svc = rcp;
   if (!g_hookwrap) g_hookwrap = rcp->hooks.get();  // install_early normally set this at attach
   load_settings();  // auto-apply persisted classic-creature toggles ([NpcModels] ini)
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();  // creatures + elemental ([NpcModels])
+    pc_load();        // PC race/gender classic map ([PcModels])
+    refresh_world();  // re-skin what is already visible
+  });
   if (!g_early_installed) {  // normally armed at DllMain (install_early) so char select is covered
     rcp->hooks->Add("rcp_npc_build", static_cast<int>(kBuildActor), BuildActor_hk, hook_type_detour);
     g_build_orig = rcp->hooks->hook_map["rcp_npc_build"]->original(BuildActor_hk);

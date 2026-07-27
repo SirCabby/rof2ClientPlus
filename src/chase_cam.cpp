@@ -14,6 +14,7 @@
 #include "logger.h"
 #include "memory.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 // gfMaxZoomCameraDistance: the .rdata float the wheel handler (0x518A70) clamps its
 // zoom accumulator (CEverQuest+0x5EC) against. Native value 53.0 (verified in the
@@ -79,6 +80,12 @@ static void print_status() {
 ChaseCam::ChaseCam(RcpService *rcp) : rcp_(rcp) {
   load_settings();
   apply_max_zoom();  // Re-apply a persisted custom max zoom at load.
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+    apply_max_zoom();
+  });
   logger::logf("[chase] loaded (enabled=%d maxdist=%.1f)", (int)g_enabled, g_max_distance);
 
   rcp->commands_hook->Add(

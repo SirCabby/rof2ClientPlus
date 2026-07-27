@@ -1,4 +1,5 @@
 // rof2ClientPlus - disable / adjust game sounds by name. See sound_mods.h.
+#include "rcp_profiles.h"
 #include "sound_mods.h"
 #include "rebase.h"
 
@@ -387,6 +388,11 @@ void remove_tracked(const std::string &stem) {
 
 SoundMods::SoundMods(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
 
   rcp->hooks->Add("rcp_sound_play", static_cast<int>(kAssetPlay), AssetPlay_hk, hook_type_detour);
   g_orig = rcp->hooks->hook_map["rcp_sound_play"]->original(AssetPlay_hk);

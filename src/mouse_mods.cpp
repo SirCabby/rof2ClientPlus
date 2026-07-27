@@ -36,6 +36,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 // Stock RoF2 addresses (eqlib offsets/eqgame.h).
 static void **const kDIMouseDevice = reinterpret_cast<void **>(::Rcp::eqva(0xE67B50));   // DI8__Mouse (IDirectInputDevice8*)
@@ -240,6 +241,12 @@ void MouseMods::ensure_hooked() {
 
 MouseMods::MouseMods(RcpService *rcp) : rcp_(rcp) {
   load_settings();  // Restore persisted sensitivity/smoothing from rof2ClientPlus.ini.
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+    if (!g_lock_mouse) ClipCursor(nullptr);  // A profile that does not lock must release immediately.
+  });
   logger::logf("[mouse] settings loaded: enabled=%d sensX=%.2f sensY=%.2f smooth=%.2f (hook deferred until in-game)",
                (int)g_enabled, g_sens_x, g_sens_y, g_strength);
 

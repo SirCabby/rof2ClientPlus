@@ -17,6 +17,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 namespace {
 
@@ -132,6 +133,11 @@ void set_enabled(bool on) {
 
 FactionVision::FactionVision(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
 
   // Install AFTER ChatTimestamp (constructed earlier in RcpService) so we are the outermost hook on
   // dsp_chat and see the raw server text; our rewritten line then flows through the timestamp hook.

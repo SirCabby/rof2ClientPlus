@@ -15,6 +15,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 namespace {
 
@@ -259,6 +260,11 @@ void set_enabled(bool on) {
 
 CopyLayoutChat::CopyLayoutChat(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
 
   rcp->hooks->Add("copy_layout", static_cast<int>(kCopyLayout), copy_layout_hk, hook_type_detour);
   g_orig_copy = rcp->hooks->hook_map["copy_layout"]->original(copy_layout_hk);

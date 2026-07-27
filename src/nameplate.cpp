@@ -20,6 +20,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 // ---- Stock RoF2 addresses (eqlib-sourced, disasm-confirmed; see PORTING_NOTES) ----
 // PlayerClient::SetNameSpriteTint(), __thiscall(this == entity), no args, returns int.
@@ -948,6 +949,11 @@ static void set_option(bool &opt, const std::vector<std::string> &args) {
 
 NamePlate::NamePlate(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
 
   // Install the tint detour now. It bails immediately while every option is off, so it is
   // safe at load time and only does work once the user opts in.

@@ -7,14 +7,15 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 
 #include <string>
 #include <vector>
 
-#include "aa_exp.h"
 #include "chase_cam.h"
 #include "chat_timestamp.h"
 #include "commands.h"
+#include "crash_handler.h"  // rcp_guard, for the raw CEditWnd text read
 #include "equip_item.h"
 #include "floating_damage.h"
 #include "font_overlay.h"
@@ -27,6 +28,7 @@
 #include "nameplate.h"
 #include "no_fog.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 #include "sound_mods.h"
 #include "spell_icons.h"
 #include "spellbook_ui.h"
@@ -178,6 +180,44 @@ static bool combo_popup_open(void *combo) {
   return list && is_visible(list);
 }
 
+// ---- CEditWnd wrappers (drive the new-profile name box) ----
+// This build keeps a CEditWnd's live typed text in a CXStr at +0x1a8 (disasm of
+// CEditWnd::GetDisplayString@0x87B3E0), the same field the spell-book search box reads.
+// The CStrRep behind it may be 8-bit (encoding 0) or UTF-16 (encoding 1) - a typed box is
+// commonly UTF-16, so both are handled. Guarded: a layout surprise reads empty, never faults.
+static constexpr int kEditInputTextOffset = 0x1a8;
+static constexpr int kRepLength = 0x08, kRepEncoding = 0x0c, kRepData = 0x14;
+static std::string edit_get_text(void *edit) {
+  char buf[128];
+  int n = 0;
+  if (edit) {
+    rcp_guard::run("ui.edit", [&]() {
+      char *rep = *reinterpret_cast<char **>(reinterpret_cast<char *>(edit) + kEditInputTextOffset);
+      if (!rep || reinterpret_cast<uintptr_t>(rep) < 0x10000) return;
+      const uint32_t len = *reinterpret_cast<uint32_t *>(rep + kRepLength);
+      const uint32_t enc = *reinterpret_cast<uint32_t *>(rep + kRepEncoding);
+      if (len > sizeof(buf) - 1) return;
+      if (enc == 0) {
+        n = static_cast<int>(len);
+        std::memcpy(buf, rep + kRepData, len);
+      } else if (enc == 1) {  // UTF-16: narrow the low bytes (profile names are ASCII)
+        const uint16_t *w = reinterpret_cast<const uint16_t *>(rep + kRepData);
+        for (uint32_t i = 0; i < len; ++i) buf[i] = static_cast<char>(w[i] < 0x80 ? w[i] : '?');
+        n = static_cast<int>(len);
+      }
+    });
+  }
+  return std::string(buf, buf + n);
+}
+
+// Strips leading/trailing blanks from typed input.
+static std::string trim_text(const std::string &s) {
+  size_t b = s.find_first_not_of(" \t");
+  if (b == std::string::npos) return "";
+  size_t e = s.find_last_not_of(" \t");
+  return s.substr(b, e - b + 1);
+}
+
 // ---- CListWnd wrappers (drive the scrollable tracked-sound list). All gate on a non-null list. ----
 static int list_row_count(void *list) {
   return list ? *reinterpret_cast<int *>(reinterpret_cast<char *>(list) + kListItemsCountOffset) : 0;
@@ -268,17 +308,6 @@ static int ring_opacity_to_slider(float a) {
   return v < 0 ? 0 : (v > kRingOpacitySliderMax ? kRingOpacitySliderMax : v);
 }
 static float ring_slider_to_opacity(int v) { return v / static_cast<float>(kRingOpacitySliderMax); }
-
-// Automatic-AA sliders (General tab): the threshold slider is identity 0..100 (percent into the
-// current level). The "active %" slider has 11 stops (0..10) mapping to 0,10,..,100 - the native
-// AA granularity - so the thumb never drifts against aa_exp_settings' snap-to-10.
-static constexpr int kAaThreshSliderMax = 100;
-static constexpr int kAaActiveSliderMax = 10;
-static int aa_active_to_slider(int pct) {
-  int v = (pct + 5) / 10;
-  return v < 0 ? 0 : (v > kAaActiveSliderMax ? kAaActiveSliderMax : v);
-}
-static int aa_slider_to_active(int v) { return v * 10; }
 
 // View-distance sliders (Display tab), shared by terrain far clip + actor clip: 0..200 steps ->
 // 0..20000 world units (100 units/step). Raw 0 == the layer off (client default).
@@ -434,18 +463,16 @@ void RcpOptionsUI::create_window() {
   sl_snd_vol_ = get_child(wnd_, "Rcp_SndVol");
   lbl_snd_vol_ = get_child(wnd_, "Rcp_SndVolValue");
   btn_snd_reset_ = get_child(wnd_, "Rcp_SndReset");
+  lbl_profile_hdr_ = get_child(wnd_, "Rcp_ProfileLabel");
+  combo_profile_ = get_child(wnd_, "Rcp_Profile");
+  edit_profile_name_ = get_child(wnd_, "Rcp_ProfileName");
+  btn_profile_new_ = get_child(wnd_, "Rcp_ProfileNew");
+  btn_profile_del_ = get_child(wnd_, "Rcp_ProfileDelete");
+  lbl_profile_hint_ = get_child(wnd_, "Rcp_ProfileHint");
+  lbl_profile_status_ = get_child(wnd_, "Rcp_ProfileStatus");
   cb_windowtitle_ = get_child(wnd_, "Rcp_WindowTitle");
   cb_timestamp_ = get_child(wnd_, "Rcp_Timestamp");
   lbl_timestamp_hint_ = get_child(wnd_, "Rcp_TimestampHint");
-  lbl_aa_hdr_ = get_child(wnd_, "Rcp_AaExpHeader");
-  cb_aa_enabled_ = get_child(wnd_, "Rcp_AaExpEnabled");
-  lbl_aa_thresh_hdr_ = get_child(wnd_, "Rcp_AaExpThreshLabel");
-  sl_aa_thresh_ = get_child(wnd_, "Rcp_AaExpThresh");
-  lbl_aa_thresh_ = get_child(wnd_, "Rcp_AaExpThreshValue");
-  lbl_aa_active_hdr_ = get_child(wnd_, "Rcp_AaExpActiveLabel");
-  sl_aa_active_ = get_child(wnd_, "Rcp_AaExpActive");
-  lbl_aa_active_ = get_child(wnd_, "Rcp_AaExpActiveValue");
-  lbl_aa_status_ = get_child(wnd_, "Rcp_AaExpStatus");
   cb_fcd_enabled_ = get_child(wnd_, "Rcp_FcdEnabled");
   cb_fcd_mine_ = get_child(wnd_, "Rcp_FcdMine");
   cb_fcd_incoming_ = get_child(wnd_, "Rcp_FcdIncoming");
@@ -486,8 +513,6 @@ void RcpOptionsUI::create_window() {
   slider_set_range(sl_actor_, kViewDistSliderMax);  // 0..200 -> 0..20000 world units actor draw distance.
   slider_set_range(sl_snd_vol_, 300);               // 0..300 percent volume (0 = mute, 100 = unchanged, >100 boosts).
   slider_set_range(sl_fcd_big_, kFcdBigSliderMax);  // 0..100 -> 0..2000 big-hit threshold (Combat tab).
-  slider_set_range(sl_aa_thresh_, kAaThreshSliderMax);  // 0..100 percent into the current level (General tab).
-  slider_set_range(sl_aa_active_, kAaActiveSliderMax);  // 0..10 -> 0..100 AA% in native 10% steps.
 
   refresh_role_tints();
   set_text_color(btn_ring_color_, target_ring_settings::get_color());  // Ring color swatch (its own color store).
@@ -495,6 +520,8 @@ void RcpOptionsUI::create_window() {
   set_text_color(btn_fcd_col_incoming_, floating_damage_settings::get_color_incoming());
   set_text_color(btn_fcd_col_other_, floating_damage_settings::get_color_other());
   set_text_color(btn_fcd_col_crit_, floating_damage_settings::get_color_crit());
+  populate_profile_combo();     // Fill the settings-profile dropdown + select the active profile.
+  refresh_profile_status();
   populate_graphic_combo();     // Fill the ring-graphic dropdown from disk + select the current one.
   populate_sound_add_combo();   // Fill the "add sound" dropdown from recently-played untracked sounds.
   set_active_tab(active_tab_);  // Latch the strip + show only the active group.
@@ -509,9 +536,9 @@ void RcpOptionsUI::set_active_tab(int tab) {
     checkbox_set(btn_tab_[i], i == tab);
     last_tab_[i] = (i == tab);
   }
-  void *general[] = {cb_windowtitle_,    cb_timestamp_,      lbl_timestamp_hint_, lbl_aa_hdr_,
-                     cb_aa_enabled_,     lbl_aa_thresh_hdr_, sl_aa_thresh_,       lbl_aa_thresh_,
-                     lbl_aa_active_hdr_, sl_aa_active_,      lbl_aa_active_,      lbl_aa_status_};
+  void *general[] = {lbl_profile_hdr_, combo_profile_,    edit_profile_name_,  btn_profile_new_,
+                     btn_profile_del_, lbl_profile_hint_, lbl_profile_status_,
+                     cb_windowtitle_,  cb_timestamp_,     lbl_timestamp_hint_};
   for (void *w : general) show_window(w, tab == 0);
   void *mouse[] = {cb_enabled_, lbl_sensx_hdr_,  sl_sensx_,  lbl_sensx_,  lbl_sensy_hdr_, sl_sensy_,
                    lbl_sensy_,  lbl_smooth_hdr_, sl_smooth_, lbl_smooth_, cb_lockmouse_, cb_equip_, cb_scribe_};
@@ -589,6 +616,47 @@ void RcpOptionsUI::open_color_picker(int role) {
   reinterpret_cast<int(__thiscall *)(void *, void *, uint32_t)>(kColorPickerOpen)(
       picker, wnd_, 0xFF000000u | static_cast<uint32_t>(last_picker_rgb_));
   logger::logf("[ui] color picker opened for role %d", role);
+}
+
+// Rebuild the settings-profile dropdown from rcp_profiles and select the active profile.
+// profile_choices_ caches index -> name for the on_frame poll; last_profile_choice_ is
+// seeded from what the combo actually reports so the seed is never read as a user pick.
+void RcpOptionsUI::populate_profile_combo() {
+  if (!combo_profile_) return;
+  const std::vector<std::string> names = rcp_profiles::list();
+  // Rebuild the choice list ONLY when it actually changed (a plain profile switch does not
+  // change it). Deleting and re-inserting choices under an open dropdown is the one thing
+  // that could pull the rug out from under the user's click.
+  if (names != profile_choices_) {
+    profile_choices_ = names;
+    combo_delete_all(combo_profile_);
+    for (const std::string &name : profile_choices_) combo_insert_choice(combo_profile_, name.c_str());
+  }
+  const std::string active = rcp_profiles::active();
+  int sel = 0;
+  for (size_t i = 0; i < profile_choices_.size(); ++i)
+    if (profile_choices_[i] == active) {
+      sel = static_cast<int>(i);
+      break;
+    }
+  combo_set_choice(combo_profile_, sel);
+  last_profile_choice_ = combo_get_cur_choice(combo_profile_);
+}
+
+// The yellow line under the profile row: which profile is live, and (in game) that this
+// character now remembers it. Repaints only when the text actually changes.
+void RcpOptionsUI::refresh_profile_status() {
+  if (!lbl_profile_status_) return;
+  const std::string character = rcp_profiles::current_character();
+  char buf[192];
+  if (character.empty())
+    std::snprintf(buf, sizeof(buf), "Active profile: %s", rcp_profiles::active().c_str());
+  else
+    std::snprintf(buf, sizeof(buf), "Active profile: %s   (%s will load this profile from now on)",
+                  rcp_profiles::active().c_str(), character.c_str());
+  if (profile_status_text_ == buf) return;
+  profile_status_text_ = buf;
+  set_label_text(lbl_profile_status_, buf);
 }
 
 // Rebuild the ring-graphic dropdown from the .tga files on disk and select the current graphic.
@@ -831,9 +899,6 @@ void RcpOptionsUI::sync_controls() {
   slider_set(sl_ring_opacity_, ring_opacity_to_slider(target_ring_settings::get_opacity()));
   checkbox_set(cb_windowtitle_, window_watch::get_char_title());
   checkbox_set(cb_timestamp_, chat_timestamp_settings::get_enabled());
-  checkbox_set(cb_aa_enabled_, aa_exp_settings::get_enabled());
-  slider_set(sl_aa_thresh_, aa_exp_settings::get_threshold());
-  slider_set(sl_aa_active_, aa_active_to_slider(aa_exp_settings::get_active_pct()));
   checkbox_set(cb_fcd_enabled_, floating_damage_settings::get_enabled());
   checkbox_set(cb_fcd_mine_, floating_damage_settings::get_show_mine());
   checkbox_set(cb_fcd_incoming_, floating_damage_settings::get_show_incoming());
@@ -845,6 +910,8 @@ void RcpOptionsUI::sync_controls() {
   set_text_color(btn_fcd_col_incoming_, floating_damage_settings::get_color_incoming());
   set_text_color(btn_fcd_col_other_, floating_damage_settings::get_color_other());
   set_text_color(btn_fcd_col_crit_, floating_damage_settings::get_color_crit());
+  populate_profile_combo();    // Refresh the profile list + select the active profile.
+  refresh_profile_status();
   populate_graphic_combo();  // Refresh the dropdown choices + selection from disk/settings.
   populate_sound_add_combo();  // Refresh the "add sound" choices from the latest history.
   refresh_sound_list();        // Paint the tracked-sound rows + selection.
@@ -894,11 +961,11 @@ void RcpOptionsUI::seed_last_values() {
   last_snd_vol_ = slider_get(sl_snd_vol_);
   last_snd_reset_ = checkbox_get(btn_snd_reset_);
   last_snd_sel_row_ = list_get_cur_sel(list_snd_);
+  last_profile_choice_ = combo_get_cur_choice(combo_profile_);
+  last_profile_new_ = checkbox_get(btn_profile_new_);
+  last_profile_del_ = checkbox_get(btn_profile_del_);
   last_windowtitle_ = checkbox_get(cb_windowtitle_);
   last_timestamp_ = checkbox_get(cb_timestamp_);
-  last_aa_enabled_ = checkbox_get(cb_aa_enabled_);
-  last_aa_thresh_ = slider_get(sl_aa_thresh_);
-  last_aa_active_ = slider_get(sl_aa_active_);
   last_fcd_enabled_ = checkbox_get(cb_fcd_enabled_);
   last_fcd_mine_ = checkbox_get(cb_fcd_mine_);
   last_fcd_incoming_ = checkbox_get(cb_fcd_incoming_);
@@ -969,11 +1036,6 @@ void RcpOptionsUI::update_labels() {
   else
     std::snprintf(buf, sizeof(buf), "off");
   set_label_text(lbl_fcd_big_, buf);
-  // Auto-AA (General tab): threshold + active-% value labels (both plain percentages).
-  std::snprintf(buf, sizeof(buf), "%d%%", aa_exp_settings::get_threshold());
-  set_label_text(lbl_aa_thresh_, buf);
-  std::snprintf(buf, sizeof(buf), "%d%%", aa_exp_settings::get_active_pct());
-  set_label_text(lbl_aa_active_, buf);
 }
 
 void RcpOptionsUI::toggle_window() {
@@ -1015,9 +1077,9 @@ void RcpOptionsUI::drop_handles() {
   lbl_ring_graphic_hdr_ = combo_ring_graphic_ = cb_ring_spin_ = cb_ring_melee_ = nullptr;
   lbl_snd_add_ = combo_snd_add_ = lbl_snd_list_ = list_snd_ = nullptr;
   lbl_snd_vol_hdr_ = sl_snd_vol_ = lbl_snd_vol_ = btn_snd_reset_ = nullptr;
+  lbl_profile_hdr_ = combo_profile_ = edit_profile_name_ = btn_profile_new_ = btn_profile_del_ = nullptr;
+  lbl_profile_hint_ = lbl_profile_status_ = nullptr;
   cb_windowtitle_ = cb_timestamp_ = lbl_timestamp_hint_ = nullptr;
-  lbl_aa_hdr_ = cb_aa_enabled_ = lbl_aa_thresh_hdr_ = sl_aa_thresh_ = lbl_aa_thresh_ = nullptr;
-  lbl_aa_active_hdr_ = sl_aa_active_ = lbl_aa_active_ = lbl_aa_status_ = nullptr;
   cb_fcd_enabled_ = cb_fcd_mine_ = cb_fcd_incoming_ = cb_fcd_others_ = cb_fcd_melee_ = cb_fcd_spells_ = nullptr;
   sl_fcd_big_ = lbl_fcd_big_hdr_ = lbl_fcd_big_ = nullptr;
   btn_fcd_col_mine_ = btn_fcd_col_incoming_ = btn_fcd_col_other_ = btn_fcd_col_crit_ = nullptr;
@@ -1032,12 +1094,105 @@ void RcpOptionsUI::drop_handles() {
   npc_rows_.clear();
   npc_row_texts_.clear();
   graphic_choices_.clear();
+  profile_choices_.clear();
+  profile_status_text_.clear();
+  last_profile_choice_ = -1;
   last_ring_graphic_choice_ = -1;
   for (int i = 0; i < kTabCount; ++i) btn_tab_[i] = nullptr;
   for (int i = 0; i < kNpCount; ++i) cb_np_[i] = nullptr;
   for (int i = 0; i < kRoleCount; ++i) btn_role_[i] = nullptr;
   picker_role_ = -1;
   create_attempted_ = false;
+}
+
+// Settings-profile row of the General tab: the dropdown switches profiles, "Add" creates
+// one from the typed name (a copy of the active profile) and switches to it, "Delete"
+// removes the one selected in the dropdown. Returns true when the active profile changed
+// (or the list did), meaning every control has just been re-synced and the caller must
+// abandon the rest of this frame's poll.
+bool RcpOptionsUI::poll_profile_controls() {
+  // Dropdown: a new selection is a switch request.
+  const int sel = combo_get_cur_choice(combo_profile_);
+  if (sel != last_profile_choice_) {
+    last_profile_choice_ = sel;
+    if (sel >= 0 && sel < static_cast<int>(profile_choices_.size())) {
+      const std::string want = profile_choices_[sel];
+      if (want != rcp_profiles::active() && rcp_profiles::switch_to(want)) {
+        Rcp::Game::print_chat("rof2ClientPlus: settings profile '%s' active.", want.c_str());
+        return true;  // switch_to() already re-synced the window through on_profile_switched().
+      }
+    }
+  }
+
+  // "Add" (momentary): create a copy of the active profile under the typed name.
+  const bool add = checkbox_get(btn_profile_new_);
+  if (add != last_profile_new_) {
+    checkbox_set(btn_profile_new_, false);
+    last_profile_new_ = false;
+    if (add) {
+      const std::string name = trim_text(edit_get_text(edit_profile_name_));
+      if (name.empty()) {
+        Rcp::Game::print_chat("rof2ClientPlus: type a profile name in the box next to Add first.");
+      } else if (!rcp_profiles::valid_name(name)) {
+        Rcp::Game::print_chat("rof2ClientPlus: bad profile name (letters, digits, space, _ and -; max %d).",
+                              rcp_profiles::kMaxNameLength);
+      } else if (!rcp_profiles::create(name)) {
+        Rcp::Game::print_chat("rof2ClientPlus: could not create '%s' (already exists, or %d-profile limit).",
+                              name.c_str(), rcp_profiles::kMaxProfiles);
+      } else {
+        const std::string from = rcp_profiles::active();  // What it was copied from (switch_to moves us off it).
+        // Clear the box; the name now lives in the dropdown. CEditWnd overrides
+        // SetWindowText to replace its input text - guarded, since this is the one
+        // vtable call we make on an edit box.
+        rcp_guard::run("ui.editclear", [&] { set_label_text(edit_profile_name_, ""); });
+        rcp_profiles::switch_to(name);
+        populate_profile_combo();  // The list grew; re-select + re-baseline even if the switch was a no-op.
+        refresh_profile_status();
+        seed_last_values();
+        Rcp::Game::print_chat("rof2ClientPlus: settings profile '%s' created from '%s' and active.", name.c_str(),
+                              from.c_str());
+        return true;
+      }
+    }
+  }
+
+  // "Delete" (momentary): drop the profile the dropdown is showing.
+  const bool del = checkbox_get(btn_profile_del_);
+  if (del != last_profile_del_) {
+    checkbox_set(btn_profile_del_, false);
+    last_profile_del_ = false;
+    if (del) {
+      const int cur = last_profile_choice_;
+      const std::string name = (cur >= 0 && cur < static_cast<int>(profile_choices_.size()))
+                                   ? profile_choices_[cur]
+                                   : rcp_profiles::active();
+      if (!rcp_profiles::remove(name)) {
+        Rcp::Game::print_chat("rof2ClientPlus: the Default profile cannot be deleted.");
+      } else {
+        // remove() switches to Default when it deleted the active profile (which re-syncs
+        // through the reload handler); repaint the list either way.
+        populate_profile_combo();
+        refresh_profile_status();
+        seed_last_values();
+        Rcp::Game::print_chat("rof2ClientPlus: settings profile '%s' deleted; now on '%s'.", name.c_str(),
+                              rcp_profiles::active().c_str());
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Reload handler (rcp_profiles): the active profile changed under us - from this window,
+// /rcpprofile, or the automatic per-character switch at world entry - so every module has
+// just re-read its settings. Repaint the whole window from the new values and re-baseline
+// the poll, or the next frame would push the OLD control values back into the settings.
+void RcpOptionsUI::on_profile_switched() {
+  if (!wnd_) return;
+  sync_controls();
+  update_labels();
+  set_active_tab(active_tab_);
+  seed_last_values();
 }
 
 void RcpOptionsUI::on_frame() {
@@ -1064,6 +1219,12 @@ void RcpOptionsUI::on_frame() {
     }
     break;  // set_active_tab refreshed the whole strip; stop scanning stale state.
   }
+
+  // Settings profiles (General tab). This runs FIRST and returns on any change: a
+  // switch re-reads every module's settings and repaints every control (via our
+  // rcp_profiles reload handler), so the rest of the poll must not run this frame -
+  // its last_* baseline belongs to the profile we just left.
+  if (poll_profile_controls()) return;
 
   bool en = checkbox_get(cb_enabled_);
   bool lock = checkbox_get(cb_lockmouse_);
@@ -1252,39 +1413,6 @@ void RcpOptionsUI::on_frame() {
   if (ts != last_timestamp_) {
     chat_timestamp_settings::set_enabled(ts);
     last_timestamp_ = ts;
-  }
-
-  // General tab: automatic AA experience -> aa_exp_settings (enable + threshold + active-% sliders).
-  bool ae = checkbox_get(cb_aa_enabled_);
-  if (ae != last_aa_enabled_) {
-    aa_exp_settings::set_enabled(ae);
-    last_aa_enabled_ = ae;
-  }
-  int athr = slider_get(sl_aa_thresh_);
-  if (athr != last_aa_thresh_) {
-    aa_exp_settings::set_threshold(athr);
-    update_labels();
-    last_aa_thresh_ = athr;
-  }
-  int aact = slider_get(sl_aa_active_);
-  if (aact != last_aa_active_) {
-    aa_exp_settings::set_active_pct(aa_slider_to_active(aact));
-    update_labels();
-    last_aa_active_ = aact;
-  }
-  // Live status readout, refreshed while the General tab is actually on screen.
-  if (lbl_aa_status_ && active_tab_ == 0 && is_visible(wnd_)) {
-    const int lvl = aa_exp_settings::current_level_pct();
-    const int aa = aa_exp_settings::current_aa_pct();
-    const char *mode = !aa_exp_settings::get_enabled()
-                           ? "auto off"
-                           : (lvl >= aa_exp_settings::get_threshold() ? "AA on" : "leveling");
-    char sbuf[96];
-    if (lvl < 0)
-      std::snprintf(sbuf, sizeof(sbuf), "Now: (not in game)");
-    else
-      std::snprintf(sbuf, sizeof(sbuf), "Now: level XP %d%%, AA %d%% (%s)", lvl, aa < 0 ? 0 : aa, mode);
-    set_label_text(lbl_aa_status_, sbuf);
   }
 
   // Combat tab: floating combat damage toggles + filters (each its own independent setter).
@@ -1564,6 +1692,10 @@ RcpOptionsUI::RcpOptionsUI(RcpService *rcp) {
   // UI (re)load incl. /loadskin. NOTE: do NOT use rcp->callbacks: CallbackManager is not
   // instantiated in this build (rcp->callbacks is null; dereferencing it crashed char-select).
   rcp->hooks->Add("LoadSidl", ::Rcp::eqva(0x5992c0), LoadSidl_dropwnd_hk, hook_type_detour);
+  // Settings profiles: repaint every control when the active profile changes. This is the
+  // "reload finished" slot, not an ordinary reload handler, so it runs after EVERY module
+  // has re-read its settings no matter where this window sits in the construction order.
+  rcp_profiles::set_reload_finished_handler([this] { on_profile_switched(); });
   rcp->commands_hook->Add("/rcpoptions", {"/rcpo"}, "Opens or closes the rof2ClientPlus options window.",
                           [this](std::vector<std::string> &args) {
                             (void)args;

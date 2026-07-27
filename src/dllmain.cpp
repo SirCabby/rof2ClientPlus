@@ -13,7 +13,6 @@
 #include <windows.h>
 #include "rebase.h"
 
-#include "aa_exp.h"
 #include "chat_stml_select.h"
 #include "crash_handler.h"
 #include "directx.h"
@@ -25,6 +24,7 @@
 #include "npc_model_swap.h"
 #include "rcp.h"
 #include "rcp_options_ui.h"
+#include "rcp_profiles.h"
 #include "respawn_close.h"
 #include "spellbook_ui.h"
 #include "window_watch.h"
@@ -83,9 +83,9 @@ static int __cdecl ProcessGameEvents_hk() {
     // Window diagnostics + opt-in self-heal run every frame regardless of service
     // state (they only need the main window, which exists by the time we get here).
     window_watch::on_frame();
-    // Auto-AA-experience enforcement (self-gating: no-op unless enabled + in-game;
-    // its own throttle + rcp_guard). Namespace fn like window_watch, driven here.
-    aa_exp::on_frame();
+    // Settings profiles: applies the logged-in character's remembered profile on world
+    // entry / character switch (no-op on every other frame).
+    rcp_profiles::on_frame();
     mouse_settings::apply_cursor_lock();
     return g_boot->hook_map["ProcessGameEvents"]->original(ProcessGameEvents_hk)();
 }
@@ -109,6 +109,10 @@ static void on_attach() {
     // sibling snapshot). Both are independent of the RcpService, which isn't built
     // until the first ProcessGameEvents call.
     crash_handler::install();
+    // The active settings profile must be current before ANYTHING reads the mod ini -
+    // and the three install_early paths below do exactly that, well before RcpService
+    // exists. Pure ini work, so it is safe this early (RcpService's later call no-ops).
+    rcp_profiles::init();
     window_watch::install_early();
 
     g_boot = new HookWrapper();

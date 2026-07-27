@@ -21,6 +21,7 @@
 #include "logger.h"
 #include "nameplate.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 namespace {
 
@@ -169,6 +170,20 @@ void save_settings() {
   ini.setValue<bool>(kIniSection, "HpBar", g_show_hp);
   ini.setValue<bool>(kIniSection, "ManaBar", g_show_mana);
   ini.setValue<bool>(kIniSection, "StamBar", g_show_stam);
+}
+
+// Restores the billboard-nameplate settings from the ini and applies the native-
+// nameplate suppression that matches. Run at construction and on a profile switch.
+void load_settings() {
+  IO_ini ini(IO_ini::kRcpIniFilename);
+  if (ini.exists(kIniSection, "Billboard")) g_np_enabled = ini.getValue<bool>(kIniSection, "Billboard");
+  if (ini.exists(kIniSection, "Offset")) g_np_offset_lines = ini.getValue<float>(kIniSection, "Offset");
+  if (ini.exists(kIniSection, "Scale")) g_np_scale = ini.getValue<float>(kIniSection, "Scale");
+  if (ini.exists(kIniSection, "MaxDist")) g_np_max_dist = ini.getValue<float>(kIniSection, "MaxDist");
+  if (ini.exists(kIniSection, "HpBar")) g_show_hp = ini.getValue<bool>(kIniSection, "HpBar");
+  if (ini.exists(kIniSection, "ManaBar")) g_show_mana = ini.getValue<bool>(kIniSection, "ManaBar");
+  if (ini.exists(kIniSection, "StamBar")) g_show_stam = ini.getValue<bool>(kIniSection, "StamBar");
+  nameplate::set_suppress_native(g_np_enabled);
 }
 
 // Applies the on/off state to native-nameplate suppression and persists the settings.
@@ -540,15 +555,10 @@ void font_overlay::add_scene_draw(std::function<void(IDirect3DDevice9 *)> cb) {
 
 FontOverlay::FontOverlay(RcpService *rcp) {
   // Restore persisted settings, then apply the native-suppression state to match.
-  IO_ini ini(IO_ini::kRcpIniFilename);
-  if (ini.exists(kIniSection, "Billboard")) g_np_enabled = ini.getValue<bool>(kIniSection, "Billboard");
-  if (ini.exists(kIniSection, "Offset")) g_np_offset_lines = ini.getValue<float>(kIniSection, "Offset");
-  if (ini.exists(kIniSection, "Scale")) g_np_scale = ini.getValue<float>(kIniSection, "Scale");
-  if (ini.exists(kIniSection, "MaxDist")) g_np_max_dist = ini.getValue<float>(kIniSection, "MaxDist");
-  if (ini.exists(kIniSection, "HpBar")) g_show_hp = ini.getValue<bool>(kIniSection, "HpBar");
-  if (ini.exists(kIniSection, "ManaBar")) g_show_mana = ini.getValue<bool>(kIniSection, "ManaBar");
-  if (ini.exists(kIniSection, "StamBar")) g_show_stam = ini.getValue<bool>(kIniSection, "StamBar");
-  nameplate::set_suppress_native(g_np_enabled);
+  load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] { load_settings(); });
 
   directx::add_render_callback(on_render);
   directx::add_render_callback(on_render_3d);

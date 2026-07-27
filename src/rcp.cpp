@@ -3,7 +3,6 @@
 
 #include <windows.h>
 
-#include "aa_exp.h"
 #include "model_swap.h"
 #include "npc_model_swap.h"
 #include "binds.h"
@@ -31,6 +30,7 @@
 #include "nameplate.h"
 #include "no_fog.h"
 #include "rcp_options_ui.h"
+#include "rcp_profiles.h"
 #include "respawn_close.h"
 #include "sound_mods.h"
 #include "spell_icons.h"
@@ -56,6 +56,11 @@ RcpService::RcpService() {
   // identifies exactly which constructor faulted if one does.
   logger::log("  -> IO_ini");
   ini = std::make_unique<IO_ini>(IO_ini::kRcpIniFilename);
+  // Settings profiles must be current BEFORE any module reads the ini: every feature
+  // below loads its settings through the active profile's section mapping. Normally
+  // already done at DllMain attach (dllmain.cpp) - this is the belt-and-braces call.
+  logger::log("  -> Profiles");
+  rcp_profiles::init();
   logger::log("  -> HookWrapper");
   hooks = std::make_unique<HookWrapper>();
   logger::log("  -> ChatCommands");
@@ -102,8 +107,6 @@ RcpService::RcpService() {
   hide_corpse = std::make_unique<HideCorpse>(this);  // /hidecorpses always + showlast: continuous NPC-corpse hiding (render-callback re-assert).
   logger::log("  -> RespawnClose");
   respawn_close = std::make_unique<RespawnClose>(this);  // Auto-closes the lingering death/respawn window once the player is alive again (on_frame-driven).
-  logger::log("  -> AaExp");
-  aa_exp = std::make_unique<AaExp>(this);  // /rcpaaexp: auto-gate AA experience % by current-level XP (writes PercentEXPtoAA + server sync).
   logger::log("  -> ModelSwap");
   model_swap = std::make_unique<ModelSwap>(this);  // Phase-0 probe for the live classic/new model toggle (/rcpmodellog).
   logger::log("  -> NpcModelSwap");
@@ -112,6 +115,8 @@ RcpService::RcpService() {
   spell_icons = std::make_unique<SpellIcons>(this);  // /rcpspellicons: live classic/revamped spell-icon texture swap.
   logger::log("  -> SpellBookUI");
   spellbook_ui = std::make_unique<SpellBookUI>(this);  // /rcpbook: Zeal-style spell book window (uses spell_icons_api).
+  logger::log("  -> RcpProfiles");
+  profiles = std::make_unique<RcpProfiles>(this);  // /rcpprofile: registered last, once every module's reload handler exists.
   logger::log("  -> modules done (foundation subset)");
 
   logger::log("RcpService: modules constructed");

@@ -20,6 +20,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 namespace {
 
@@ -388,6 +389,12 @@ void reattach_held(void *spawn) {
 
 ModelSwap::ModelSwap(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();  // rebuilds the redirect table
+    refresh_world();  // re-skin what is already visible
+  });
   if (!g_early_installed) {  // normally armed at DllMain (install_early) so char select is covered
     rcp->hooks->Add("rcp_model_held", static_cast<int>(kSetHeldModel), SetHeld_hk, hook_type_detour);
     g_orig_held = rcp->hooks->hook_map["rcp_model_held"]->original(SetHeld_hk);

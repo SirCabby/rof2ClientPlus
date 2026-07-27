@@ -35,6 +35,11 @@ class RcpOptionsUI {
   // while the window is visible (cheap early-out otherwise).
   void on_frame();
 
+  // Re-reads EVERY control from the settings. Wired to rcp_profiles as a reload
+  // handler, so switching the settings profile (from this window, /rcpprofile, or the
+  // automatic per-character switch at world entry) repaints the window immediately.
+  void on_profile_switched();
+
  public:
   // Release all cached window/control handles (window rebuilds on next /rcpoptions).
   // Public because it is wired to the client's game-UI teardown/init callbacks so an
@@ -50,6 +55,9 @@ class RcpOptionsUI {
   void set_active_tab(int tab);  // Latch the tab strip + show/hide the tab groups.
   void refresh_role_tints();     // Paint each color-role button with its current color.
   void open_color_picker(int role);  // Open the stock picker seeded with a role's color.
+  bool poll_profile_controls();      // Profile dropdown + Add/Delete; true == the whole window was re-synced.
+  void populate_profile_combo();     // Fill the settings-profile combobox + select the active one.
+  void refresh_profile_status();     // "Active profile: X (remembered for <character>)".
   void populate_graphic_combo();     // Fill the ring-graphic combobox from disk + select the current one.
   void populate_sound_add_combo();   // Fill the "add sound" combobox from recently-played untracked sounds.
   void refresh_sound_list();         // Repaint the tracked-sound rows + selection highlight + volume slider.
@@ -133,20 +141,19 @@ class RcpOptionsUI {
   void *sl_snd_vol_ = nullptr;      // Volume of the selected tracked sound (0..100; 0 = mute).
   void *lbl_snd_vol_ = nullptr;
   void *btn_snd_reset_ = nullptr;   // "Remove selected from list" (untrack the selected sound).
+  // General tab, settings profiles (rcp_profiles): pick a profile, or name and Add a
+  // new one (a copy of the active one). Switching reloads every module's settings.
+  void *lbl_profile_hdr_ = nullptr;
+  void *combo_profile_ = nullptr;      // Native Combobox: choices == the profile list.
+  void *edit_profile_name_ = nullptr;  // Native Editbox: the name "Add" uses.
+  void *btn_profile_new_ = nullptr;    // Momentary: create + switch to the typed name.
+  void *btn_profile_del_ = nullptr;    // Momentary: delete the selected profile.
+  void *lbl_profile_hint_ = nullptr;
+  void *lbl_profile_status_ = nullptr;  // Live "Active profile: X (remembered for <char>)".
   // General tab (window title + Zeal-style chat timestamps).
   void *cb_windowtitle_ = nullptr;  // "Show character name in window title" (window_watch::set_char_title).
   void *cb_timestamp_ = nullptr;    // "Show chat timestamps" (chat_timestamp_settings).
   void *lbl_timestamp_hint_ = nullptr;  // Static hint pointing at /timestamp format.
-  // Automatic AA experience (aa_exp_settings): enable + threshold slider + active-% slider + live status.
-  void *lbl_aa_hdr_ = nullptr;          // "Automatic AA experience" section header.
-  void *cb_aa_enabled_ = nullptr;
-  void *lbl_aa_thresh_hdr_ = nullptr;
-  void *sl_aa_thresh_ = nullptr;        // 0..100: percent into the current level to switch AA on.
-  void *lbl_aa_thresh_ = nullptr;
-  void *lbl_aa_active_hdr_ = nullptr;
-  void *sl_aa_active_ = nullptr;        // 0..10 -> 0..100 AA% in native 10% steps.
-  void *lbl_aa_active_ = nullptr;
-  void *lbl_aa_status_ = nullptr;       // Live "level XP nn% / AA nn%" readout.
   // Combat tab (floating combat damage; floating_damage_settings).
   void *cb_fcd_enabled_ = nullptr;
   void *cb_fcd_mine_ = nullptr;
@@ -225,11 +232,13 @@ class RcpOptionsUI {
   int last_snd_vol_ = -1;
   bool last_snd_reset_ = false;
   // General tab state.
+  std::vector<std::string> profile_choices_;  // combo index -> profile name (mirrors the combo order).
+  int last_profile_choice_ = -1;
+  bool last_profile_new_ = false;   // momentary "Add" latch
+  bool last_profile_del_ = false;   // momentary "Delete" latch
+  std::string profile_status_text_;  // last text pushed into lbl_profile_status_ (repaint only on change).
   bool last_windowtitle_ = false;
   bool last_timestamp_ = false;
-  bool last_aa_enabled_ = false;
-  int last_aa_thresh_ = -1;
-  int last_aa_active_ = -1;
   // Combat tab state.
   bool last_fcd_enabled_ = false;
   bool last_fcd_mine_ = false;

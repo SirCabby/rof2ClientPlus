@@ -2288,12 +2288,171 @@
     </ButtonDrawTemplate>
   </Button>
 
+  <Label item="Rcp_ProfileLabel">
+    <ScreenID>Rcp_ProfileLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>38</Y>
+    </Location>
+    <Size>
+      <CX>88</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>Settings profile</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Combobox item="Rcp_Profile">
+    <ScreenID>Rcp_Profile</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <Location>
+      <X>104</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>150</CX>
+      <CY>20</CY>
+    </Size>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ListHeight>120</ListHeight>
+    <Button>BDT_Combo</Button>
+    <Choices>None</Choices>
+    <Style_Border>true</Style_Border>
+  </Combobox>
+
+  <Editbox item="Rcp_ProfileName">
+    <ScreenID>Rcp_ProfileName</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>264</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>130</CX>
+      <CY>20</CY>
+    </Size>
+    <DrawTemplate>WDT_Inner</DrawTemplate>
+    <Style_Border>true</Style_Border>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+  </Editbox>
+
+  <Button item="Rcp_ProfileNew">
+    <ScreenID>Rcp_ProfileNew</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>402</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>66</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Create a new profile with the name typed to the left, copying the settings you are running now, and switch to it</TooltipReference>
+    <Text>Add</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Button item="Rcp_ProfileDelete">
+    <ScreenID>Rcp_ProfileDelete</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>474</X>
+      <Y>34</Y>
+    </Location>
+    <Size>
+      <CX>66</CX>
+      <CY>20</CY>
+    </Size>
+    <Style_Checkbox>true</Style_Checkbox>
+    <TooltipReference>Delete the profile selected in the dropdown (the Default profile cannot be deleted)</TooltipReference>
+    <Text>Delete</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <ButtonDrawTemplate>
+      <Normal>A_BtnNormal</Normal>
+      <Pressed>A_BtnPressed</Pressed>
+      <Flyby>A_BtnFlyby</Flyby>
+      <Disabled>A_BtnDisabled</Disabled>
+      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
+    </ButtonDrawTemplate>
+  </Button>
+
+  <Label item="Rcp_ProfileHint">
+    <ScreenID>Rcp_ProfileHint</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>58</Y>
+    </Location>
+    <Size>
+      <CX>570</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>A new profile starts as a copy of the current one. Type a name, then Add.</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Label item="Rcp_ProfileStatus">
+    <ScreenID>Rcp_ProfileStatus</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>76</Y>
+    </Location>
+    <Size>
+      <CX>570</CX>
+      <CY>14</CY>
+    </Size>
+    <Text></Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
   <Button item="Rcp_WindowTitle">
     <ScreenID>Rcp_WindowTitle</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>34</Y>
+      <Y>100</Y>
     </Location>
     <Size>
       <CX>340</CX>
@@ -2321,7 +2480,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>60</Y>
+      <Y>126</Y>
     </Location>
     <Size>
       <CX>320</CX>
@@ -2349,7 +2508,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>86</Y>
+      <Y>152</Y>
     </Location>
     <Size>
       <CX>400</CX>
@@ -2360,182 +2519,6 @@
       <R>255</R>
       <G>255</G>
       <B>255</B>
-    </TextColor>
-    <NoWrap>true</NoWrap>
-  </Label>
-
-  <Label item="Rcp_AaExpHeader">
-    <ScreenID>Rcp_AaExpHeader</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>110</Y>
-    </Location>
-    <Size>
-      <CX>300</CX>
-      <CY>14</CY>
-    </Size>
-    <Text>Automatic AA experience</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>0</B>
-    </TextColor>
-    <NoWrap>true</NoWrap>
-  </Label>
-
-  <Button item="Rcp_AaExpEnabled">
-    <ScreenID>Rcp_AaExpEnabled</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>128</Y>
-    </Location>
-    <Size>
-      <CX>360</CX>
-      <CY>20</CY>
-    </Size>
-    <Style_Checkbox>true</Style_Checkbox>
-    <TooltipReference>Automatically switch AA experience on or off based on how far into the current level you are. Same as /rcpaaexp on|off.</TooltipReference>
-    <Text>Auto-manage AA experience</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>255</B>
-    </TextColor>
-    <ButtonDrawTemplate>
-      <Normal>A_BtnNormal</Normal>
-      <Pressed>A_BtnPressed</Pressed>
-      <Flyby>A_BtnFlyby</Flyby>
-      <Disabled>A_BtnDisabled</Disabled>
-      <PressedFlyby>A_BtnPressedFlyby</PressedFlyby>
-    </ButtonDrawTemplate>
-  </Button>
-
-  <Label item="Rcp_AaExpThreshLabel">
-    <ScreenID>Rcp_AaExpThreshLabel</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>154</Y>
-    </Location>
-    <Size>
-      <CX>200</CX>
-      <CY>14</CY>
-    </Size>
-    <Text>Turn AA on above level XP</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>255</B>
-    </TextColor>
-    <NoWrap>true</NoWrap>
-  </Label>
-
-  <Label item="Rcp_AaExpThreshValue">
-    <ScreenID>Rcp_AaExpThreshValue</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>208</X>
-      <Y>170</Y>
-    </Location>
-    <Size>
-      <CX>58</CX>
-      <CY>16</CY>
-    </Size>
-    <Text>50%</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>0</B>
-    </TextColor>
-    <NoWrap>true</NoWrap>
-  </Label>
-
-  <Slider item="Rcp_AaExpThresh">
-    <ScreenID>Rcp_AaExpThresh</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>170</Y>
-    </Location>
-    <Size>
-      <CX>190</CX>
-      <CY>16</CY>
-    </Size>
-    <SliderArt>SDT_DefSlider</SliderArt>
-  </Slider>
-
-  <Label item="Rcp_AaExpActiveLabel">
-    <ScreenID>Rcp_AaExpActiveLabel</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>194</Y>
-    </Location>
-    <Size>
-      <CX>200</CX>
-      <CY>14</CY>
-    </Size>
-    <Text>AA % when active</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>255</B>
-    </TextColor>
-    <NoWrap>true</NoWrap>
-  </Label>
-
-  <Label item="Rcp_AaExpActiveValue">
-    <ScreenID>Rcp_AaExpActiveValue</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>208</X>
-      <Y>210</Y>
-    </Location>
-    <Size>
-      <CX>58</CX>
-      <CY>16</CY>
-    </Size>
-    <Text>100%</Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>0</B>
-    </TextColor>
-    <NoWrap>true</NoWrap>
-  </Label>
-
-  <Slider item="Rcp_AaExpActive">
-    <ScreenID>Rcp_AaExpActive</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>210</Y>
-    </Location>
-    <Size>
-      <CX>190</CX>
-      <CY>16</CY>
-    </Size>
-    <SliderArt>SDT_DefSlider</SliderArt>
-  </Slider>
-
-  <Label item="Rcp_AaExpStatus">
-    <ScreenID>Rcp_AaExpStatus</ScreenID>
-    <RelativePosition>true</RelativePosition>
-    <Location>
-      <X>12</X>
-      <Y>236</Y>
-    </Location>
-    <Size>
-      <CX>400</CX>
-      <CY>14</CY>
-    </Size>
-    <Text></Text>
-    <TextColor>
-      <R>255</R>
-      <G>255</G>
-      <B>0</B>
     </TextColor>
     <NoWrap>true</NoWrap>
   </Label>
@@ -3228,18 +3211,16 @@
     <Pieces>Rcp_SndVol</Pieces>
     <Pieces>Rcp_SndVolValue</Pieces>
     <Pieces>Rcp_SndReset</Pieces>
+    <Pieces>Rcp_ProfileLabel</Pieces>
+    <Pieces>Rcp_Profile</Pieces>
+    <Pieces>Rcp_ProfileName</Pieces>
+    <Pieces>Rcp_ProfileNew</Pieces>
+    <Pieces>Rcp_ProfileDelete</Pieces>
+    <Pieces>Rcp_ProfileHint</Pieces>
+    <Pieces>Rcp_ProfileStatus</Pieces>
     <Pieces>Rcp_WindowTitle</Pieces>
     <Pieces>Rcp_Timestamp</Pieces>
     <Pieces>Rcp_TimestampHint</Pieces>
-    <Pieces>Rcp_AaExpHeader</Pieces>
-    <Pieces>Rcp_AaExpEnabled</Pieces>
-    <Pieces>Rcp_AaExpThreshLabel</Pieces>
-    <Pieces>Rcp_AaExpThreshValue</Pieces>
-    <Pieces>Rcp_AaExpThresh</Pieces>
-    <Pieces>Rcp_AaExpActiveLabel</Pieces>
-    <Pieces>Rcp_AaExpActiveValue</Pieces>
-    <Pieces>Rcp_AaExpActive</Pieces>
-    <Pieces>Rcp_AaExpStatus</Pieces>
     <Pieces>Rcp_FcdEnabled</Pieces>
     <Pieces>Rcp_FcdMine</Pieces>
     <Pieces>Rcp_FcdMelee</Pieces>

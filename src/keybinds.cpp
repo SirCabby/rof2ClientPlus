@@ -28,6 +28,7 @@
 #include "logger.h"
 #include "nameplate.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 // ---------------------------------------------------------------------------
 // Stock RoF2 addresses (eqlib offsets/eqgame.h + disasm, May 10 2013 build).
@@ -484,6 +485,11 @@ static void print_bind_list() {
 // ---------------------------------------------------------------------------
 KeyBinds::KeyBinds(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  // (No keymap reload here: [Binds] PerCharacter is not a profiled setting, so a switch
+  // cannot change it - and forcing the overlay to re-apply would spam a chat line.)
+  rcp_profiles::add_reload_handler([] { load_settings(); });
 
   // Repoint the dead commands' names so the client's own ini save/load and
   // options-window key capture operate on our binds. Plain .data writes.

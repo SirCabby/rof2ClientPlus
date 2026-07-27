@@ -1,4 +1,5 @@
 // rof2ClientPlus - solid-color target ring. See target_ring.h.
+#include "rcp_profiles.h"
 #include "target_ring.h"
 #include "rebase.h"
 
@@ -500,6 +501,11 @@ std::vector<std::string> get_available_graphics() {
 
 TargetRing::TargetRing(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
   logger::logf("[ring] settings loaded: enabled=%d outer=%.1f inner=%.1f opacity=%.2f color=%06X hide_self=%d",
                (int)g_enabled, g_outer, g_inner, g_opacity, g_color & 0xffffff, (int)g_hide_self);
 

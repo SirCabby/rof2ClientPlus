@@ -18,6 +18,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 namespace {
 
@@ -801,6 +802,13 @@ static void print_status() {
 }
 
 WindowWatch::WindowWatch(RcpService *rcp) : rcp_(rcp) {
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h). Clearing the posted title makes the next
+  // on_frame re-assert (or drop) the character-name title for the new profile.
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+    g_posted_title.clear();
+  });
   // Settings + diagnostics were already installed from on_attach (install_early); here
   // we only add the command surface.
   rcp->commands_hook->Add(

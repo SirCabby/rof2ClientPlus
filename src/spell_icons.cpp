@@ -30,6 +30,7 @@
 // (BeginScene) callback - before the frame's UI raster, so a toggle shows the
 // same frame - and every callback is wrapped in directx's rcp_guard, so a
 // mid-/loadskin race degrades to one skipped frame, re-validated the next.
+#include "rcp_profiles.h"
 #include "spell_icons.h"
 #include "rebase.h"
 
@@ -462,6 +463,11 @@ char *find_animation(const char *name) { return ::find_animation(name); }
 
 SpellIcons::SpellIcons(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
   logger::logf("[icons] settings loaded: classic=%d (swap applies at the prerender seam)", (int)g_classic);
 
   // The swap/validate worker runs before each frame's UI raster (BeginScene).

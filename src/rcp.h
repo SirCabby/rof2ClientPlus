@@ -64,12 +64,12 @@ class RcpService {
   std::unique_ptr<class FloatingDamage> floating_damage; // The /rcpfcd floating combat damage (Zeal floating_damage port).
   std::unique_ptr<class HideCorpse> hide_corpse;      // Extra /hidecorpses options: always + showlast continuous NPC-corpse hiding.
   std::unique_ptr<class RespawnClose> respawn_close;  // Auto-closes the lingering death/respawn window once the player is alive again.
-  std::unique_ptr<class AaExp> aa_exp;                // The /rcpaaexp automatic AA-experience gating (by current-level XP%).
   std::unique_ptr<class ModelSwap> model_swap;        // Live classic/new model-version toggle (Items/NPCs); Phase-0 probe.
   std::unique_ptr<class NpcModelSwap> npc_model_swap;  // NPC/creature body-model swap (Phase 2); /rcpbody probe + redirect.
   std::unique_ptr<class SpellIcons> spell_icons;  // The /rcpspellicons live classic/revamped spell-icon swap.
   std::unique_ptr<class SpellBookUI> spellbook_ui; // The /rcpbook Zeal-style spell book window (stock-book replacement).
   std::unique_ptr<class CameraMods> camera_mods;  // Zeal chase camera (TAKP addresses; not yet ported).
+  std::unique_ptr<class RcpProfiles> profiles;    // The /rcpprofile named settings profiles (rcp_profiles::init runs first).
 
  private:
   static RcpService *ptr_service;

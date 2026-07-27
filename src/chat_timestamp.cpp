@@ -16,6 +16,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 
 namespace {
 
@@ -105,6 +106,11 @@ void set_format(const std::string &fmt) {
 
 ChatTimestamp::ChatTimestamp(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+  });
 
   rcp->hooks->Add("chat_timestamp", static_cast<int>(kDspChat), dsp_chat_hk, hook_type_detour);
   g_orig = rcp->hooks->hook_map["chat_timestamp"]->original(dsp_chat_hk);

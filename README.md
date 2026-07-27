@@ -47,6 +47,23 @@ A client-side mod for the EverQuest **Rain of Fear 2** client, in the spirit of
   every chat window from the merged spec (windows the target character never
   had are created natively). Copying your own layout is left stock. On by
   default; `/rcpcopylayout on|off`.
+- **`/rcpprofile`** — named **settings profiles**: one complete set of the mod's
+  settings per name, so a main can run everything (billboard nameplates, classic
+  models, long view distance) while alts run a trimmed, cheaper set. Switch from
+  the **Settings profile** dropdown at the top of the `/rcpoptions` **General**
+  tab — every module re-reads its settings and the whole window repaints live —
+  or with `/rcpprofile <name>`. **Every character remembers the profile it last
+  used** and loads it automatically at world entry (a character seen for the
+  first time simply adopts the active profile). `Add` in the options window (or
+  `/rcpprofile new <name>`) creates a profile as a **copy of the one running
+  now**; `/rcpprofile delete|rename` manage the rest. Storage lives in
+  `rof2ClientPlus.ini`: the **Default** profile is the plain sections the mod has
+  always written, and every other profile prefixes them (`[Alt.Models]`), so an
+  existing ini needs no migration. **What a profile covers** is an allowlist in
+  `src/rcp_profiles.cpp` — currently nameplate draw distance, remove distance fog,
+  terrain and actor view distance, floating-combat-damage on/off, and the model
+  settings (items, creatures, PC races). Every other mod setting is global,
+  shared by all profiles.
 - `/rcp` lists all commands. `/uierrors on|off` toggles UI skin error reporting.
 
 > **Attribution:** large portions of this project are adapted from Zeal

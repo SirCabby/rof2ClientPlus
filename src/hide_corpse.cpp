@@ -19,6 +19,7 @@
 #include "io_ini.h"
 #include "logger.h"
 #include "rcp.h"
+#include "rcp_profiles.h"
 #include "string_util.h"  // Rcp::String::compare_insensitive
 
 namespace {
@@ -510,6 +511,12 @@ void set_looted(bool on) {
 
 HideCorpse::HideCorpse(RcpService *rcp) : rcp_(rcp) {
   load_settings();
+  // Settings profiles: re-read + re-apply this module's settings when the active
+  // profile changes (rcp_profiles.h).
+  rcp_profiles::add_reload_handler([] {
+    load_settings();
+    if (!g_always) reveal_all_hidden();  // A profile that does not hide must un-hide.
+  });
   directx::add_render_callback(on_render);
   // Detour CLootWnd::Deactivate for 'looted' mode (acts only when g_looted is on).
   rcp->hooks->Add("hidecorpse_loot", static_cast<int>(kLootDeactivate), loot_deactivate_hk, hook_type_detour);

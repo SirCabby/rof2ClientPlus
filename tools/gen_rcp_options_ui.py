@@ -127,6 +127,19 @@ def slider(name, x, y, cx, cy):
     return out
 
 
+def editbox(name, x, y, cx, cy):
+    # A native RoF2 Editbox (WDT_Inner / bordered, same schema as stock edit fields such as
+    # OMP_PathToAddressbookField and the spell-book search box). The C++ reads its live
+    # InputText when a button is clicked; typing routes natively once the box has focus.
+    out = [f'  <Editbox item="{name}">', f"    <ScreenID>{name}</ScreenID>",
+           "    <RelativePosition>true</RelativePosition>"]
+    out += loc_size(x, y, cx, cy)
+    out += ["    <DrawTemplate>WDT_Inner</DrawTemplate>", "    <Style_Border>true</Style_Border>"]
+    out += color("TextColor", WHITE)
+    out += ["  </Editbox>"]
+    return out
+
+
 def combobox(name, x, y, cx, cy, list_height=110):
     # A native RoF2 Combobox (WDT_Inner / BDT_Combo, matching stock combos like BUGW_BugTypes). The
     # C++ repopulates its <Choices> at runtime (CComboWnd::DeleteAll + InsertChoice) and polls
@@ -343,8 +356,27 @@ def build_controls():
     c.append(("Rcp_SndReset", button, ("Rcp_SndReset", COL_X, y, 220, 20, "Remove selected from list",
                                        "Stop tracking the selected sound; it plays normally again")))
 
-    # ---- Tab 0: General (window title + chat timestamps) ----
+    # ---- Tab 0: General (settings profile + window title + chat timestamps) ----
+    # Settings profiles (see src/rcp_profiles.h): the combobox switches the whole mod
+    # settings set live; the edit box names a new profile for "Add" (a copy of the one
+    # running now). Every character remembers the profile it last used, so switching
+    # here also re-points the logged-in character's memory.
     y = CONTENT_Y
+    c.append(("Rcp_ProfileLabel", label, ("Rcp_ProfileLabel", COL_X, y + 4, 88, 16, "Settings profile", YELLOW)))
+    c.append(("Rcp_Profile", combobox, ("Rcp_Profile", COL_X + 92, y, 150, 20, 120)))
+    c.append(("Rcp_ProfileName", editbox, ("Rcp_ProfileName", COL_X + 252, y, 130, 20)))
+    c.append(("Rcp_ProfileNew", button, ("Rcp_ProfileNew", COL_X + 390, y, 66, 20, "Add",
+                                         "Create a new profile with the name typed to the left, copying the "
+                                         "settings you are running now, and switch to it")))
+    c.append(("Rcp_ProfileDelete", button, ("Rcp_ProfileDelete", COL_X + 462, y, 66, 20, "Delete",
+                                            "Delete the profile selected in the dropdown (the Default profile "
+                                            "cannot be deleted)")))
+    y += 24
+    c.append(("Rcp_ProfileHint", label, ("Rcp_ProfileHint", COL_X, y, 570, 14,
+                                         "A new profile starts as a copy of the current one. Type a name, then Add.")))
+    y += 18
+    c.append(("Rcp_ProfileStatus", label, ("Rcp_ProfileStatus", COL_X, y, 570, 14, "", YELLOW)))
+    y += 24
     c.append(("Rcp_WindowTitle", button, ("Rcp_WindowTitle", COL_X, y, 340, 20, "Show character name in window title",
                                           "Put your logged-in character's name in the game window's title bar, "
                                           "restored when you camp. Same as /rcpwindow title.")))
@@ -355,23 +387,6 @@ def build_controls():
     y += 26
     c.append(("Rcp_TimestampHint", label, ("Rcp_TimestampHint", COL_X, y, 400, 14,
                                            "Format is set with  /timestamp format <strftime>")))
-    # Automatic AA experience (/rcpaaexp): gate AA XP by how far into the current level you are.
-    y += 24
-    c.append(("Rcp_AaExpHeader", label, ("Rcp_AaExpHeader", COL_X, y, 300, 14, "Automatic AA experience", YELLOW)))
-    y += 18
-    c.append(("Rcp_AaExpEnabled", button, ("Rcp_AaExpEnabled", COL_X, y, 360, 20, "Auto-manage AA experience",
-                                           "Automatically switch AA experience on or off based on how far into "
-                                           "the current level you are. Same as /rcpaaexp on|off.")))
-    y += 26
-    c.append(("Rcp_AaExpThreshLabel", label, ("Rcp_AaExpThreshLabel", COL_X, y, 200, 14, "Turn AA on above level XP")))
-    c.append(("Rcp_AaExpThreshValue", label, ("Rcp_AaExpThreshValue", VAL_X, y + 16, 58, 16, "50%", YELLOW)))
-    c.append(("Rcp_AaExpThresh", slider, ("Rcp_AaExpThresh", COL_X, y + 16, SLIDER_W, 16)))
-    y += 40
-    c.append(("Rcp_AaExpActiveLabel", label, ("Rcp_AaExpActiveLabel", COL_X, y, 200, 14, "AA % when active")))
-    c.append(("Rcp_AaExpActiveValue", label, ("Rcp_AaExpActiveValue", VAL_X, y + 16, 58, 16, "100%", YELLOW)))
-    c.append(("Rcp_AaExpActive", slider, ("Rcp_AaExpActive", COL_X, y + 16, SLIDER_W, 16)))
-    y += 42
-    c.append(("Rcp_AaExpStatus", label, ("Rcp_AaExpStatus", COL_X, y, 400, 14, "", YELLOW)))
 
     # ---- Tab 7: Combat (floating combat damage; /rcpfcd) ----
     y = CONTENT_Y
