@@ -596,6 +596,12 @@ void log(const char *data) { reinterpret_cast<void(__cdecl *)(const char *data)>
 
 void log(std::string &data) { reinterpret_cast<void(__cdecl *)(const char *data)>(::Rcp::eqva(0x5240dc))(data.c_str()); }
 
+// BROKEN ON THIS BUILD -- do not use in new code. 0x7F94E8 is the TAKP LocalPC global; in the
+// 2013-05-10 RoF2 binary that address is int3 padding inside .text, so this returns the constant
+// 0xCCCCCCCC and any field read faults (it spammed per-frame swallowed AVs when profiles used
+// ->Name). The GAMECHARINFO layout is the TAKP PlayerProfile, also wrong for this build. For the
+// char name use pinstLocalPlayer@0xDD2630 + 0xA4 (keybinds.cpp::self_name()); for stats use
+// pinstLocalPC@0xDD261C + 0x2DC8 with the client's own accessors (chat_shortcuts.cpp).
 Rcp::GameStructures::GAMECHARINFO *get_char_info() { return (Rcp::GameStructures::GAMECHARINFO *)(*(int *)::Rcp::eqva(0x7F94E8)); }
 
 void do_autoattack(bool enabled) { reinterpret_cast<void(__thiscall *)(int, bool)>(::Rcp::eqva(0x5493b5))(::Rcp::eqva(0x798540), enabled); }

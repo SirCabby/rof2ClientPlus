@@ -1668,30 +1668,41 @@ void RcpOptionsUI::on_frame() {
   }
 }
 
-// The client rebuilds the entire UI -- freeing our RcpOptions window -- on any
-// LoadSidl("EQUI.xml"): the initial UI load AND an in-game skin swap (/loadskin). We drop
-// the cached window/control handles here so the on_frame poll can't dereference a freed
-// control (that was the /loadskin access-violation crash); the window rebuilds lazily on
-// the next /rcpoptions. This detour ONLY drops handles -- no UI-file merge or redirect.
-static void __fastcall LoadSidl_dropwnd_hk(void *t, int edx, Rcp::GameUI::CXSTR path1,
-                                           Rcp::GameUI::CXSTR path2, Rcp::GameUI::CXSTR filename) {
-  if (std::string(filename) == "EQUI.xml") {
-    RcpService *svc = RcpService::get_instance();
-    if (svc && svc->options_ui) svc->options_ui->drop_handles();
-    if (svc && svc->spellbook_ui) svc->spellbook_ui->drop_handles();  // same freed-window hazard
-  }
-  RcpService::get_instance()->hooks->hook_map["LoadSidl"]->original(LoadSidl_dropwnd_hk)(t, edx, path1, path2,
-                                                                                        filename);
+// The client rebuilds the entire UI -- freeing our RcpOptions window -- on any full XML
+// document (re)parse: the initial UI load, world re-entry, and an in-game skin swap
+// (/loadskin). We drop the cached window/control handles here so the on_frame poll can't
+// dereference a freed control (that was the /loadskin access-violation crash); the window
+// rebuilds lazily on the next /rcpoptions. This detour ONLY drops handles -- no redirect.
+//
+// Seam: CXMLSOMDocumentBase::XMLRead @0x851540 (vendored eqlib name for this exact build;
+// prologue + `ret 0x10` + both call sites disasm-verified: __thiscall, FOUR stack dwords --
+// eqlib's 3-CXStr prototype under-counts for this build -- returning bool in al). Only two
+// static callers exist, both full-document UI loads, so dropping on every call is correct
+// and avoids depending on which of the four args carries the "EQUI.xml" filename.
+//
+// HISTORY (cost a client): this hook used to sit at 0x5992c0, believed to be
+// CXWndManager::LoadSidl. That is a STALE TAKP/Zeal address -- in the 2013-05-10 RoF2
+// binary it is MID-INSTRUCTION inside a cold PlayerClient struct-copy function
+// (0x599280..0x5996B1, just before PlayerManagerClient::GetSpawnByID@0x5996E0). The 5-byte
+// JMP corrupted that code; nothing calls 0x5992c0 (the drop never actually fired), and the
+// first path to execute the copy (alt+right-click item preview / ObjectPreviewWnd) died on
+// a privileged instruction at 0x5992C4 (an `outs` decoded from our jmp's rel32 bytes).
+static int __fastcall XMLRead_dropwnd_hk(void *t, int edx, int a1, int a2, int a3, int a4) {
+  RcpService *svc = RcpService::get_instance();
+  if (svc && svc->options_ui) svc->options_ui->drop_handles();
+  if (svc && svc->spellbook_ui) svc->spellbook_ui->drop_handles();  // same freed-window hazard
+  logger::log("[ui] XMLRead: full UI XML parse -> dropped cached window handles");
+  return svc->hooks->hook_map["XMLRead"]->original(XMLRead_dropwnd_hk)(t, edx, a1, a2, a3, a4);
 }
 
 RcpOptionsUI::RcpOptionsUI(RcpService *rcp) {
   // The window's SIDL template arrives via the shipped EQUI_RcpOptions.xml (loaded by the
   // client's own UI parse) and the stock color picker is polled, so there is no UI load-path
-  // hook for delivery. We DO install the LoadSidl detour above -- from HERE, a LIVE path (the
+  // hook for delivery. We DO install the XMLRead detour above -- from HERE, a LIVE path (the
   // old UIManager that used to host it is never instantiated) -- so drop_handles() runs on any
   // UI (re)load incl. /loadskin. NOTE: do NOT use rcp->callbacks: CallbackManager is not
   // instantiated in this build (rcp->callbacks is null; dereferencing it crashed char-select).
-  rcp->hooks->Add("LoadSidl", ::Rcp::eqva(0x5992c0), LoadSidl_dropwnd_hk, hook_type_detour);
+  rcp->hooks->Add("XMLRead", ::Rcp::eqva(0x851540), XMLRead_dropwnd_hk, hook_type_detour);
   // Settings profiles: repaint every control when the active profile changes. This is the
   // "reload finished" slot, not an ordinary reload handler, so it runs after EVERY module
   // has re-read its settings no matter where this window sits in the construction order.
@@ -1702,5 +1713,5 @@ RcpOptionsUI::RcpOptionsUI(RcpService *rcp) {
                             toggle_window();
                             return true;
                           });
-  logger::log("[ui] /rcpoptions + LoadSidl handle-drop installed");
+  logger::log("[ui] /rcpoptions + XMLRead handle-drop installed (@0x851540)");
 }

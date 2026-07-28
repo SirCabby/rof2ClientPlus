@@ -21,6 +21,36 @@ to the parent Screen, so we can:
 The Advanced Options window is a separate, simpler file: a few right-column
 "Allow ... Shaders" labels and the asterisk footer are too narrow; widen them
 and give the window a little more width for the footer.
+
+The Item Display window (EQUI_ItemDisplay.xml) gets a layout fix of its own:
+  * The IDW_ItemInfo%d labels (item name / Magic-Lore flags / Class / Race /
+    equip-slots lines) are 20 px tall but stacked on a 16 px pitch, so each
+    label overlaps the next by 4 px and the equip-slots line ("Primary
+    Secondary") renders with the tops of its glyphs cut off. Re-pitch them to
+    20 px so labels never overlap. This is safe to do in isolation: the client
+    lays out everything BELOW the info lines at runtime relative to the last
+    visible info label (ornament/aug socket screens = lastInfo.bottom+5, stat
+    grid rows relative to the socket screen, window auto-height from the
+    running Y), so the whole body just follows the labels down.
+  * IDW_ModButton (the 10x10 base-vs-modified stats toggle) sits at (10,135) in
+    stock, visible by default, and the client only MOVES it (to the left of the
+    first free stat row) when the shown item actually has stat mods -- for every
+    plain item it is a stray checkbox overlapping the ornamentation socket row.
+    Park it offscreen at (-20,-20); the client repositions it with an absolute
+    rect before it is ever legitimately shown, and IDW_ModButtonLabel is glued
+    to the button's live rect at runtime, so both surface correctly when used.
+  * Default window Size 400x230 -> 420x520 so a fresh window shows the full
+    stat block without cutting content (the client still auto-fits per item).
+  * IDW_ConvertButton (10x10 at (10,135)) + IDW_ConvertButtonLabel (an STMLbox at
+    (10,60) 600x20) are REMOVED entirely. They belong to a NEWER client's
+    item-convert feature and appear only in custom skins built from that newer
+    default UI (CasterHybridUI/MeleeUI); the 2013-05-10 client has no code for
+    these ScreenIDs (eqlib lists ConvertButton/ConvertStml for later builds
+    only), so it never hides or repositions them. The STMLbox is non-transparent
+    by default and its dark background paints OVER the Race info line (its fill
+    nearly matches the window background, so it reads as "clipped text"), and
+    the button renders as a stray grey box over the ornament socket row. Not
+    present in the stock RoF2 file, so this is a no-op for the default override.
 """
 import re
 import sys
@@ -69,8 +99,22 @@ BANNER = ("<!-- rof2ClientPlus UI override: copy of the stock {name} with label\
           "     {name}.rcpbak. Regenerated from the vendored stock (tools/stock-uifiles)\n"
           "     by tools/gen_option_overrides.py; prefer re-running that over hand-editing. -->\n")
 
+BANNER_ITEMDISPLAY = (
+    "<!-- rof2ClientPlus UI override: copy of the stock {name} with the\n"
+    "     IDW_ItemInfo lines re-pitched 16->20 px (they are 20 px tall, so the stock\n"
+    "     pitch made neighbours overlap and clipped the equip-slots line), the\n"
+    "     IDW_ModButton stats-toggle parked offscreen until the client places it for\n"
+    "     real (stock leaves it visible at (10,135) over the ornament socket row),\n"
+    "     and a taller default window. Installed into the client's uifiles/default\n"
+    "     (base skin) by `make install`; pristine stock saved next to it as\n"
+    "     {name}.rcpbak. Regenerated from the vendored stock (tools/stock-uifiles)\n"
+    "     by tools/gen_option_overrides.py; prefer re-running that over hand-editing. -->\n")
+
 CTRL_RE = re.compile(r'(<(\w+) item="([^"]+)">)(.*?)(</\2>)', re.S)
+# The stock EQUI_ItemDisplay.xml writes some controls as `item = "..."` (spaces).
+CTRL_LOOSE_RE = re.compile(r'(<(\w+) item\s*=\s*"([^"]+)">)(.*?)(</\2>)', re.S)
 LOC_X_RE = re.compile(r'(<Location>\s*<X>)(-?\d+)(</X>)', re.S)
+LOC_Y_RE = re.compile(r'(<Location>\s*<X>-?\d+</X>\s*<Y>)(-?\d+)(</Y>)', re.S)
 SIZE_CX_RE = re.compile(r'(<Size>\s*<CX>)(-?\d+)(</CX>)', re.S)
 SIZE_CY_RE = re.compile(r'(<Size>\s*<CX>-?\d+</CX>\s*<CY>)(-?\d+)(</CY>)', re.S)
 
@@ -91,6 +135,10 @@ def is_checkbox(body):
 
 def set_x(body, new_x):
     return LOC_X_RE.sub(lambda m: m.group(1) + str(new_x) + m.group(3), body, count=1)
+
+
+def set_y(body, new_y):
+    return LOC_Y_RE.sub(lambda m: m.group(1) + str(new_y) + m.group(3), body, count=1)
 
 
 def set_cx(body, new_cx):
@@ -182,18 +230,77 @@ def transform_advanced(text):
     return out, changes
 
 
-def add_banner(text, name):
+ITEMINFO_PITCH = 20      # was 16; labels are CY=20, so 16 made neighbours overlap
+ITEMINFO_Y0 = 10         # first info line keeps its stock Y
+ITEMDISPLAY_CX_NEW = 420  # window default size (was 400x230); the client still
+ITEMDISPLAY_CY_NEW = 520  # auto-fits the window per shown item
+
+
+REMOVED_ITEMDISPLAY_CONTROLS = ("IDW_ConvertButton", "IDW_ConvertButtonLabel")
+
+
+def transform_itemdisplay(text):
+    """Fix EQUI_ItemDisplay.xml: non-overlapping info-line pitch, ModButton parked
+    offscreen, larger default window, dead newer-client convert controls removed.
+    Works on the stock default file and on the custom-skin variants (any
+    IDW_ItemInfo%d count) alike."""
+    changes = []
+    iteminfo_re = re.compile(r'IDW_ItemInfo(\d+)$')
+
+    # Strip the newer-client convert controls (definitions + Pieces references).
+    # Unknown to the 2013-05-10 client, and the label STML's opaque background
+    # covers the Race info line. No-op when absent (stock file).
+    for name in REMOVED_ITEMDISPLAY_CONTROLS:
+        def_re = re.compile(
+            r'[ \t]*<(\w+) item\s*=\s*"' + name + r'">.*?</\1>\s*?\n', re.S)
+        text, n_def = def_re.subn('', text)
+        piece_re = re.compile(r'[ \t]*<Pieces>' + name + r'</Pieces>\s*?\n')
+        text, n_piece = piece_re.subn('', text)
+        if n_def or n_piece:
+            changes.append(f"removed {name}: {n_def} definition, {n_piece} piece ref")
+
+    def repl(m):
+        open_tag, tag, item, body, close = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+        new_body = body
+
+        mi = iteminfo_re.match(item)
+        if tag == "Label" and mi:
+            n = int(mi.group(1))
+            new_y = ITEMINFO_Y0 + ITEMINFO_PITCH * (n - 1)
+            my = LOC_Y_RE.search(new_body)
+            if my and int(my.group(2)) != new_y:
+                new_body = set_y(new_body, new_y)
+                changes.append(f"{item}: Y {my.group(2)}->{new_y}")
+        elif tag == "Button" and item == "IDW_ModButton":
+            mx, my = LOC_X_RE.search(new_body), LOC_Y_RE.search(new_body)
+            new_body = set_x(new_body, -20)
+            new_body = set_y(new_body, -20)
+            changes.append(f"{item}: loc ({mx.group(2)},{my.group(2)})->(-20,-20)")
+        elif tag == "Screen" and item == "ItemDisplayWindow":
+            mcx, mcy = SIZE_CX_RE.search(new_body), SIZE_CY_RE.search(new_body)
+            new_body = set_cx(new_body, ITEMDISPLAY_CX_NEW)
+            new_body = set_cy(new_body, ITEMDISPLAY_CY_NEW)
+            changes.append(f"{item}: size {mcx.group(2)}x{mcy.group(2)}"
+                           f"->{ITEMDISPLAY_CX_NEW}x{ITEMDISPLAY_CY_NEW}")
+
+        return open_tag + new_body + close
+
+    out = CTRL_LOOSE_RE.sub(repl, text)
+    return out, changes
+
+
+def add_banner(text, name, banner=BANNER):
     return text.replace(
         '<XML ID="EQInterfaceDefinitionLanguage">',
-        '<XML ID="EQInterfaceDefinitionLanguage">\n' + BANNER.format(name=name),
+        '<XML ID="EQInterfaceDefinitionLanguage">\n' + banner.format(name=name),
         1,
     )
 
 
-def run(fname, transform, name):
+def run(fname, transform, name, banner=BANNER):
     src = (DEFAULT / fname).read_text(encoding="latin-1")
     out, changes = transform(src)
-    out = add_banner(out, name)
+    out = add_banner(out, name, banner)
     (OUT / fname).write_text(out, encoding="latin-1")
     print(f"=== {fname}: {len(changes)} changes ===")
     for c in changes:
@@ -206,3 +313,5 @@ if __name__ == "__main__":
     run("EQUI_OptionsWindow.xml", transform_options, "EQUI_OptionsWindow.xml")
     run("EQUI_AdvancedDisplayOptionsWnd.xml", transform_advanced,
         "EQUI_AdvancedDisplayOptionsWnd.xml")
+    run("EQUI_ItemDisplay.xml", transform_itemdisplay, "EQUI_ItemDisplay.xml",
+        banner=BANNER_ITEMDISPLAY)

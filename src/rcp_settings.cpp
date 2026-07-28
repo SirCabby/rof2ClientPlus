@@ -62,8 +62,12 @@ static const char *get_character_name() {
   // StartNetworkGame() does to set g_next_player at 0x00795274.
   const char *name = nullptr;
   if (Rcp::Game::get_gamestate() == GAMESTATE_INGAME) {
-    Rcp::GameStructures::GAMECHARINFO *c = Rcp::Game::get_char_info();
-    name = (c) ? c->Name : nullptr;
+    // pinstLocalPlayer@0xDD2630 + PlayerBase::Name@0xA4 -- proven RoF2 read (keybinds.cpp::
+    // self_name()). NOT get_char_info(): its 0x7F94E8 is a stale TAKP global that lands on
+    // int3 padding in this binary (deref = 0xCCCCCCCC -> access violation).
+    if (char *self = *reinterpret_cast<char **>(::Rcp::eqva(0xDD2630))) {
+      if (self[0xA4]) name = self + 0xA4;
+    }
   } else if (Rcp::Game::get_gamestate() == GAMESTATE_ENTERWORLD) {
     int index = -1;
     if (Rcp::Game::is_new_ui()) {

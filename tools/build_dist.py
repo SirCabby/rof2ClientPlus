@@ -80,8 +80,11 @@ NOTE - uifiles/default/ (the /rcpoptions window):
                              (clipped option text fixed).
     * EQUI_SpellBookWnd.xml = stock with the page-number labels widened so the new
                              spellbook's 3-digit page counts are not clipped.
-  Copying OVERWRITES four stock files (EQUI.xml, the two option windows, and
-  EQUI_SpellBookWnd.xml). `make install` saves the pristine originals once as *.rcpbak; a
+    * EQUI_ItemDisplay.xml = stock with the item-info lines re-spaced (stock overlaps
+                             them and clips the equip-slots line), the stray stats-toggle
+                             checkbox parked offscreen, and a taller default window.
+  Copying OVERWRITES five stock files (EQUI.xml, the two option windows,
+  EQUI_SpellBookWnd.xml, and EQUI_ItemDisplay.xml). `make install` saves the pristine originals once as *.rcpbak; a
   plain copy does not, so back them up first if you want them (vendored stock reference
   copies also live in the repo under tools/stock-uifiles/). A custom skin that ships its
   OWN EQUI.xml would need the two <Include> lines added to it.

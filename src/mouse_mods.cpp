@@ -124,13 +124,22 @@ void set_lock_mouse(bool lock) {
 // window belonging to OUR process, so alt-tabbing away naturally frees the cursor
 // (and re-grabs it on return) without us tracking focus events ourselves.
 void apply_cursor_lock() {
+  static bool was_clipped = false;   // Whether WE currently hold a clip (release-once tracker).
+  static bool warned_no_clip = false;
   if (!g_lock_mouse) return;  // Off: never touch the clip (released in set_lock_mouse).
 
   HWND fg = GetForegroundWindow();
   DWORD pid = 0;
   if (fg) GetWindowThreadProcessId(fg, &pid);
   if (!fg || pid != GetCurrentProcessId()) {
-    ClipCursor(nullptr);  // Game isn't focused - let the cursor roam other apps.
+    // Release ONCE on focus loss, not every frame: ClipCursor is GLOBAL desktop
+    // state shared through one wineserver, so a background multibox client
+    // hammering ClipCursor(nullptr) at frame rate cancels the clip the focused
+    // client keeps asserting.
+    if (was_clipped) {
+      ClipCursor(nullptr);
+      was_clipped = false;
+    }
     return;
   }
 
@@ -139,6 +148,41 @@ void apply_cursor_lock() {
   if (!GetClientRect(fg, &client) || !ClientToScreen(fg, &origin)) return;
   RECT screen = {origin.x + client.left, origin.y + client.top, origin.x + client.right, origin.y + client.bottom};
   ClipCursor(&screen);
+  was_clipped = true;
+
+  // Diagnostic only: does the OS even CLAIM to hold our rect? (One-shot log.)
+  RECT applied;
+  if (!warned_no_clip && GetClipCursor(&applied) &&
+      (applied.left < screen.left - 1 || applied.top < screen.top - 1 ||
+       applied.right > screen.right + 1 || applied.bottom > screen.bottom + 1)) {
+    warned_no_clip = true;
+    logger::logf("[mouse] ClipCursor not honored by the OS (want (%ld,%ld)-(%ld,%ld), got (%ld,%ld)-(%ld,%ld))",
+                 screen.left, screen.top, screen.right, screen.bottom,
+                 applied.left, applied.top, applied.right, applied.bottom);
+  }
+
+  // Enforce the confine OURSELVES, unconditionally. Wine implements ClipCursor as
+  // an XGrabPointer over an InputOnly window sized to the rect; under KWin
+  // Wayland/XWayland (here with Xwayland fractional scale 1.25 and wine-staging
+  // 11.14) the wineserver clip state reads back correct while the actual X-side
+  // grab is mis-sized or dropped - undetectable via GetClipCursor. So: whenever
+  // the OS reports the cursor outside our client rect, warp it back to the edge.
+  // On healthy Wine the clip already prevents escapes and this never fires.
+  static int warp_diag = 0;
+  POINT p;
+  if (GetCursorPos(&p)) {
+    LONG nx = p.x < screen.left ? screen.left : (p.x >= screen.right ? screen.right - 1 : p.x);
+    LONG ny = p.y < screen.top ? screen.top : (p.y >= screen.bottom ? screen.bottom - 1 : p.y);
+    if (nx != p.x || ny != p.y) {
+      SetCursorPos(nx, ny);
+      if (warp_diag < 8) {
+        ++warp_diag;
+        logger::logf("[mouse] escape #%d: cursor (%ld,%ld) left lock rect (%ld,%ld)-(%ld,%ld); warped back to (%ld,%ld)%s",
+                     warp_diag, p.x, p.y, screen.left, screen.top, screen.right, screen.bottom, nx, ny,
+                     warp_diag == 8 ? " (further warps not logged)" : "");
+      }
+    }
+  }
 }
 }  // namespace mouse_settings
 

@@ -132,6 +132,11 @@ void *get_spawn_by_id(int id) {
 
 // Detour: on weapon slots, remember self's hands and, if the tag has a classic redirect, hand the
 // original a substituted tag (thread-local buffer that outlives the synchronous call).
+// NETWORK: a2 is local_only. On SELF with a2==0 the original BROADCASTS OP_WearChange(0x7994) with
+// material = atoi(tag+2) (send gates @0x5933d2/0x5933de; a2 gates nothing else) -- a substituted
+// "RCPIT<n>" parses as "PIT<n>" -> material 0 -> every other client renders that hand EMPTY (the
+// server relays the packet verbatim). So on that path run the original with the TRUE tag first
+// (correct broadcast + attach), then re-attach the classic model local-only (a2=1).
 int __fastcall SetHeld_hk(void *self, int edx, int slot, void *tag, int a2, int a3) {
   if ((slot == 7 || slot == 8) && !crash_handler::shutting_down()) {
     char name[24];
@@ -157,6 +162,10 @@ int __fastcall SetHeld_hk(void *self, int edx, int slot, void *tag, int a2, int 
       if (!redir.empty()) {
         static thread_local char sub[24];
         std::snprintf(sub, sizeof(sub), "%s", redir.c_str());
+        if (is_self && a2 == 0) {
+          g_orig_held(self, edx, slot, tag, a2, a3);
+          return g_orig_held(self, edx, slot, sub, 1, a3);
+        }
         return g_orig_held(self, edx, slot, sub, a2, a3);
       }
     }
@@ -174,7 +183,9 @@ void reattach(void *self, int slot, const std::string &orig) {
   }
   char b[24];
   std::snprintf(b, sizeof(b), "%s", fin.c_str());
-  g_orig_held(self, 0, slot, b, 0, 1);
+  // a2=1 = local_only: this is a pure-visual re-attach; a2=0 on self would broadcast
+  // OP_WearChange with material parsed from the tag (0 for RCPIT tags -- see SetHeld_hk).
+  g_orig_held(self, 0, slot, b, 1, 1);
 }
 
 // Re-attach the held weapons of EVERY spawn in the zone (self, players, NPCs, pets) that is holding

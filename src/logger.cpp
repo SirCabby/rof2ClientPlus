@@ -25,6 +25,8 @@ void logger::init(const char* filename) {
     if (f) fclose(f);
 }
 
+static std::string g_mirror_path;  // Guarded by g_cs; non-empty while a mirror is active.
+
 static void write_line(const char* line) {
     if (!g_ready) return;
     EnterCriticalSection(&g_cs);
@@ -34,6 +36,28 @@ static void write_line(const char* line) {
         fputc('\n', f);
         fclose(f);
     }
+    if (!g_mirror_path.empty()) {
+        FILE* m = fopen(g_mirror_path.c_str(), "a");
+        if (m) {
+            fputs(line, m);
+            fputc('\n', m);
+            fclose(m);
+        }
+    }
+    LeaveCriticalSection(&g_cs);
+}
+
+void logger::begin_mirror(const char* filename) {
+    if (!g_ready) return;
+    EnterCriticalSection(&g_cs);
+    g_mirror_path = game_dir() + filename;
+    LeaveCriticalSection(&g_cs);
+}
+
+void logger::end_mirror() {
+    if (!g_ready) return;
+    EnterCriticalSection(&g_cs);
+    g_mirror_path.clear();
     LeaveCriticalSection(&g_cs);
 }
 

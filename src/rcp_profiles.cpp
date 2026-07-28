@@ -329,8 +329,15 @@ std::string current_character() {
   if (!Rcp::Game::is_in_game()) return "";
   char buf[64] = {0};
   rcp_guard::run("profiles.charname", [&] {
-    Rcp::GameStructures::GAMECHARINFO *info = Rcp::Game::get_char_info();
-    if (info) std::snprintf(buf, sizeof(buf), "%s", info->Name);
+    // pinstLocalPlayer@0xDD2630 + PlayerBase::Name@0xA4 (char[0x40]) -- the RoF2 read proven
+    // in-game by keybinds.cpp::self_name() / window_watch.cpp::sync_title(). NOT
+    // Rcp::Game::get_char_info(): its 0x7F94E8 is a stale TAKP global that lands on int3
+    // padding in this binary (*(int*)0x7F94E8 == 0xCCCCCCCC), so ->Name faulted EVERY frame
+    // (the "profiles.charname swallowed ACCESS_VIOLATION" log spam).
+    if (char *self = *reinterpret_cast<char **>(::Rcp::eqva(0xDD2630))) {
+      const char *name = self + 0xA4;
+      if (name[0]) std::snprintf(buf, sizeof(buf), "%s", name);
+    }
   });
   return buf;
 }

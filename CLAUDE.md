@@ -42,6 +42,7 @@ model-swap assets or the server-side changes. The complete map:
 |---|---|---|---|---|
 | The `.asi` + fonts/target-rings/spell-icons | repo `src/`, `uifiles/rcp/{fonts,targetrings,spellicons}` | ✅ yes | `make install` | `make && make install`; classic icon sheets re-sourceable per `uifiles/rcp/spellicons/README.md` |
 | **Option-window overrides** (`EQUI_OptionsWindow.xml` carrying `/rcpoptions` + `EQUI_AdvancedDisplayOptionsWnd.xml`) | repo `uifiles/default/` → client `uifiles/default/` (**overwrites 2 stock files**) | ✅ yes | `make install` (backs stock up ONCE as `.rcpbak`) | regenerate: `gen_option_overrides.py` (from vendored `tools/stock-uifiles/`) + `gen_rcp_options_ui.py` |
+| **Item-display override** (`EQUI_ItemDisplay.xml` — REMOVES the skins' dead newer-client `IDW_ConvertButton`/`IDW_ConvertButtonLabel` (the label STML's opaque bg painted over the Race info line; the button = stray 10x10 box on the ornament socket row; the 2013 client has no code for these IDs), info-line pitch 16→20, `IDW_ModButton` stats-toggle parked at (-20,-20) until the client places it ("Modified" row), default size 420x520) | repo `uifiles/default/` → client `uifiles/default/`; **duplicated into the custom skins** `CasterHybridUI`/`MeleeUI` (they ship their own copy that beats `default/` — source of truth `akk-stack/eqemu-ops/client-pack/uifiles/`) | ✅ yes (skins in akk-stack) | `make install` (default skin); skins re-deployed by hand/client-pack | regenerate: `gen_option_overrides.py` `transform_itemdisplay` (from vendored `tools/stock-uifiles/`); safe because the client stacks sockets/stat grid/window height at runtime relative to the last visible info label |
 | **Classic pre-revamp zone maps** (`maps/*_classic.txt` — bazaar/lavastorm/nektulos) | repo `maps/` → client `maps/` (new `*_classic` filenames; never touches a stock map) | ✅ yes | `make install` | in git; re-sourced from Brewall `_original` maps — see `maps/README.md` |
 | **29 `rcp*.s3d` classic-model archives** (59 MB) — model-swap | `$GAME_DIR/*.s3d` only | ❌ no | `make install-models` | `make models` regenerates all 29 from source (see below) |
 | **`$GAME_DIR/Resources/GlobalLoad.txt`** edit (loads the rcp archives) | game dir only | ❌ no | `make install-models` | `tools/patch_globalload.py` (idempotent; stock saved as `.rcpbak`) |
@@ -88,8 +89,9 @@ spell-icon sheets, read by the DLL by path), NOT a skin to select; `UISkin=rcp` 
 **Delivery:** the `/rcpoptions` window is a **standalone `EQUI_RcpOptions.xml`** shipped into
 `default/`, pulled in by a one-line `<Include>` added to a copy of stock `EQUI.xml` (also in
 `default/`) — the standard way any skin adds a window, parsed by the client's native UI load.
-`EQUI_OptionsWindow.xml`/`EQUI_AdvancedDisplayOptionsWnd.xml` are separate widened-text overrides.
-`make install` overwrites 3 stock files (`EQUI.xml` + the 2 option windows), saving each pristine
+`EQUI_OptionsWindow.xml`/`EQUI_AdvancedDisplayOptionsWnd.xml` are separate widened-text overrides,
+as is `EQUI_ItemDisplay.xml` (item window: re-spaced info lines / parked ModButton / bigger default).
+`make install` overwrites the stock files it overrides (`EQUI.xml` + the option windows + `EQUI_ItemDisplay.xml`), saving each pristine
 copy **once** as `*.rcpbak` (never re-backs-up over its own file; `EQUI_RcpOptions.xml` is a pure mod
 file, marked so it is never backed up), and removes the old `uifiles/rcp/*.xml`.
 
@@ -97,10 +99,14 @@ file, marked so it is never backed up), and removes the old `uifiles/rcp/*.xml`.
 - A standalone included window does **NOT** crash the parse — the old "standalone crashes" was the
   *runtime* `WriteTemporaryUI` include-merge; a **static** on-disk `EQUI.xml` `<Include>` works (129
   controls, confirmed in-game). The `XMLRead`/`WriteTemporaryUI` redirect is gone.
-- `/loadskin` rebuilds the UI **in-game**, freeing our window; `ui_manager.cpp`'s `LoadSidl` hook
-  drops `RcpOptionsUI`'s cached handles on any `EQUI.xml` (re)load so the frame poll can't touch a
-  freed control. That hook must **NOT** use `rcp->callbacks` — `CallbackManager` is not instantiated
-  in this build (null; using it crashed char-select). See `crash-window-diagnostics`.
+- `/loadskin` rebuilds the UI **in-game**, freeing our window; `rcp_options_ui.cpp`'s
+  `CXMLSOMDocumentBase::XMLRead@0x851540` hook (eqlib-named; 4 stack args by disasm, NOT eqlib's 3)
+  drops `RcpOptionsUI`/`SpellbookUI` cached handles on any full UI XML parse so the frame poll can't
+  touch a freed control. That hook must **NOT** use `rcp->callbacks` — `CallbackManager` is not
+  instantiated in this build (null; using it crashed char-select). See `crash-window-diagnostics`.
+  ⚠ This hook used to sit at `0x5992c0` ("LoadSidl") — a **stale TAKP/Zeal address** that is
+  MID-INSTRUCTION inside a cold PlayerClient copy fn in this binary; the patch corrupted it and the
+  alt+right-click item-preview path executed it → privileged-instruction crash (fixed 2026-07-27).
 - Edge case: a *full* custom skin shipping its **own** `EQUI.xml` wouldn't have our `<Include>`, so
   `/rcpoptions` wouldn't load under it — rare (most skins are partial and inherit `default/EQUI.xml`).
 

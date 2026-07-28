@@ -144,7 +144,20 @@ void dump_crash(EXCEPTION_POINTERS *ep, const char *origin) {
   const EXCEPTION_RECORD *er = ep->ExceptionRecord;
   const CONTEXT *ctx = ep->ContextRecord;
 
+  // Tee the post-mortem into its own timestamped file: the main log is truncated by the
+  // next launch, which is exactly when someone goes looking for the dump (learned the hard
+  // way -- an alt+right-click crash's dump was destroyed by the relaunch seconds later).
+  {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char crashfile[128];
+    snprintf(crashfile, sizeof(crashfile), "Logs\\rcp-crash-%04d%02d%02d-%02d%02d%02d-pid%lu.txt", st.wYear,
+             st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, GetCurrentProcessId());
+    logger::begin_mirror(crashfile);
+  }
+
   logger::log("==================== rof2ClientPlus CRASH ====================");
+  logger::logf("  pid=%lu thread=%lu", GetCurrentProcessId(), GetCurrentThreadId());
   char at[256];
   format_addr(er->ExceptionAddress, at, sizeof(at));
   logger::logf("  %s exception %s (0x%08lX) at %s", origin, exception_name(er->ExceptionCode),
@@ -158,8 +171,31 @@ void dump_crash(EXCEPTION_POINTERS *ep, const char *origin) {
   logger::log("  --- stack ---");
   if (log_stack_dbghelp(ctx) < 2) log_stack_ebp(ctx);
   logger::log("=============================================================");
+  logger::end_mirror();
 
   in_dump = 0;
+}
+
+// Rate-limit the per-guard swallow lines: a fault recurring every frame (~200Hz) would
+// otherwise grow the log ~1MB/min (observed with a broken charname read). Slots are keyed
+// by the guard-name literal's pointer; allocation-free (this runs inside the VEH).
+struct SwallowStat {
+  void *volatile name;  // The guard-name literal's address (identity key, never read as text).
+  volatile LONG count;
+};
+SwallowStat g_swallow_stats[32];
+
+LONG swallow_count(const char *name_in) {
+  void *name = const_cast<char *>(name_in);
+  for (int i = 0; i < 32; ++i) {
+    void *cur = g_swallow_stats[i].name;
+    if (cur == name) return InterlockedIncrement(&g_swallow_stats[i].count);
+    if (!cur) {
+      InterlockedCompareExchangePointer(&g_swallow_stats[i].name, name, nullptr);
+      if (g_swallow_stats[i].name == name) return InterlockedIncrement(&g_swallow_stats[i].count);
+    }
+  }
+  return 1;  // Table full (32 distinct guard names) -> just log every hit.
 }
 
 // Vectored handler: FIRST job is guard recovery for our own detours, which must
@@ -170,10 +206,14 @@ LONG CALLBACK vectored_handler(EXCEPTION_POINTERS *ep) {
   const DWORD code = ep->ExceptionRecord->ExceptionCode;
   if (rcp_guard::g_top && code == EXCEPTION_ACCESS_VIOLATION) {
     rcp_guard::Frame *f = rcp_guard::g_top;
-    char at[256];
-    format_addr(ep->ExceptionRecord->ExceptionAddress, at, sizeof(at));
-    logger::logf("[guard] swallowed ACCESS_VIOLATION in '%s' at %s - feature body skipped this frame",
-                 f->name ? f->name : "?", at);
+    const char *name = f->name ? f->name : "?";
+    const LONG n = swallow_count(name);
+    if (n <= 10 || (n % 1000) == 0) {
+      char at[256];
+      format_addr(ep->ExceptionRecord->ExceptionAddress, at, sizeof(at));
+      logger::logf("[guard] swallowed ACCESS_VIOLATION in '%s' at %s - feature body skipped this frame (hit #%ld%s)",
+                   name, at, (long)n, n >= 10 ? "; further hits logged every 1000th" : "");
+    }
     std::longjmp(f->buf, 1);  // Back into rcp_guard::run(); does not return.
   }
   return EXCEPTION_CONTINUE_SEARCH;

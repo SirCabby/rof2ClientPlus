@@ -11,4 +11,10 @@ void init(const char* filename);
 // Append a timestamped line.
 void log(const std::string& msg);
 void logf(const char* fmt, ...);
+
+// Tee every subsequent line into a second file (relative to the game root) until
+// end_mirror(). Used by the crash handler: the main log is truncated by the NEXT
+// launch, so a post-mortem written only there dies with the relaunch.
+void begin_mirror(const char* filename);
+void end_mirror();
 }
