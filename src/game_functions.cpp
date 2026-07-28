@@ -43,163 +43,26 @@ int GetSpellCastingTime()  // GetSpellCastingTime() in client.
   return reinterpret_cast<int(__cdecl *)(void)>(::Rcp::eqva(0x00435f28))();
 }
 
+// The modern (SoF+) con system, mirroring the server's Mob::GetLevelCon with
+// Character:UseOldConSystem=false (EQEmu zone/mob_ai.cpp) so mod cons agree with /con.
+// Trivial ("gray") cons fold into green (no gray user color). NOTE: nameplate.cpp keeps
+// its own self-contained copy (con_color) - keep the two in sync.
 DWORD GetLevelCon(Rcp::GameStructures::Entity *ent) {
   if (!ent || !Rcp::Game::get_self()) return 0;
   int mylevel = Rcp::Game::get_self()->Level;
   short diff = ent->Level - mylevel;
-  DWORD conlevel = 0;
 
-  if (diff == 0)
-    return get_con_white();
-  else if (diff >= 1 && diff <= 2)
-    return get_con_yellow();
-  else if (diff >= 3)
-    return get_con_red();
+  if (diff == 0) return get_con_white();
+  if (diff >= 1 && diff <= 3) return get_con_yellow();
+  if (diff >= 4) return get_con_red();
 
-  if (mylevel <= 7) {
-    if (diff <= -4)
-      conlevel = get_con_green();
-    else
-      conlevel = get_con_blue();  // Rcp::Game::get_user_color(70);
-  } else if (mylevel <= 8) {
-    if (diff <= -5)
-      conlevel = get_con_green();
-    else if (diff <= -4)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 12) {
-    if (diff <= -6)
-      conlevel = get_con_green();
-    else if (diff <= -4)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 16) {
-    if (diff <= -7)
-      conlevel = get_con_green();
-    else if (diff <= -5)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 20) {
-    if (diff <= -8)
-      conlevel = get_con_green();
-    else if (diff <= -6)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 24) {
-    if (diff <= -9)
-      conlevel = get_con_green();
-    else if (diff <= -7)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 28) {
-    if (diff <= -10)
-      conlevel = get_con_green();
-    else if (diff <= -8)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 30) {
-    if (diff <= -11)
-      conlevel = get_con_green();
-    else if (diff <= -9)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 32) {
-    if (diff <= -12)
-      conlevel = get_con_green();
-    else if (diff <= -9)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 36) {
-    if (diff <= -13)
-      conlevel = get_con_green();
-    else if (diff <= -10)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 40) {
-    if (diff <= -14)
-      conlevel = get_con_green();
-    else if (diff <= -11)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 44) {
-    if (diff <= -16)
-      conlevel = get_con_green();
-    else if (diff <= -12)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 48) {
-    if (diff <= -17)
-      conlevel = get_con_green();
-    else if (diff <= -13)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 52) {
-    if (diff <= -18)
-
-      conlevel = get_con_green();
-    else if (diff <= -14)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 54) {
-    if (diff <= -19)
-
-      conlevel = get_con_green();
-    else if (diff <= -15)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 56) {
-    if (diff <= -20)
-
-      conlevel = get_con_green();
-    else if (diff <= -15)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 60) {
-    if (diff <= -21)
-      conlevel = get_con_green();
-    else if (diff <= -16)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 61) {
-    if (diff <= -19)
-      conlevel = get_con_green();
-    else if (diff <= -14)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else if (mylevel <= 62) {
-    if (diff <= -17)
-      conlevel = get_con_green();
-    else if (diff <= -12)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  } else {
-    if (diff <= -16)
-      conlevel = get_con_green();
-    else if (diff <= -11)
-      conlevel = get_con_light_blue();
-    else
-      conlevel = get_con_blue();
-  }
-
-  return conlevel;
+  // Below the viewer: the gray/green cutoffs are absolute levels derived from the viewer's
+  // (integer division); gray always sits inside green, so folding keeps the band order.
+  if (mylevel <= 15) return (diff <= -6) ? get_con_green() : get_con_blue();
+  if (ent->Level <= mylevel - (mylevel + 7) / 4) return get_con_green();
+  if (mylevel <= 20) return get_con_blue();  // No light-blue band until 21.
+  if (diff <= -6) return get_con_light_blue();
+  return get_con_blue();
 }
 
 bool IsPlayableRace(WORD race) {

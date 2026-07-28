@@ -100,9 +100,9 @@ static constexpr int kActorSetStringVtableIndex = 0x18c / 4;
 // parallel arrays below are all indexed by NpColorRole - keep them in the same order. ----
 enum NpColorRole {
   kRoleConEven = 0,   // NPC same level
-  kRoleConYellow,     // NPC 1-2 above
-  kRoleConRed,        // NPC 3+ above
-  kRoleConGreen,      // NPC far below
+  kRoleConYellow,     // NPC 1-3 above
+  kRoleConRed,        // NPC 4+ above
+  kRoleConGreen,      // NPC far below (incl. trivial/"gray" cons)
   kRoleConLightBlue,  // NPC below
   kRoleConBlue,       // NPC slightly below
   kRoleTarget,        // current target
@@ -304,37 +304,23 @@ void set(int role, int rgb) {
 }
 }  // namespace nameplate_colors
 
-// ---- Con color: reproduces the level-band table from Rcp::Game::GetLevelCon locally so
-// this module stays self-contained (that function reaches through get_user_color / the
-// unconstructed options UI, which is unsafe in this build). Returns an 0xRRGGBB color. ----
+// ---- Con color: the modern (SoF+) con system, mirroring the server's Mob::GetLevelCon with
+// Character:UseOldConSystem=false (EQEmu zone/mob_ai.cpp), so ring/nameplate cons agree with
+// /con. Trivial ("gray") cons fold into green (the palette has no gray role). Kept local so
+// this module stays self-contained (Rcp::Game::GetLevelCon reaches through get_user_color /
+// the unconstructed options UI, which is unsafe in this build). Returns an 0xRRGGBB color. ----
 static int con_color(int my_level, int ent_level) {
   const int diff = ent_level - my_level;
   if (diff == 0) return g_colors[kRoleConEven];
-  if (diff >= 1 && diff <= 2) return g_colors[kRoleConYellow];
-  if (diff >= 3) return g_colors[kRoleConRed];
+  if (diff >= 1 && diff <= 3) return g_colors[kRoleConYellow];
+  if (diff >= 4) return g_colors[kRoleConRed];
 
-  // diff <= -1: the green / light-blue thresholds widen with the viewer's level. Table of
-  // {max viewer level, green if diff<=g, light-blue if diff<=lb, else blue}. When lb==g the
-  // light-blue band is empty (low levels have no light-blue con).
-  struct Band {
-    int max_level, green, light_blue;
-  };
-  static const Band kBands[] = {
-      {7, -4, -4},   {8, -5, -4},   {12, -6, -4},  {16, -7, -5},  {20, -8, -6},  {24, -9, -7},
-      {28, -10, -8}, {30, -11, -9}, {32, -12, -9}, {36, -13, -10}, {40, -14, -11}, {44, -16, -12},
-      {48, -17, -13}, {52, -18, -14}, {54, -19, -15}, {56, -20, -15}, {60, -21, -16}, {61, -19, -14},
-      {62, -17, -12},
-  };
-  int green = -16, light_blue = -11;  // Default band (viewer level 63+).
-  for (const auto &b : kBands) {
-    if (my_level <= b.max_level) {
-      green = b.green;
-      light_blue = b.light_blue;
-      break;
-    }
-  }
-  if (diff <= green) return g_colors[kRoleConGreen];
-  if (diff <= light_blue) return g_colors[kRoleConLightBlue];
+  // Below the viewer: the gray/green cutoffs are absolute levels derived from the viewer's
+  // (integer division); gray always sits inside green, so folding keeps the band order.
+  if (my_level <= 15) return (diff <= -6) ? g_colors[kRoleConGreen] : g_colors[kRoleConBlue];
+  if (ent_level <= my_level - (my_level + 7) / 4) return g_colors[kRoleConGreen];
+  if (my_level <= 20) return g_colors[kRoleConBlue];  // No light-blue band until 21.
+  if (diff <= -6) return g_colors[kRoleConLightBlue];
   return g_colors[kRoleConBlue];
 }
 
