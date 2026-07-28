@@ -32,6 +32,7 @@ bool g_dedup = false;  // Multibox move layers (spawn shift + runtime move): opt
                        // fought rects the user arranged on purpose (maximize onto the sibling's monitor = "collision").
 
 constexpr char kIni[] = "Window";
+constexpr DWORD kTitleVerifyMs = 2000;  // Cadence of the title verify/re-assert pass (see sync_title).
 constexpr DWORD kHealWindowMs = 8000;  // Only self-heal during the window's first few seconds.
 constexpr DWORD kHealMinGapMs = 250;   // Don't fight the client every frame.
 constexpr DWORD kHealthDenseMs = 20000;  // Dense per-frame health trace for the first ~20s.
@@ -47,6 +48,10 @@ std::string g_orig_title;     // The client's own window caption, captured at su
 std::string g_pending_title;  // Title the wndproc should apply (see WM_SETTITLE handling); render-thread-only, no lock.
 std::string g_posted_title;   // Last title we asked for, so on_frame only re-posts on an actual change.
 UINT g_wm_settitle = 0;       // RegisterWindowMessage id: "apply g_pending_title" - handled in wndproc, off the ProcessGameEvents stack.
+bool g_applying_title = false;   // Inside our own SetWindowTextA (so wndproc_hk can tell foreign WM_SETTEXT from ours).
+DWORD g_last_title_post = 0;     // When we last posted g_wm_settitle (grace period before verifying).
+DWORD g_last_title_verify = 0;   // Throttle for the verify/re-assert pass.
+int g_title_reasserts = 0;       // How often the verify pass had to re-assert (visible in its log line).
 UINT g_wm_dedup = 0;          // RegisterWindowMessage id: "apply the pending dedup move" - same pattern as g_wm_settitle.
 RECT g_dedup_target = {};     // Normal-position rect for the pending move; render-thread-only, no lock.
 bool g_dedup_maximize = false;  // Re-maximize (onto the target's monitor) after the move.
@@ -136,6 +141,17 @@ void heal(HWND h, bool vis, bool icon, bool fg) {
 std::string window_title(HWND h) {
   char buf[128] = {0};
   GetWindowTextA(h, buf, sizeof(buf));
+  return buf;
+}
+
+// Wineserver's stored caption, read WITHOUT dispatching WM_GETTEXT. GetWindowTextA on an
+// own-process window sends through the wndproc (the re-entrancy sync_title must avoid);
+// InternalGetWindowText is the taskbar-style server-side read, safe from any context.
+std::string server_title(HWND h) {
+  WCHAR w[128] = {0};
+  InternalGetWindowText(h, w, 127);
+  char buf[256] = {0};
+  WideCharToMultiByte(CP_ACP, 0, w, -1, buf, sizeof(buf), nullptr, nullptr);
   return buf;
 }
 
@@ -465,8 +481,18 @@ LRESULT CALLBACK wndproc_hk(HWND h, UINT msg, WPARAM w, LPARAM l) {
   // game's normal message dispatch (top of the loop), so SetWindowTextA is safe - unlike
   // calling it from inside ProcessGameEvents, which deadlocked under wine. See sync_title.
   if (msg == g_wm_settitle && g_wm_settitle) {
-    SetWindowTextA(h, g_pending_title.c_str());
-    logger::logf("[win] window title -> '%s'", g_pending_title.c_str());
+    g_applying_title = true;
+    const BOOL ok = SetWindowTextA(h, g_pending_title.c_str());
+    g_applying_title = false;
+    // Read back what wineserver actually stored: under wine-staging 11.14 the world-entry
+    // set was observed applying "successfully" while the stored caption (and the X titlebar)
+    // stayed stock (2026-07-28). The sync_title verify pass retries on mismatch.
+    const std::string back = server_title(h);
+    if (!ok || back != g_pending_title)
+      logger::logf("[win] window title -> '%s' DID NOT STICK (ok=%d, server has '%s') - verify pass will retry",
+                   g_pending_title.c_str(), (int)ok, back.c_str());
+    else
+      logger::logf("[win] window title -> '%s'", g_pending_title.c_str());
     return 0;
   }
   if (msg == g_wm_dedup && g_wm_dedup) {
@@ -483,6 +509,25 @@ LRESULT CALLBACK wndproc_hk(HWND h, UINT msg, WPARAM w, LPARAM l) {
     return 0;
   }
   switch (msg) {
+    case WM_SETTEXT:
+      // Every caption write flows through here. Something foreign (the game or MacroQuest;
+      // caught live 2026-07-28 re-captioning all boxes to 'EverQuest' within ~10min of each
+      // set) erases the character-name title. Log it, let it apply (its string is const and
+      // not ours to rewrite), and immediately re-post our title over it - the clobber then
+      // lasts one message-pump beat instead of waiting out the 2s verify pass.
+      if (!g_applying_title) {
+        const char *txt = l ? reinterpret_cast<const char *>(l) : "(null)";
+        if (g_char_title && !g_posted_title.empty() && g_posted_title != txt) {
+          logger::logf("[win] WM_SETTEXT (foreign) -> '%.120s' - overriding with '%s'", txt, g_posted_title.c_str());
+          g_pending_title = g_posted_title;
+          g_last_title_post = GetTickCount();
+          if (!g_wm_settitle) g_wm_settitle = RegisterWindowMessageA("RofClientPlus_SetWindowTitle");
+          PostMessageA(h, g_wm_settitle, 0, 0);
+        } else {
+          logger::logf("[win] WM_SETTEXT (foreign) -> '%.120s'", txt);
+        }
+      }
+      break;
     case WM_ACTIVATEAPP:
       logger::logf("[win] WM_ACTIVATEAPP active=%d", (int)w);
       break;
@@ -567,6 +612,14 @@ void subclass(HWND h) {
 // (async, never blocks). The actual SetWindowTextA happens in wndproc_hk when the game
 // dispatches that message at the top of its loop - off the ProcessGameEvents stack. Same
 // thread throughout, so g_pending_title needs no lock. Opt-in ([Window] CharTitle). ----
+void post_title(HWND h, const std::string &want) {
+  g_posted_title = want;
+  g_pending_title = want;
+  g_last_title_post = GetTickCount();
+  if (!g_wm_settitle) g_wm_settitle = RegisterWindowMessageA("RofClientPlus_SetWindowTitle");
+  PostMessageA(h, g_wm_settitle, 0, 0);  // Non-blocking; applied later in wndproc_hk.
+}
+
 void sync_title(HWND h) {
   if (!g_char_title) return;
   std::string want;
@@ -575,16 +628,36 @@ void sync_title(HWND h) {
     // keybinds.cpp::self_name(). NOT Entity.Name@0x000 (stale TAKP layout; that read back "q"), and
     // NOT Rcp::Game::get_self() (stale TAKP global 0x7F94CC -> garbage ptr -> crash). See chat_shortcuts.cpp.
     if (char *self = *reinterpret_cast<char **>(::Rcp::eqva(0xDD2630))) {
-      const char *name = self + 0xA4;
-      if (name[0]) want = std::string(name) + " - EverQuest";
+      std::string name(self + 0xA4);
+      // While dead, the local-player entity is renamed "<Name>'s corpseNNN" (seen live
+      // 2026-07-28: title read 'Haedes's corpse369 - EverQuest'); keep the plain name.
+      const size_t corpse = name.find("'s corpse");
+      if (corpse != std::string::npos) name.resize(corpse);
+      if (!name.empty()) want = name + " - EverQuest";
     }
   }
   if (want.empty()) want = g_orig_title.empty() ? "EverQuest" : g_orig_title;  // Not in-world -> stock caption.
-  if (want == g_posted_title) return;                                          // Only act on a real transition.
-  g_posted_title = want;
-  g_pending_title = want;
-  if (!g_wm_settitle) g_wm_settitle = RegisterWindowMessageA("RofClientPlus_SetWindowTitle");
-  PostMessageA(h, g_wm_settitle, 0, 0);  // Non-blocking; applied later in wndproc_hk.
+  if (want != g_posted_title) {                                                // A real transition -> post it.
+    post_title(h, want);
+    return;
+  }
+  // Verify pass: posting once is not enough anymore. Under wine-staging 11.14 the world-entry
+  // title set gets lost (observed 2026-07-28: our set logged as applied, yet wineserver and the
+  // X titlebar kept 'EverQuest'; a later external SetWindowText stuck fine and propagated). So
+  // periodically compare wineserver's stored caption against what we want and re-post on drift.
+  // server_title() reads server-side only - no WM_GETTEXT dispatch, so no re-entrancy hazard
+  // (the deadlock note above is about GetWindowTextA). The post grace period keeps us from
+  // re-asserting while our own post is still queued.
+  const DWORD now = GetTickCount();
+  if (now - g_last_title_post < kTitleVerifyMs || now - g_last_title_verify < kTitleVerifyMs) return;
+  g_last_title_verify = now;
+  const std::string cur = server_title(h);
+  if (cur != g_posted_title) {
+    ++g_title_reasserts;
+    logger::logf("[win] title is '%s', want '%s' - re-asserting (#%d)", cur.c_str(), g_posted_title.c_str(),
+                 g_title_reasserts);
+    post_title(h, g_posted_title);
+  }
 }
 
 void log_health(HWND h, const char *tag) {

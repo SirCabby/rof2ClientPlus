@@ -183,7 +183,9 @@ bool storm_debounced(const char *what, DWORD *last_ms, std::string *last_fp) {
 }
 
 void add_pc_redirects();    // PC-race alias redirects (defined with the PC section below)
-void ensure_dagreg_hook();  // lazy DLL attach-slot detour (defined with the PC section below)
+void ensure_dagreg_hook();    // lazy DLL attach-slot detour (defined with the PC section below)
+void ensure_swaphead_hook();  // lazy DLL SwapHead diagnostic tap (defined with the [helm] block)
+void apply_cached_head(void *spawn);  // post-build head-set nudge (defined with the [helm] block)
 // Scoped model-table alias window (defined with the PC section). The table RESTS NATIVE -- leaving an
 // alias code (or even a changed flags dword) in a PC record freezes local-player input (probes 1+2,
 // 2026-07-16). Dress-time code that must build alias-keyed names (armor materials, face/hair pieces,
@@ -397,6 +399,7 @@ int __fastcall BuildActor_hk(void *mgr, int edx, void *spawn, void *p2, int p3, 
       race = *reinterpret_cast<int *>(reinterpret_cast<char *>(spawn) + kEntRace);
       sid = *reinterpret_cast<int *>(reinterpret_cast<char *>(spawn) + kEntSpawnId);
       ensure_dagreg_hook();  // early: DLL is loaded by the time any spawn builds -> catches NATURAL builds
+      ensure_swaphead_hook();  // [helm] diag rides the same first-build timing
       is_local = spawn == *kLocalPlayer;  // diagnostic only now: with the resting-native table the alias
                                           // redirect is SAFE for the local player's natural builds too
                                           // (and pc_reapply live-rebuilds it with a camera re-acquire)
@@ -466,11 +469,14 @@ int __fastcall BuildActor_hk(void *mgr, int edx, void *spawn, void *p2, int p3, 
           rcp_guard::run("npcbody.restore", [&] {
             std::snprintf(reinterpret_cast<char *>(spawn) + kEntActorDef, kActorDefCap, "%s", saved);
           });
+        apply_cached_head(spawn);  // player zone-in head props stashed pre-build (see SetHead_hk)
         return r;
       }
     }
   }
-  return g_build_orig(mgr, edx, spawn, p2, p3, p4, p5, p6);
+  int r = g_build_orig(mgr, edx, spawn, p2, p3, p4, p5, p6);
+  apply_cached_head(spawn);  // player zone-in head props stashed pre-build (see SetHead_hk)
+  return r;
 }
 
 // THE RACE->CODE STRING BUILDER 0x50f070 (__cdecl(char *buf, int race, int variant) -> char*): the single
@@ -517,6 +523,14 @@ void unlink_actordef_name(const std::string &full) {
 // runs inside enter/leave (table shows the alias code only for the duration).
 typedef void(__fastcall *Apply1Fn)(void *self, int edx, int slot);
 Apply1Fn g_apply_orig = nullptr;
+// Shared [helm] diagnostic state (the taps themselves live in the [helm] block further down; these sit
+// here because ApplyArmor_hk below also logs against the same budget).
+int g_helm_log = 0;
+constexpr int kHelmLogCap = 1500;  // round 1's 500 was gone in 13s of creature-head spam (KBDHE47...)
+bool helm_log_ok() { return g_helm_log < kHelmLogCap; }
+bool helm_pc_race(int race) {
+  return (race >= 1 && race <= 12) || race == 128 || race == 130 || race == 330 || race == 522;
+}
 // ApplyArmorTexture carries the CLASSIC-HELM GATE (2026-07-16). Its WLD head-slot
 // path (0x40e656..0x40e6c9) maps helm materials straight to the Luclin 3D helm attach pieces -- material
 // 1/2/3 -> IT(5000+mat) plus the 0x40a290 race/gender offset, Velious 240/241 -> IT5028/5029, all living
@@ -542,6 +556,21 @@ void __fastcall ApplyArmor_hk(void *self, int edx, int slot) {
       if (def && !*reinterpret_cast<uint8_t *>(reinterpret_cast<char *>(def) + 0x34)) {  // classic WLD body
         show_helm = reinterpret_cast<uint8_t *>(self) + kAcShowHelm;
         saved = *show_helm;
+      }
+      // [helm] diag: record every head-relevant armor apply on PC-race spawns -- whether the Luclin-IT
+      // gate engaged (def cached+classic) or was bypassed (def not cached), to pin what a live re-equip
+      // renders that zone-in does not. Log-only; strip with the other [helm] taps.
+      if ((slot == 0 || slot == -1) && helm_log_ok()) {
+        int race = *reinterpret_cast<int *>(spawn + kEntRace);
+        if (helm_pc_race(race)) {
+          char nm[24] = {0};
+          read_cstr(spawn + kEntName, nm, sizeof(nm));
+          int def34 = def ? *reinterpret_cast<uint8_t *>(reinterpret_cast<char *>(def) + 0x34) : -1;
+          ++g_helm_log;
+          logger::logf("[helm] ApplyArmor '%s' slot=%d def34=%d show=%d gate=%s", nm, slot, def34,
+                       reinterpret_cast<uint8_t *>(self)[kAcShowHelm],
+                       (def && def34 == 0) ? "ON" : "off");
+        }
       }
     });
   }
@@ -687,6 +716,160 @@ void ensure_dagreg_hook() {
   logger::logf("[dagfix] RegisterAttachSlot detour @%p (dll+0x41140)", (void *)addr);
 }
 
+// ---- [helm] CLASSIC-HELM CHAIN DIAGNOSTICS (2026-07-27, log-only -- strip when root-caused).
+// User report: other players' helms don't render (all box chars wear material-3 plate; server audit
+// proved material 3 + showhelm=1 reach every observer; exe/DLL disasm says the classic chain
+// RefreshEquipSlot(0) -> SetHead -> SwapHead("%sHE03_DMSPRITEDEF") has no gate that applies). These
+// taps log each link so one login shows where the chain actually breaks:
+//   RefreshEquipSlot slot 0 -- does dress reach the head slot, does the TextureType@+0xEA8==0xFF
+//                              gate pass, and what props arrive;
+//   SetHead              -- material/props + the two silent-skip inputs (bShowHelm@spawn+0xF20,
+//                              def+0x34) and the return value;
+//   DLL SwapHead (lazy)  -- the mesh name it resolves and hit/miss (ret 0 = swapped, 1 = fallback
+//                              pattern scan = silent no-op). PC-race spawns only; shared cap.
+const uintptr_t kDiagSetHead = ::Rcp::eqva(0x594210);  // ret 0x30: new[5], old[5], tint, local_only
+const uintptr_t kDiagRefresh = ::Rcp::eqva(0x594e50);  // == kRefreshEquipSlot (redress constant below)
+const uintptr_t kDiagSet6 = ::Rcp::eqva(0x594de0);     // == kSet6 (redress constant below): per-slot material
+
+typedef int(__fastcall *SetHeadFn)(void *spawn, int edx, int n0, int n1, int n2, int n3, int n4,
+                                   int o0, int o1, int o2, int o3, int o4, unsigned tint, int lo);
+SetHeadFn g_sethead_orig = nullptr;
+// PRE-BUILD HEAD CACHE (2026-07-27). Log evidence: at world entry every PLAYER spawn's SetHead fires
+// once BEFORE its actor exists (gate (1) bails, ret=0) and never again after the build -- NPCs get a
+// second, post-build dress pass but players do not, so a player's zone-in helm state is dropped on the
+// floor (their classic Velious IT attach included). Cache the head props the client hands us in that
+// pre-build call and replay them via RefreshEquipSlot(0) as soon as BuildActor produces the actor.
+struct HeadProps {
+  int p[5];
+  unsigned tint;
+};
+std::mutex g_headcache_mu;
+std::map<void *, HeadProps> g_head_cache;  // spawn -> pending pre-build head props
+int __fastcall SetHead_hk(void *spawn, int edx, int n0, int n1, int n2, int n3, int n4, int o0,
+                          int o1, int o2, int o3, int o4, unsigned tint, int lo) {
+  char line[192] = {0};
+  if (!crash_handler::shutting_down()) {
+    rcp_guard::run("helm.sethead", [&] {
+      char *b = reinterpret_cast<char *>(spawn);
+      int race = *reinterpret_cast<int *>(b + kEntRace);
+      if (!helm_pc_race(race)) return;
+      if (n0 && !*reinterpret_cast<void **>(b + 0x101c)) {  // pre-build call: stash for the build
+        std::lock_guard<std::mutex> lk(g_headcache_mu);
+        if (g_head_cache.size() < 512) g_head_cache[spawn] = HeadProps{{n0, n1, n2, n3, n4}, tint};
+      }
+      if (g_helm_log >= kHelmLogCap) return;
+      char nm[24] = {0};
+      read_cstr(b + kEntName, nm, sizeof(nm));
+      void *def = *reinterpret_cast<void **>(b + 0x1024);  // cached CActorDefinition (kEntDefCache)
+      int def34 = def ? *reinterpret_cast<uint8_t *>(reinterpret_cast<char *>(def) + 0x34) : -1;
+      int show = *reinterpret_cast<uint8_t *>(b + 0xF20);  // ActorClient+0x7c bShowHelm
+      std::snprintf(line, sizeof(line), "[helm] SetHead '%s' race=%d def34=%d show=%d new0=%d old0=%d lo=%d",
+                    nm, race, def34, show, n0, o0, lo);
+    });
+  }
+  int r = g_sethead_orig(spawn, edx, n0, n1, n2, n3, n4, o0, o1, o2, o3, o4, tint, lo);
+  if (line[0]) {
+    ++g_helm_log;
+    logger::logf("%s ret=%d", line, r);
+  }
+  return r;
+}
+
+typedef int(__fastcall *RefreshEquipFn)(void *spawn, int edx, int slot, unsigned p0, unsigned p1,
+                                        unsigned p2, unsigned p3, unsigned p4, unsigned tint, int lo);
+RefreshEquipFn g_refresh_orig = nullptr;
+
+// Replay a player spawn's stashed pre-build head props right after its actor is built (called from
+// BuildActor_hk's exits). Routes through the native RefreshEquipSlot(0) -> SetHead, local_only=1 --
+// the exact call the in-game-proven pc_reapply redress uses post-EnsureActor. No cache entry = no-op.
+void apply_cached_head(void *spawn) {
+  if (crash_handler::shutting_down()) return;
+  HeadProps hp{};
+  {
+    std::lock_guard<std::mutex> lk(g_headcache_mu);
+    auto it = g_head_cache.find(spawn);
+    if (it == g_head_cache.end()) return;
+    hp = it->second;
+    g_head_cache.erase(it);
+  }
+  rcp_guard::run("helm.postbuild", [&] {
+    char *b = reinterpret_cast<char *>(spawn);
+    if (!*reinterpret_cast<void **>(b + 0x101c)) return;  // build produced no actor; drop it
+    // Replay BOTH halves of the natural head dress, in pc_reapply's proven order: the slot-0
+    // MATERIAL (set6 -> head/face textures; user report: a live re-equip makes the helm show,
+    // and the material apply is what a WearChange runs that zone-in never did) then the head-SET
+    // (RefreshEquipSlot -> SetHead: HE-piece swap attempt + Velious IT attach).
+    if (hp.p[0])
+      reinterpret_cast<int(__thiscall *)(void *, int, int, int, int, int, int)>(kDiagSet6)(
+          spawn, 0, hp.p[0], 0, static_cast<int>(hp.tint), 5, 0);
+    reinterpret_cast<int(__thiscall *)(void *, int, unsigned, unsigned, unsigned, unsigned, unsigned,
+                                       unsigned, int)>(kDiagRefresh)(
+        spawn, 0, hp.p[0], hp.p[1], hp.p[2], hp.p[3], hp.p[4], hp.tint, 1);
+  });
+}
+int __fastcall RefreshEquip_hk(void *spawn, int edx, int slot, unsigned p0, unsigned p1, unsigned p2,
+                               unsigned p3, unsigned p4, unsigned tint, int lo) {
+  if (slot == 0 && !crash_handler::shutting_down() && g_helm_log < kHelmLogCap) {
+    rcp_guard::run("helm.refresh", [&] {
+      char *b = reinterpret_cast<char *>(spawn);
+      int race = *reinterpret_cast<int *>(b + kEntRace);
+      if (!helm_pc_race(race)) return;
+      char nm[24] = {0};
+      read_cstr(b + kEntName, nm, sizeof(nm));
+      int ttype = *reinterpret_cast<uint8_t *>(b + 0xEA8);  // must be 0xFF or SetHead is never reached
+      ++g_helm_log;
+      logger::logf("[helm] Refresh0 '%s' race=%d ttype=0x%02x p0=%u lo=%d", nm, race, ttype, p0, lo);
+    });
+  }
+  return g_refresh_orig(spawn, edx, slot, p0, p1, p2, p3, p4, tint, lo);
+}
+
+// SwapHead@dll+0x43250 (CActor vt[0x14C], __thiscall + 6 stack args, ret 0x18; disasm-verified
+// 2026-07-27). Log the raw args plus printable-string peeks -- one of them is the target head-mesh
+// name ("HUMHE03_DMSPRITEDEF") -- and the result (al==0 means the named mesh was found and swapped;
+// al==1 means the name missed and the hardcoded FHE00/CLKER/CHAIN/HELM fallback scan ran instead).
+typedef char(__fastcall *SwapHeadFn)(void *actor, int edx, int a1, int a2, int a3, int a4, int a5, int a6);
+SwapHeadFn g_swaphead_orig = nullptr;
+bool g_swaphead_hooked = false;
+char __fastcall SwapHeadDll_hk(void *actor, int edx, int a1, int a2, int a3, int a4, int a5, int a6) {
+  char r = g_swaphead_orig(actor, edx, a1, a2, a3, a4, a5, a6);
+  if (!crash_handler::shutting_down() && g_helm_log < kHelmLogCap) {
+    const int args[6] = {a1, a2, a3, a4, a5, a6};
+    char peek[2][28] = {{0}, {0}};
+    int found = 0;
+    for (int i = 0; i < 6 && found < 2; ++i) {
+      if (static_cast<unsigned>(args[i]) < 0x10000u) continue;
+      char buf[28] = {0};
+      rcp_guard::run("helm.peek", [&] {
+        const char *p = reinterpret_cast<const char *>(args[i]);
+        for (size_t k = 0; k + 1 < sizeof(buf); ++k) {
+          char c = p[k];
+          if (!c) break;
+          buf[k] = (c >= 0x20 && c < 0x7f) ? c : '.';
+        }
+      });
+      if (buf[0] && buf[1] && buf[2]) std::snprintf(peek[found++], sizeof(peek[0]), "%s", buf);
+    }
+    // Round-2 filter: only the classic head numbers ('XXXHE0#...') are diagnostic -- the eqg-era
+    // 'HE47' toggles fire for every creature spawn and burned round 1's whole log budget in seconds.
+    if (peek[0][0] && std::strncmp(peek[0] + 3, "HE0", 3) == 0) {
+      ++g_helm_log;
+      logger::logf("[helm] SwapHead actor=%p args=%x/%x/%x/%x/%x/%x s0='%s' s1='%s' ret=%d", actor, a1,
+                   a2, a3, a4, a5, a6, peek[0], peek[1], r);
+    }
+  }
+  return r;
+}
+void ensure_swaphead_hook() {
+  if (g_swaphead_hooked || !g_hookwrap) return;
+  HMODULE dll = GetModuleHandleA("EQGraphicsDX9.dll");
+  if (!dll) return;
+  uintptr_t addr = reinterpret_cast<uintptr_t>(dll) + 0x43250;
+  g_hookwrap->Add("rcp_helm_swaphead", static_cast<int>(addr), SwapHeadDll_hk, hook_type_detour);
+  g_swaphead_orig = g_hookwrap->hook_map["rcp_helm_swaphead"]->original(SwapHeadDll_hk);
+  g_swaphead_hooked = true;
+  logger::logf("[helm] SwapHead detour @%p (dll+0x43250)", (void *)addr);
+}
 
 // ALWAYS answers "classic" for the 12 managed races (Native=1 debug leaves the map empty = passthrough).
 // This is load-bearing now that the hook is armed at DllMain: the ONE consult is the init-time
@@ -942,6 +1125,7 @@ void pc_reapply() {
   });
   if (!mgr) return;
   ensure_dagreg_hook();  // lazy: the graphics DLL exists by the time anyone toggles
+  ensure_swaphead_hook();
   // 1) Sync the alias redirects to current settings; invalidate stale alias defs. The model table itself
   //    is NOT touched here -- it rests native and flips only inside dress windows (see enter_alias_window).
   {
@@ -1280,6 +1464,11 @@ void install_early(HookWrapper *hooks) {
   g_pc_orig = hooks->hook_map["rcp_pc_luclin"]->original(ShouldUseLuclin_hk);
   hooks->Add("rcp_learn_apply", static_cast<int>(kApplyArmor), ApplyArmor_hk, hook_type_detour);
   g_apply_orig = hooks->hook_map["rcp_learn_apply"]->original(ApplyArmor_hk);
+  // [helm] diagnostic taps (log-only): SetHead + RefreshEquipSlot; the DLL SwapHead tap arms lazily.
+  hooks->Add("rcp_helm_sethead", static_cast<int>(kDiagSetHead), SetHead_hk, hook_type_detour);
+  g_sethead_orig = hooks->hook_map["rcp_helm_sethead"]->original(SetHead_hk);
+  hooks->Add("rcp_helm_refresh", static_cast<int>(kDiagRefresh), RefreshEquip_hk, hook_type_detour);
+  g_refresh_orig = hooks->hook_map["rcp_helm_refresh"]->original(RefreshEquip_hk);
   g_early_installed = true;
   logger::logf("[pcmodel] EARLY hooks @attach: build 0x%x / resolve 0x%x / luclin 0x%x / helm 0x%x",
                (unsigned)kBuildActor, (unsigned)kResolveModelCode, (unsigned)kShouldUseLuclin,
@@ -1307,6 +1496,10 @@ NpcModelSwap::NpcModelSwap(RcpService *rcp) : rcp_(rcp) {
   if (!g_early_installed) {
     rcp->hooks->Add("rcp_learn_apply", static_cast<int>(kApplyArmor), ApplyArmor_hk, hook_type_detour);
     g_apply_orig = rcp->hooks->hook_map["rcp_learn_apply"]->original(ApplyArmor_hk);
+    rcp->hooks->Add("rcp_helm_sethead", static_cast<int>(kDiagSetHead), SetHead_hk, hook_type_detour);
+    g_sethead_orig = rcp->hooks->hook_map["rcp_helm_sethead"]->original(SetHead_hk);
+    rcp->hooks->Add("rcp_helm_refresh", static_cast<int>(kDiagRefresh), RefreshEquip_hk, hook_type_detour);
+    g_refresh_orig = rcp->hooks->hook_map["rcp_helm_refresh"]->original(RefreshEquip_hk);
   }
   // Resolver detour: rewrites the model-table code STRING (not the record) to the alias for modern races,
   // so all dress-time name construction (body/armor/hair/metrics) resolves alias-keyed with the record
