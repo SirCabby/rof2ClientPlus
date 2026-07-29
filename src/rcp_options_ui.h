@@ -114,6 +114,9 @@ class RcpOptionsUI {
   void *sl_actor_ = nullptr;  // Actor (NPC/player) view distance, world units.
   void *lbl_actor_hdr_ = nullptr;
   void *lbl_actor_ = nullptr;
+  void *sl_maparrow_ = nullptr;  // Map player-arrow size multiplier (map_arrow_settings).
+  void *lbl_maparrow_hdr_ = nullptr;
+  void *lbl_maparrow_ = nullptr;
   // Ring tab (solid-color target ring; target_ring_settings).
   void *cb_ring_enabled_ = nullptr;
   void *cb_ring_hideself_ = nullptr;
@@ -212,6 +215,7 @@ class RcpOptionsUI {
   bool last_newbook_ = false;
   int last_far_ = -1;
   int last_actor_ = -1;
+  int last_maparrow_ = -1;
   bool last_ring_enabled_ = false;
   bool last_ring_hideself_ = false;
   bool last_ring_concolor_ = false;

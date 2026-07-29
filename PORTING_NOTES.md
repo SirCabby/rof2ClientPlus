@@ -1436,3 +1436,47 @@ Two halves, both in `spellbook_ui.cpp`:
   window goes hidden with a mem/scribe pending — so close/stand cancels match stock for
   the new window too (this also gives the new window stock-parity cancel for plain
   memorizes, which previously just stalled when the window closed mid-mem).
+
+## Map player-arrow size (`src/map_arrow.cpp`, `/rcpmaparrow`) — DONE (awaiting in-game confirm 2026-07-28)
+
+Scales the player's position arrow in the stock map window (`/rcpoptions` Display-tab
+slider 0.5x–4.0x, `/rcpmaparrow` up to 8x, ini `[MapArrow] Scale`).
+
+### RE map (all disasm-verified on this build)
+
+- `MapViewMap` vftable `0x9EE580` (eqlib-named); slot 4 (`+0x10`) = **PostDraw
+  `0x6cfb00`**, a thin wrapper that grabs the client rect and calls the real
+  **`MapViewMap::Draw(CXRect)` = `0x6cd4a0`** when the rect is non-empty. (Slot math
+  cross-checked: slot 14 `+0x38` = `0x6c9430` matches eqlib's `HandleLButtonDown`.)
+- The **player-arrow block is `0x6ce989..0x6ced4d`** inside Draw, after the 6-slot
+  group-member loop, gated on a bool at `this+0x2c0` + `pinstLocalPlayer 0xDD2630` +
+  `0xDD261C` non-null. Player world pos (X@+0x68, Y@+0x64 negated) →
+  `TransformPoint 0x6c87a0` → screen point; heading (`PlayerClient+0x80`, 0..512) feeds
+  a sin/cos-table object (global `0x15d46b4`, vtbl `+0x8`/`+0xC` calls with the heading
+  pushed as float); lines drawn via `DrawClippedLine 0x6cb230` in `myColor this+0x270`
+  (eqlib's MapViewMap field layout matches this build).
+- **Geometry** (screen pixels, zoom-independent): stem tail = pos − dir·4.0, stem tip =
+  pos + dir·(4.0·2.0), barbs = tip→(pos ± 48/512-turn offsets)·6.0. A second variant — a
+  small "+" from −2.0 to +3.0 px on each axis — draws when `[obj from call
+  0x7db210]+0x3140 <= 190` (some display metric; both variants are handled).
+- The magnitudes are **pooled `.rdata` float constants** (4.0@`0x9c5764`, 6.0@`0x9c7da0`,
+  2.0@`0x9c58e8`, 3.0@`0x9c3920`) shared binary-wide — patching the VALUES would corrupt
+  unrelated code. Instead the mod **redirects each instruction's 4-byte absolute operand**
+  (all 6-byte x87 forms, displacement at +2) to DLL-owned floats holding stock·scale:
+
+  | sites (VA) | opcode | stock operand | meaning |
+  |---|---|---|---|
+  | `0x6cea37 0x6cea5d` | `d8 0d` fmuls | 4.0 `0x9c5764` | stem vector x/y |
+  | `0x6cea8a 0x6ceab7 0x6ceae4 0x6ceb11` | `d8 0d` fmuls | 6.0 `0x9c7da0` | barb vectors |
+  | `0x6cec45 0x6cece0` | `d9 05` flds | 2.0 `0x9c58e8` | "+" −arm |
+  | `0x6cec75 0x6cecff` | `d8 05` fadds | 3.0 `0x9c3920` | "+" +arm |
+
+- ⚠ **Deliberately NOT patched:** the `flds 2.0` at `0x6cec0d` — it MULTIPLIES the
+  already-redirected stem value to place the tip (tip = 2·stem, a shape ratio); scaling
+  it too would grow the tip by scale². Likewise the barb-angle `fadds`
+  (`0x9eeac0`=48.0 / `0x9eeabc`=464.0) are angles, not sizes. Group-member markers and
+  the find-path line are separate code, untouched.
+- Every VA (site addresses AND expected operands — the loader relocates absolute
+  operands via .reloc) goes through `Rcp::eqva()`. Install verifies opcode + current
+  operand at all 10 sites before writing any, and aborts wholesale on mismatch. Scale
+  changes after install are plain float stores — no re-patching.

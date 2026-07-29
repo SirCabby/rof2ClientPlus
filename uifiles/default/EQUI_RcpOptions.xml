@@ -1649,12 +1649,66 @@
     <NoWrap>true</NoWrap>
   </Label>
 
+  <Label item="Rcp_MapArrowLabel">
+    <ScreenID>Rcp_MapArrowLabel</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>200</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>14</CY>
+    </Size>
+    <Text>Map player-arrow size</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>255</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
+  <Slider item="Rcp_MapArrow">
+    <ScreenID>Rcp_MapArrow</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>12</X>
+      <Y>216</Y>
+    </Location>
+    <Size>
+      <CX>190</CX>
+      <CY>16</CY>
+    </Size>
+    <SliderArt>SDT_DefSlider</SliderArt>
+  </Slider>
+
+  <Label item="Rcp_MapArrowValue">
+    <ScreenID>Rcp_MapArrowValue</ScreenID>
+    <RelativePosition>true</RelativePosition>
+    <Location>
+      <X>208</X>
+      <Y>216</Y>
+    </Location>
+    <Size>
+      <CX>58</CX>
+      <CY>16</CY>
+    </Size>
+    <Text>1.00x</Text>
+    <TextColor>
+      <R>255</R>
+      <G>255</G>
+      <B>0</B>
+    </TextColor>
+    <NoWrap>true</NoWrap>
+  </Label>
+
   <Label item="Rcp_CamHeader">
     <ScreenID>Rcp_CamHeader</ScreenID>
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>206</Y>
+      <Y>248</Y>
     </Location>
     <Size>
       <CX>200</CX>
@@ -1674,7 +1728,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>224</Y>
+      <Y>266</Y>
     </Location>
     <Size>
       <CX>250</CX>
@@ -1702,7 +1756,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>250</Y>
+      <Y>292</Y>
     </Location>
     <Size>
       <CX>200</CX>
@@ -1722,7 +1776,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>12</X>
-      <Y>266</Y>
+      <Y>308</Y>
     </Location>
     <Size>
       <CX>190</CX>
@@ -1736,7 +1790,7 @@
     <RelativePosition>true</RelativePosition>
     <Location>
       <X>208</X>
-      <Y>266</Y>
+      <Y>308</Y>
     </Location>
     <Size>
       <CX>58</CX>
@@ -3181,6 +3235,9 @@
     <Pieces>Rcp_ActorClipLabel</Pieces>
     <Pieces>Rcp_ActorClip</Pieces>
     <Pieces>Rcp_ActorClipValue</Pieces>
+    <Pieces>Rcp_MapArrowLabel</Pieces>
+    <Pieces>Rcp_MapArrow</Pieces>
+    <Pieces>Rcp_MapArrowValue</Pieces>
     <Pieces>Rcp_CamHeader</Pieces>
     <Pieces>Rcp_ChaseEnabled</Pieces>
     <Pieces>Rcp_ChaseDistLabel</Pieces>

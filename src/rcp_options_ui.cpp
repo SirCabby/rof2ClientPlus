@@ -22,6 +22,7 @@
 #include "game_functions.h"
 #include "hook_wrapper.h"  // hook_type_detour for the LoadSidl handle-drop install
 #include "logger.h"
+#include "map_arrow.h"
 #include "model_swap.h"
 #include "npc_model_swap.h"
 #include "mouse_mods.h"
@@ -319,6 +320,15 @@ static int viewdist_to_slider(int units) {
 }
 static int slider_to_viewdist(int v) { return v * kViewDistStep; }
 
+// Map player-arrow size slider (Display tab): 0..14 -> 0.5x..4.0x in 0.25x steps (2 == stock 1.0x).
+// The /rcpmaparrow command can go higher (map_arrow_settings::scale_max()); the slider clamps.
+static constexpr int kMapArrowSliderMax = 14;
+static int maparrow_to_slider(float s) {
+  int v = static_cast<int>((s - 0.5f) / 0.25f + 0.5f);
+  return v < 0 ? 0 : (v > kMapArrowSliderMax ? kMapArrowSliderMax : v);
+}
+static float maparrow_slider_to_scale(int v) { return 0.5f + v * 0.25f; }
+
 // Sentinel "roles" for the non-nameplate color swatches so they reuse the stock color-picker
 // machinery (which is keyed on an int role) without colliding with the 0..kRoleCount-1 nameplate
 // roles. Ring uses 100; the floating-combat-damage swatches use 101..104.
@@ -438,6 +448,9 @@ void RcpOptionsUI::create_window() {
   sl_actor_ = get_child(wnd_, "Rcp_ActorClip");
   lbl_actor_hdr_ = get_child(wnd_, "Rcp_ActorClipLabel");
   lbl_actor_ = get_child(wnd_, "Rcp_ActorClipValue");
+  sl_maparrow_ = get_child(wnd_, "Rcp_MapArrow");
+  lbl_maparrow_hdr_ = get_child(wnd_, "Rcp_MapArrowLabel");
+  lbl_maparrow_ = get_child(wnd_, "Rcp_MapArrowValue");
   cb_ring_enabled_ = get_child(wnd_, "Rcp_RingEnabled");
   cb_ring_hideself_ = get_child(wnd_, "Rcp_RingHideSelf");
   cb_ring_concolor_ = get_child(wnd_, "Rcp_RingConColor");
@@ -511,6 +524,7 @@ void RcpOptionsUI::create_window() {
   slider_set_range(sl_ring_opacity_, kRingOpacitySliderMax);  // 0..100 -> 0..1 opacity.
   slider_set_range(sl_far_, kViewDistSliderMax);    // 0..200 -> 0..20000 world units terrain far clip.
   slider_set_range(sl_actor_, kViewDistSliderMax);  // 0..200 -> 0..20000 world units actor draw distance.
+  slider_set_range(sl_maparrow_, kMapArrowSliderMax);  // 0..14 -> 0.5x..4.0x map player-arrow size.
   slider_set_range(sl_snd_vol_, 300);               // 0..300 percent volume (0 = mute, 100 = unchanged, >100 boosts).
   slider_set_range(sl_fcd_big_, kFcdBigSliderMax);  // 0..100 -> 0..2000 big-hit threshold (Combat tab).
 
@@ -559,6 +573,7 @@ void RcpOptionsUI::set_active_tab(int tab) {
   void *display[] = {cb_nofog_,           cb_spellicons_,    cb_newbook_,
                      lbl_far_hdr_,        sl_far_,
                      lbl_far_,            lbl_actor_hdr_,    sl_actor_,         lbl_actor_,
+                     lbl_maparrow_hdr_,   sl_maparrow_,      lbl_maparrow_,
                      lbl_cam_hdr_,        cb_chase_enabled_,
                      lbl_chase_dist_hdr_, sl_chase_dist_,    lbl_chase_dist_};
   for (void *w : display) show_window(w, tab == 4);
@@ -889,6 +904,7 @@ void RcpOptionsUI::sync_controls() {
   checkbox_set(cb_newbook_, spellbook_settings::get_enabled());
   slider_set(sl_far_, viewdist_to_slider(view_distance_settings::get_clip()));
   slider_set(sl_actor_, viewdist_to_slider(view_distance_settings::get_actor_clip()));
+  slider_set(sl_maparrow_, maparrow_to_slider(map_arrow_settings::get_scale()));
   checkbox_set(cb_ring_enabled_, target_ring_settings::get_enabled());
   checkbox_set(cb_ring_hideself_, target_ring_settings::get_hide_self());
   checkbox_set(cb_ring_concolor_, target_ring_settings::get_use_con_color());
@@ -947,6 +963,7 @@ void RcpOptionsUI::seed_last_values() {
   last_newbook_ = checkbox_get(cb_newbook_);
   last_far_ = slider_get(sl_far_);
   last_actor_ = slider_get(sl_actor_);
+  last_maparrow_ = slider_get(sl_maparrow_);
   last_ring_enabled_ = checkbox_get(cb_ring_enabled_);
   last_ring_hideself_ = checkbox_get(cb_ring_hideself_);
   last_ring_concolor_ = checkbox_get(cb_ring_concolor_);
@@ -1021,6 +1038,9 @@ void RcpOptionsUI::update_labels() {
   else
     std::snprintf(buf, sizeof(buf), "off");
   set_label_text(lbl_actor_, buf);
+  // Map player-arrow size multiplier (1.00x = stock).
+  std::snprintf(buf, sizeof(buf), "%.2fx", map_arrow_settings::get_scale());
+  set_label_text(lbl_maparrow_, buf);
   // Target-ring radii + opacity.
   std::snprintf(buf, sizeof(buf), "%.1f", target_ring_settings::get_outer());
   set_label_text(lbl_ring_outer_, buf);
@@ -1070,6 +1090,7 @@ void RcpOptionsUI::drop_handles() {
   sl_np_dist_ = lbl_np_dist_hdr_ = lbl_np_dist_ = nullptr;
   cb_nofog_ = cb_spellicons_ = cb_newbook_ = nullptr;
   sl_far_ = lbl_far_hdr_ = lbl_far_ = sl_actor_ = lbl_actor_hdr_ = lbl_actor_ = nullptr;
+  sl_maparrow_ = lbl_maparrow_hdr_ = lbl_maparrow_ = nullptr;
   cb_ring_enabled_ = cb_ring_hideself_ = cb_ring_concolor_ = btn_ring_color_ = nullptr;
   sl_ring_outer_ = lbl_ring_outer_hdr_ = lbl_ring_outer_ = nullptr;
   sl_ring_inner_ = lbl_ring_inner_hdr_ = lbl_ring_inner_ = nullptr;
@@ -1336,6 +1357,13 @@ void RcpOptionsUI::on_frame() {
     view_distance_settings::set_actor_clip(slider_to_viewdist(ac));
     update_labels();
     last_actor_ = ac;
+  }
+  // Display: map player-arrow size slider -> map_arrow_settings (redraws next map frame + persists).
+  int ma = slider_get(sl_maparrow_);
+  if (ma != last_maparrow_) {
+    map_arrow_settings::set_scale(maparrow_slider_to_scale(ma));
+    update_labels();
+    last_maparrow_ = ma;
   }
 
   // Ring tab: enable + hide-self checkboxes, radius/opacity sliders (same "only on real change" rule).
