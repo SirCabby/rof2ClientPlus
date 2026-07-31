@@ -87,6 +87,8 @@ const int kListGetItemData = ::Rcp::eqva(0x853680); // uint32 GetItemData(int ro
 const int kListSetItemColor = ::Rcp::eqva(0x857770);   // void SetItemColor(int row, int col, COLORREF)
 const int kListEnsureVisible = ::Rcp::eqva(0x8550D0);  // void EnsureVisible(int row)
 const int kListSetColumnsSizable = ::Rcp::eqva(0x855F20);  // void SetColumnsSizable(bool) - enables header drag-resize
+const int kListClearAllSel = ::Rcp::eqva(0x854220);    // void ClearAllSel() - CurSel/CurCol = -1 + every bSelected
+const int kListGetItemAtPoint = ::Rcp::eqva(0x8553E0); // void GetItemAtPoint(const CXPoint*, int* row, int* col)
 constexpr int kListItemsCountOffset = 0x1d8;  // ItemsArray.m_length == row count
 constexpr int kListCurColOffset = 0x1fc;      // CurCol: column of the last click (next to proven CurSel@0x1f8)
 constexpr int kListSortColOffset = 0x210;     // SortCol
@@ -98,7 +100,19 @@ constexpr int kListStyleOffset = 0x274;       // ListWndStyle
 // click only updates SortCol/bSortAsc + runs the native Sort when BOTH of these
 // style bits are set at [this+0x274] - runtime-created lists lack them, which is
 // why headers were display-only. OR them in at bind and native sorting just works.
-constexpr uint32_t kListStyleSortable = 0x40000u | 0x400000u;
+// 0x40000 has a SECOND job (see refresh_list): it also makes AddString insert in
+// sort order instead of appending, so the fill has to drop it and put it back.
+constexpr uint32_t kListStyleSortedInsert = 0x40000u;
+constexpr uint32_t kListStyleSortable = kListStyleSortedInsert | 0x400000u;
+// Everything header_col_at_mouse() needs to repeat the client's own header hit
+// test (CListWnd::HandleLButtonDown@0x8585c0 -> the vtable+0x164 header click).
+constexpr uint32_t kListStyleHeader = 0x200000u;  // "has a column header" - the band below only exists with it
+constexpr int kListHScrollOffset = 0x198;   // CXWnd HScrollPos: added to the hit-test x (columns are content-space)
+constexpr int kListFontOffset = 0x15c;      // CXWnd pFont - the header band is one line of THIS font + 4
+constexpr int kListSepDraggedOffset = 0x220;    // ColumnSepDragged   (-1 = none)
+constexpr int kListSepMouseOverOffset = 0x224;  // ColumnSepMouseOver (-1 = none): a press here RESIZES, never sorts
+constexpr int kWndClientRectVtOffset = 0xf8;    // CXWnd vtable: CXRect* GetClientRect(CXRect* out)
+const int kFontGetHeight = ::Rcp::eqva(0x889910);  // int CTextureFont::GetHeight()
 
 // CEditWnd: this build keeps the live typed text CXStr at +0x1a8 (disasm of
 // CEditWnd::GetDisplayString@0x87B3E0: reads + refcounts [this+0x1a8]). The
@@ -284,7 +298,23 @@ struct ScribeGlobalIndex {
 // rect). Resize itself takes FIVE args (w,h,1,0,0; ret 0x14) and preserves the
 // top-left, so all layout goes through the Move virtual instead.
 const uintptr_t kMouseInfo = ::Rcp::eqva(0xE67B54);
+// DI8__MouseState (0xE67884) is the game's polled DirectInput mouse state
+// {LONG lX,lY,lZ; BYTE rgbButtons[8]}; left button = rgbButtons[0] @ +0xC.
+// Refreshed every frame - the press edge is when sort_poll hit-tests the header
+// and when the re-click-to-deselect gesture arms (see both).
+const uintptr_t kMouseLButton = ::Rcp::eqva(0xE67890);
+// pinstCXWndManager + CXWndManager::MousePoint {int x, y} @+0x94. This is the
+// pointer CListWnd::Draw@0x856d10 itself feeds to GetItemAtPoint for its
+// mouse-over highlight, so hit tests done with it are in the list's own
+// coordinate space by construction (kMouseInfo above is only ever used for
+// RELATIVE drag deltas, and makes no promise about matching that space).
+void **const kWndMgr = reinterpret_cast<void **>(::Rcp::eqva(0x15D3D00));
+constexpr int kWndMgrMousePointOffset = 0x94;
 constexpr int kWndLocationOffset = 0x60;
+// CXRect field order, shared by the Location rect and by GetClientRect's out-param.
+struct WndRect {
+  int l, t, r, b;
+};
 const int kResize = ::Rcp::eqva(0x863990);
 constexpr int kSplitGap = 8;      // divider drag-handle height (matches the generator layout)
 constexpr int kListMinCY = 96;    // never shrink the list below ~3 rows + header
@@ -377,6 +407,14 @@ std::string g_search;              // current lowercased search text
 int g_sel_spell = -1;              // spell shown in the description pane
 int g_last_sel = -1;               // last GetCurSel seen (click edge detection)
 int g_last_col = -1;               // last CurCol seen (so a gem click on the SELECTED row still fires)
+// Left-button edges for the frame, sampled once by mouse_edge_poll() and read by
+// both sort_poll (bounding a header click to one sort decision) and
+// deselect_poll (re-click-to-deselect).
+bool g_lbutton_down = false;
+bool g_lbutton_press = false;
+bool g_lbutton_release = false;
+int g_press_row = -1;         // row the current left press landed on (-1 = not on a row)
+bool g_press_deselect = false;  // ...and it was a RE-click on the already-selected row
 // Filter picker state: what the selected choice means, and the choice list
 // (index-parallel with g_filter_map: {kind, value}; kind 0=all, 1=skill,
 // 2=category, 3=subcategory).
@@ -386,14 +424,11 @@ std::vector<std::string> g_filter_choices;
 std::vector<std::pair<int, int>> g_filter_map;
 int g_last_filter_choice = -1;
 bool g_last_unscribed_cb = false;
-// OUR sort state. The native OnHeaderClick is used only as a header-CLICK
-// DETECTOR: it can fire more than once per physical click (its bSortAsc toggle
-// nets to zero on a same-column click, which is how "sorting is stuck one way"
-// happened), so the direction decision is debounced here and the native fields
-// are re-normalized after every observed change.
-int g_sort_col = 2;       // == kColLvl (column enum is defined below); default = level ascending
+// OUR sort state, and the only sort state that decides anything: sort_poll owns
+// the header clicks (own hit test on the press edge) and writes the native
+// SortCol/bSortAsc from these, never the other way round.
+int g_sort_col = 2;  // == kColLvl (column enum is defined below); default = level ascending
 bool g_sort_asc = true;
-int g_sort_cooldown = 0;  // frames left in which further native sort-field changes are the same click
 // Splitter drag state: started by the native press on the Rcp_SbSplit handle
 // button, then tracked by RELATIVE mouse movement (no absolute coordinate-space
 // assumptions between CXWnd rects and the mouse globals).
@@ -526,6 +561,22 @@ void list_set_item_color(void *list, int row, int col, uint32_t argb) {
 }
 void list_ensure_visible(void *list, int row) {
   if (list) reinterpret_cast<void(__thiscall *)(void *, int)>(kListEnsureVisible)(list, row);
+}
+// Full deselect. DrawLine@0x856840 highlights a row when EITHER its bSelected
+// flag is set OR row == CurSel, and SetCurSel@0x853470 writes nothing but CurSel
+// - ClearAllSel is the native "nothing is selected" that covers both (and CurCol).
+void list_clear_all_sel(void *list) {
+  if (list) reinterpret_cast<void(__thiscall *)(void *)>(kListClearAllSel)(list);
+}
+// Row+column under the mouse pointer, (-1,-1) when it is not over a cell.
+// GetItemAtPoint only WRITES the out-params on a hit, so both must start at -1.
+void list_item_at_mouse(void *list, int *row, int *col) {
+  *row = -1;
+  *col = -1;
+  void *wm = *kWndMgr;
+  if (!list || !wm) return;
+  const int *pt = reinterpret_cast<const int *>(reinterpret_cast<char *>(wm) + kWndMgrMousePointOffset);
+  reinterpret_cast<void(__thiscall *)(void *, const int *, int *, int *)>(kListGetItemAtPoint)(list, pt, row, col);
 }
 // ---- CComboWnd wrappers (the filter picker; proven offsets from the options
 // window). Every method derefs pListWnd@+0x1d8 with no null check, so all
@@ -1069,30 +1120,101 @@ void populate_filter_combo(std::vector<int> skills, std::vector<int> cats, std::
   g_last_filter_choice = combo_get_cur_choice(g_combo_filter);
 }
 
-// Header-click detection: any change of the native sort fields away from the
-// normalized state (g_sort_col, asc=1) means the native OnHeaderClick ran. The
-// FIRST change of a click decides column/direction; further changes within the
-// cooldown are the same physical click re-firing and are swallowed. Every
-// observed change forces a rebuild, because the native (text-order) Sort just
-// reordered the rows out from under our model.
+// Sample the left button once a frame and expose its edges; both sort_poll and
+// deselect_poll are press/release driven and must agree on the same frame's edge.
+void mouse_edge_poll() {
+  const bool down = (*reinterpret_cast<volatile uint8_t *>(kMouseLButton) & 0x80) != 0;
+  g_lbutton_press = down && !g_lbutton_down;
+  g_lbutton_release = !down && g_lbutton_down;
+  g_lbutton_down = down;
+}
+
+// Which column header the pointer is over, or -1. This repeats the client's own
+// hit test exactly, from the disasm of CListWnd::HandleLButtonDown@0x8585c0 and
+// the header-click virtual it calls (vtable+0x164 -> 0x8554b0):
+//   * the band is one header font line: y in [client.top, client.top + font->GetHeight() + 4)
+//   * x runs from client.left+1 through the accumulated column widths, against a
+//     point shifted right by HScrollPos (columns are laid out in content space)
+//   * a press on a column SEPARATOR starts a resize drag and never reaches the
+//     sort - ColumnSepMouseOver@+0x224 is the client's own "on a separator" flag
+// (The client's remaining condition, ParentWindow@+0x174 != null, is a given for
+// a child list.) All of it works in the screen space GetItemAtPoint uses, which
+// is where CXWndManager::MousePoint already lives.
+int header_col_at_mouse() {
+  void *wm = *kWndMgr;
+  if (!g_list || !wm) return -1;
+  char *lw = reinterpret_cast<char *>(g_list);
+  if (!(*reinterpret_cast<uint32_t *>(lw + kListStyleOffset) & kListStyleHeader)) return -1;
+  if (*reinterpret_cast<int *>(lw + kListSepMouseOverOffset) != -1) return -1;  // resize, not sort
+  void *font = *reinterpret_cast<void **>(lw + kListFontOffset);
+  if (!font) return -1;
+  void *vtable = *reinterpret_cast<void **>(lw);
+  void *fn = *reinterpret_cast<void **>(reinterpret_cast<char *>(vtable) + kWndClientRectVtOffset);
+  WndRect rc{0, 0, 0, 0};
+  reinterpret_cast<WndRect *(__thiscall *)(void *, WndRect *)>(fn)(g_list, &rc);
+  const int *pt = reinterpret_cast<const int *>(reinterpret_cast<char *>(wm) + kWndMgrMousePointOffset);
+  const int my = pt[1];
+  if (my < rc.t) return -1;
+  const int fh = reinterpret_cast<int(__thiscall *)(void *)>(kFontGetHeight)(font);
+  if (my >= rc.t + fh + 4) return -1;
+  const int mx = pt[0];
+  if (mx < rc.l + 1 || mx >= rc.r) return -1;
+  const int cx = mx + *reinterpret_cast<int *>(lw + kListHScrollOffset);
+  int ncols = *reinterpret_cast<int *>(lw + kListColumnsOffset);
+  if (ncols < 1) ncols = 1;
+  int x = rc.l + 1;
+  for (int c = 0; c < ncols; ++c) {
+    const int w = list_get_col_width(g_list, c);
+    if (cx >= x && cx < x + w) return c;
+    x += w;
+  }
+  return -1;
+}
+
+// The header is a real native CListWnd header (the style bits are set at bind so
+// it draws and behaves like one), but the sort DECISION is ours, made from our
+// own hit test on the left press edge: one press over a column = one decision,
+// same column reverses, a new column starts ascending.
+// Reading the decision back out of the native SortCol/bSortAsc is what kept
+// getting the direction wrong. Those fields move inside CListWnd::HandleLButtonDown,
+// which the client can dispatch either side of this poll - and the DirectInput
+// button byte we sample is not in lockstep with it either, so when the press edge
+// landed one frame LATE the click's second sort-field change spent the toggle and
+// a freshly picked column came up reversed (Z->A). No debounce off a once-a-frame
+// button sample can tell "this click again" from "a new click"; a position hit
+// test needs no such timing at all.
+// The native fields are still driven from ours, and any difference means the
+// native handler just ran its own text-order Sort - which reordered the rows out
+// from under g_rows, so it forces a repaint. A difference in the COLUMN with no
+// decision of our own is the one case where the client saw a header click we did
+// not (a missed press edge): adopt its column, ascending. That fallback can never
+// flip a direction, so an echo of a click we already handled cannot disturb it.
 void sort_poll() {
   if (!g_list) return;
   char *lw = reinterpret_cast<char *>(g_list);
-  if (g_sort_cooldown > 0) --g_sort_cooldown;
-  const int ncol = *reinterpret_cast<int *>(lw + kListSortColOffset);
-  const uint8_t nasc = *reinterpret_cast<uint8_t *>(lw + kListSortAscOffset);
-  if (ncol == g_sort_col && nasc == 1) return;  // still normalized: no interaction
-  if (ncol > 0 && ncol < kColCount && g_sort_cooldown == 0) {
-    if (ncol != g_sort_col) {
-      g_sort_col = ncol;
-      g_sort_asc = true;
-    } else {
-      g_sort_asc = !g_sort_asc;
+  if (g_lbutton_press) {
+    const int col = header_col_at_mouse();
+    if (col >= kColName && col < kColCount) {  // column 0 is the gem icon: nothing to sort by
+      if (col == g_sort_col) {
+        g_sort_asc = !g_sort_asc;
+      } else {
+        g_sort_col = col;
+        g_sort_asc = true;  // a newly picked column always starts ascending (A->Z / low->high)
+      }
+      logger::logf("[book] header click: col=%d asc=%d", g_sort_col, g_sort_asc ? 1 : 0);
+      g_last_sig = 0;
     }
-    g_sort_cooldown = 20;  // ~1/3s: swallow this click's extra fires
   }
-  *reinterpret_cast<int *>(lw + kListSortColOffset) = g_sort_col;  // re-normalize
-  *reinterpret_cast<uint8_t *>(lw + kListSortAscOffset) = 1;
+  const uint8_t asc = g_sort_asc ? 1 : 0;
+  const int ncol = *reinterpret_cast<int *>(lw + kListSortColOffset);
+  if (ncol == g_sort_col && *reinterpret_cast<uint8_t *>(lw + kListSortAscOffset) == asc) return;
+  if (ncol != g_sort_col && ncol >= kColName && ncol < kColCount) {
+    g_sort_col = ncol;  // fallback: the client saw a header click we missed
+    g_sort_asc = true;
+    logger::logf("[book] native header click: col=%d (hit test missed)", ncol);
+  }
+  *reinterpret_cast<int *>(lw + kListSortColOffset) = g_sort_col;
+  *reinterpret_cast<uint8_t *>(lw + kListSortAscOffset) = g_sort_asc ? 1 : 0;
   g_last_sig = 0;  // repaint in OUR order
 }
 
@@ -1101,9 +1223,6 @@ void sort_poll() {
 // capture, bMouseOverLastFrame@+0x1e5 while hovered) - native click routing, no
 // coordinate-space assumptions. The drag itself tracks RELATIVE game-mouse
 // movement, and all rect math is child-vs-child (same coordinate space).
-struct WndRect {
-  int l, t, r, b;
-};
 WndRect *wnd_rect(void *w) { return reinterpret_cast<WndRect *>(reinterpret_cast<char *>(w) + kWndLocationOffset); }
 // (Resize@0x863990 exists - FIVE args (w,h,1,0,0), ret 0x14 - but it PRESERVES
 // the current top-left, so all layout here goes through wnd_move instead.)
@@ -1373,10 +1492,27 @@ __attribute__((noinline)) void refresh_list() {
     } else {
       if (a.str != b.str) return asc ? a.str < b.str : a.str > b.str;
     }
-    return a.name < b.name;  // stable tie-break: name ascending
+    // Secondary sort is ALWAYS name A->Z, even when the primary column is
+    // reversed - ties should never come out backwards.
+    return a.name < b.name;
   });
 
-  // Repaint.
+  // Repaint. The kListStyleSortedInsert bit we set to arm the clickable header
+  // also makes AddString do a SORTED INSERT instead of appending (disasm of
+  // AddLine@0x857eb0: with the bit set it walks the existing lines calling the
+  // virtual Compare@0x855a80 and stops at the first one it sorts before). That
+  // interacts fatally with how we fill a row: AddString builds the line with
+  // exactly ONE cell (column 0) and the other nine arrive afterwards via
+  // SetItemText, so Compare reads a null-rep CXStr for any sort column > 0, both
+  // of its string helpers return 0 for a null rep, and it falls out of the
+  // "or eax,-1" tail -> -1 -> ascending inserts EVERY row at index 0. The list
+  // was therefore the exact REVERSE of this model: the restore below looked up
+  // the selected spell's index in g_rows and handed it to the list, landing the
+  // highlight on a mirrored, unrelated row. Fill with the bit off (plain append,
+  // so row index == g_rows index) and hand it back for the header.
+  char *lw = reinterpret_cast<char *>(g_list);
+  const uint32_t style = *reinterpret_cast<uint32_t *>(lw + kListStyleOffset);
+  *reinterpret_cast<uint32_t *>(lw + kListStyleOffset) = style & ~kListStyleSortedInsert;
   list_clear(g_list);
   g_rows.clear();
   g_rows.reserve(ents.size());
@@ -1393,6 +1529,7 @@ __attribute__((noinline)) void refresh_list() {
     }
     g_rows.push_back(e.row);
   }
+  *reinterpret_cast<uint32_t *>(lw + kListStyleOffset) = style;
   update_status_label(static_cast<int>(g_rows.size()), lvl);
 
   // Restore the selection (by spell id, never row index) + keep it on screen.
@@ -1435,15 +1572,15 @@ void create_window() {
     // Fixed row height tall enough for the icon cell (tune in-game if needed).
     *reinterpret_cast<int *>(lw + kListLineHeightOffset) = 24;
     *reinterpret_cast<uint8_t *>(lw + kListFixedHeightOffset) = 1;
-    // Arm the native header: the sort bits make OnHeaderClick fire (sort_poll
-    // uses it purely as a click detector), and SetColumnsSizable enables
-    // drag-resizing the column separators.
+    // Arm the native header: the sort bits are what make the client treat the
+    // header as clickable at all (it highlights the SortCol column and runs its
+    // own Sort; sort_poll owns the actual decision), and SetColumnsSizable
+    // enables drag-resizing the column separators.
     *reinterpret_cast<uint32_t *>(lw + kListStyleOffset) |= kListStyleSortable;
     reinterpret_cast<void(__thiscall *)(void *, int)>(kListSetColumnsSizable)(g_list, 1);
-    // Seed the normalized native state + our own sort state (level ascending).
+    // Seed our sort state (level ascending) + the native fields that mirror it.
     g_sort_col = kColLvl;
     g_sort_asc = true;
-    g_sort_cooldown = 0;
     *reinterpret_cast<int *>(lw + kListSortColOffset) = kColLvl;
     *reinterpret_cast<uint8_t *>(lw + kListSortAscOffset) = 1;
   }
@@ -2043,6 +2180,9 @@ void SpellBookUI::drop_handles() {
   g_class_cache = -1;
   g_last_sig = 0;
   g_last_sel = -1;
+  g_last_col = -1;
+  g_press_row = -1;
+  g_press_deselect = false;
   free_icon_copies();
 }
 
@@ -2096,7 +2236,8 @@ void SpellBookUI::on_frame() {
     return;
   }
 
-  sort_poll();  // header clicks -> our sort state (+ forced repaint)
+  mouse_edge_poll();  // one left-button sample per frame for sort_poll + the deselect gesture
+  sort_poll();        // header clicks -> our sort state (+ forced repaint)
   if (!g_anchored) {
     try_anchor();     // capture margins + restore persisted geometry once drawn
   } else {
@@ -2137,6 +2278,32 @@ void SpellBookUI::on_frame() {
     g_last_sig = 0;  // repaint restores the normal status text
   }
 
+  // Re-click-to-deselect. A CListWnd without the multi-select style bit (ours)
+  // only ever ASSIGNS CurSel = clicked row - disasm of the click handler's plain
+  // branch @0x8589fe - so no native path can ever clear the selection, and the
+  // restore in refresh_list put back anything we cleared. Detect the gesture
+  // here: on the press edge hit-test the pointer, and if it landed on the row
+  // that was already selected (and not on the gem cell, which starts a memorize
+  // pickup) clear the selection on release. Arm-on-press / act-on-release
+  // because the client may handle the click either side of this poll within a
+  // frame; by the release edge it certainly has, so this cannot race it.
+  if (g_lbutton_press) {
+    int row = -1, col = -1;
+    list_item_at_mouse(g_list, &row, &col);
+    g_press_row = row;
+    g_press_deselect = row >= 0 && row == g_last_sel && col != kColGem;
+  } else if (g_lbutton_release) {
+    if (g_press_deselect && list_get_cur_sel(g_list) == g_press_row) {
+      list_clear_all_sel(g_list);
+      g_sel_spell = -1;
+      refresh_description();
+      g_last_sel = -1;
+      g_last_col = -1;
+    }
+    g_press_row = -1;
+    g_press_deselect = false;
+  }
+
   // Click poll: every click updates CurSel AND CurCol, so a change in EITHER is
   // a click (tracking only the row missed gem clicks on the already-selected
   // row). The icon column starts the memorize pickup; any click selects the row
@@ -2149,7 +2316,13 @@ void SpellBookUI::on_frame() {
   if (sel != g_last_sel || (sel >= 0 && col != g_last_col)) {
     g_last_sel = sel;
     g_last_col = col;
-    if (sel >= 0 && sel < list_row_count(g_list)) {
+    if (sel < 0) {
+      // Deselected (by the gesture above or by RemoveLine dropping the current
+      // row): forget the spell too, or the restore in refresh_list would put the
+      // highlight straight back on the next repaint.
+      g_sel_spell = -1;
+      refresh_description();
+    } else if (sel < list_row_count(g_list)) {
       const int spell_id = static_cast<int>(list_get_item_data(g_list, sel));
       g_sel_spell = spell_id;
       refresh_description();

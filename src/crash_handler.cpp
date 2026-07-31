@@ -136,6 +136,31 @@ void log_stack_ebp(const CONTEXT *ctx) {
   }
 }
 
+// Last resort for when neither walker can produce a frame - most notably a call through a
+// null/garbage pointer (EIP=0, and EBP already clobbered), where the only trace of the caller
+// is the return address the faulting `call` pushed. Print every stack dword that resolves
+// into a loaded module: the first hits are the likeliest return addresses (2026-07-29's
+// fleet-wide EIP=0 crashes were undebuggable without this).
+void log_stack_scan(const CONTEXT *ctx) {
+  logger::log("  (raw stack scan: dwords resolving into a module; earliest = likeliest caller)");
+  const uintptr_t *sp = reinterpret_cast<const uintptr_t *>(ctx->Esp);
+  int printed = 0;
+  for (int i = 0; i < 192 && printed < 24; ++i) {
+    if (IsBadReadPtr(sp + i, sizeof(uintptr_t))) break;
+    const uintptr_t v = sp[i];
+    if (v < 0x10000) continue;
+    HMODULE mod = nullptr;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCSTR>(v), &mod) ||
+        !mod)
+      continue;
+    char loc[256];
+    format_addr(reinterpret_cast<void *>(v), loc, sizeof(loc));
+    logger::logf("  [esp+0x%03X] %s", (unsigned)(i * sizeof(uintptr_t)), loc);
+    ++printed;
+  }
+}
+
 void dump_crash(EXCEPTION_POINTERS *ep, const char *origin) {
   static thread_local int in_dump = 0;  // Never let the dump recurse on its own fault.
   if (in_dump) return;
@@ -169,7 +194,10 @@ void dump_crash(EXCEPTION_POINTERS *ep, const char *origin) {
   log_registers(ctx);
   log_code_bytes(er->ExceptionAddress);
   logger::log("  --- stack ---");
-  if (log_stack_dbghelp(ctx) < 2) log_stack_ebp(ctx);
+  if (log_stack_dbghelp(ctx) < 2) {
+    log_stack_ebp(ctx);
+    log_stack_scan(ctx);
+  }
   logger::log("=============================================================");
   logger::end_mirror();
 

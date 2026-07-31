@@ -73,6 +73,7 @@ static constexpr int kEntLinkdead = 0x3d0; // uint8 (bool)
 static constexpr int kEntLFG = 0x440;      // uint8 (bool)
 static constexpr int kEntDisplayNameSprite = 0x1228;  // uint8 (bool); SetNameSpriteState early-outs if 0
 static constexpr int kEntTargetable = 0x160;  // bool: PlayerBase::Targetable ("true if mob is targetable").
+static constexpr int kEntProperties = 0x128;  // CharacterPropertyHash (eqlib HashTable<int>): bodytype set.
 static constexpr int kEntRace = 0xeb4;        // uint16 race id (mActorClient.Race); used only for the hide log.
 static constexpr int kEntSpawnId = 0x148;     // uint32 spawn id (PlayerBase); identity fingerprint for caches.
 
@@ -368,23 +369,48 @@ static bool is_raid_member(char *ent) {
 }
 
 // ---- Hide "controller" NPCs (MQ2 pattern) ------------------------------------------------
-// The client draws nameplates for server-side utility NPCs (EQEmu's zone_controller, event
-// triggers, traps, timers) that aren't meant to be seen. MacroQuest's GetSpawnType buckets all of
-// these as UNTARGETABLE/TRIGGER/TRAP/TIMER, and the one thing they share is that they are
-// untargetable (bodytype NoTarget). RoF2 exposes the client's own verdict directly - the
-// PlayerBase::Targetable bool at 0x160 (eqlib layout matches this client field-for-field) - so we
-// simply blank the nameplate for any NPC the client itself marks non-targetable. Always on;
-// players/corpses/pets/mercs are targetable and so are never affected. (E.g. EQEmu's zone_controller
-// is race 240 / bodytype 11 / untargetable -> Targetable == false.)
-static int g_hide_log = 8;  // Log the first few hidden NPCs (name/race) so the 0x160 offset can be verified in-game.
+// The billboard path draws a plate for every named NPC in the entity manager, which surfaces
+// server-side utility spawns the stock client never names (EQEmu zone_controller, invis
+// placeholders, event triggers). The client's own no-name rule keys on BODYTYPE, not the wire
+// targetable bit: EQEmu's RoF2 encoder rewrites any bodytype >= 66 spawn to race 127 / bodytype 11 /
+// showname 0, and native-bodytype-11 spawns (#checkpoint NPCs) are sent targetable=1 yet still show
+// no stock name. So an NPC is hidden when its bodytype set (Properties hash @0x128) contains
+// NoTarget (11) or NoTarget2 (60) - MQ2 GetSpawnType's UNTARGETABLE bucket - or when
+// Targetable@0x160 is false (kept as a belt-and-suspenders check; on this build that byte read TRUE
+// for wire-untargetable bodytype-66 placeholders, so it cannot be the only filter). Always on;
+// real mobs that merely use the invisible-man race (nektulos' a_shadowed_man, race 127 bodytype 23)
+// keep their plates.
+static constexpr uint32_t kBodyNoTarget = 11;   // EQEmu BodyType::NoTarget ("no name, can't target")
+static constexpr uint32_t kBodyNoTarget2 = 60;  // EQEmu BodyType::NoTarget2
+
+// True if the entity's CharacterPropertyHash contains `body`. 32-bit eqlib HashTable<int> layout:
+// [table* @+0][tableSize @+4]; node = [value @+0][key @+4][next @+8]; integral keys hash to
+// themselves, so membership is one bucket walk. Guarded (null/size/hop caps) so a torn spawn or a
+// bad table pointer degrades to "not present" instead of a wild read.
+static bool has_body_type(char *ent, uint32_t body) {
+  char **table = *reinterpret_cast<char ***>(ent + kEntProperties);
+  const int size = *reinterpret_cast<int *>(ent + kEntProperties + 4);
+  if (!table || size <= 0 || size > 4096) return false;
+  char *node = table[body % static_cast<uint32_t>(size)];
+  for (int hops = 0; node && hops < 64; ++hops) {
+    if (*reinterpret_cast<uint32_t *>(node + 4) == body) return true;
+    node = *reinterpret_cast<char **>(node + 8);
+  }
+  return false;
+}
+
+static int g_hide_log = 8;  // Log the first few hidden NPCs so the discriminators can be verified in-game.
 
 static bool is_hidden_npc(char *ent, uint8_t type) {
-  if (type != kTypeNPC) return false;                                 // Only NPCs get hidden.
-  if (*reinterpret_cast<bool *>(ent + kEntTargetable)) return false;  // Targetable => a real mob, keep it.
+  if (type != kTypeNPC) return false;  // Only NPCs get hidden.
+  const bool untargetable = !*reinterpret_cast<bool *>(ent + kEntTargetable);
+  const bool no_name_body = has_body_type(ent, kBodyNoTarget) || has_body_type(ent, kBodyNoTarget2);
+  if (!untargetable && !no_name_body) return false;
   if (g_hide_log > 0) {
     --g_hide_log;
-    logger::logf("[nameplate] hiding untargetable NPC '%s' (race=%d)", ent + kEntDisplayedName,
-                 (int)*reinterpret_cast<uint16_t *>(ent + kEntRace));
+    logger::logf("[nameplate] hiding NPC '%s' (race=%d untargetable=%d bt11/60=%d)",
+                 ent + kEntDisplayedName, (int)*reinterpret_cast<uint16_t *>(ent + kEntRace),
+                 (int)untargetable, (int)no_name_body);
   }
   return true;
 }

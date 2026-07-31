@@ -1,14 +1,18 @@
-// rof2ClientPlus - scale the map window's player position arrow (/rcpmaparrow).
+// rof2ClientPlus - scale the map window's player position arrow and the
+// group-member X markers (/rcpmaparrow, one shared scale).
 //
 // MapViewMap::Draw (0x6cd4a0, reached from the PostDraw override at 0x6cfb00)
 // draws the local player as three clipped lines in SCREEN pixels, zoom-independent:
 // a stem from heading-dir * -4.0 (tail) to heading-dir * +8.0 (tip; the 8 is
 // 4.0 * an in-code 2.0 ratio) and two barbs of length 6.0 at heading +/- 48/512
 // turns, all joined at the tip; plus a small "+" fallback variant (-2.0..+3.0 px
-// per axis) behind a display gate. Those magnitudes are POOLED .rdata float
-// constants shared binary-wide, so their values cannot be edited in place;
-// instead each drawing instruction's absolute operand is redirected to
-// DLL-owned floats holding stock * scale. See map_arrow.cpp for the site table.
+// per axis) behind a display gate. Group members are each an X spanning
+// -3..+4 px around their point (strokes doubled at a +1px x shift for
+// thickness), with an optional name label just above. Those magnitudes are
+// POOLED .rdata float constants shared binary-wide, so their values cannot be
+// edited in place; instead each drawing instruction's absolute operand is
+// redirected to DLL-owned floats holding stock * scale. See map_arrow.cpp for
+// the site table.
 #pragma once
 
 class RcpService;

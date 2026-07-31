@@ -1660,7 +1660,7 @@
       <CX>190</CX>
       <CY>14</CY>
     </Size>
-    <Text>Map player-arrow size</Text>
+    <Text>Map arrow + group X size</Text>
     <TextColor>
       <R>255</R>
       <G>255</G>

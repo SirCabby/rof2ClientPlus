@@ -1,11 +1,16 @@
-// rof2ClientPlus - scale the map window's player position arrow. See map_arrow.h.
+// rof2ClientPlus - scale the map window's player position arrow and the
+// group-member X markers. See map_arrow.h.
 //
-// RE map (2013-05-10 build, disasm-verified): the arrow block sits at
-// 0x6ce989..0x6ced4d inside MapViewMap::Draw. The player's screen point comes
-// from TransformPoint (0x6c87a0); heading (PlayerClient+0x80, 0..512) feeds a
-// sin/cos-table object (global 0x15d46b4, vtbl +0x8/+0xC) to build the
-// direction vector; lines go out through DrawClippedLine (0x6cb230) in
-// myColor (this+0x270). Magnitudes are x87 loads of pooled .rdata floats:
+// RE map (2013-05-10 build, disasm-verified): both blocks live in
+// MapViewMap::Draw. The player-arrow block is 0x6ce989..0x6ced4d; the 6-slot
+// group-member loop sits right before it (body 0x6ce5f0..0x6ce983, gated on
+// the map's show-group flag at this+0x2bc, members from [[0xDD261C]+0x31CC]+4,
+// each member's spawn at +0x28; the local player is skipped - the arrow covers
+// him). Screen points come from TransformPoint (0x6c87a0); the arrow's heading
+// (PlayerClient+0x80, 0..512) feeds a sin/cos-table object (global 0x15d46b4,
+// vtbl +0x8/+0xC) to build the direction vector; lines go out through
+// DrawClippedLine (0x6cb230) in myColor (this+0x270). Magnitudes are x87 loads
+// of pooled .rdata floats:
 //
 //   arrow variant            constant  sites (instruction VAs)
 //   stem vector              4.0       0x6cea37 0x6cea5d          (fmuls d8 0d)
@@ -13,13 +18,25 @@
 //   "+" variant, -2 arm      2.0       0x6cec45 0x6cece0          (flds  d9 05)
 //   "+" variant, +3 arm      3.0       0x6cec75 0x6cecff          (fadds d8 05)
 //
+//   group X marker           constant  sites
+//   primary strokes, -x/-y   3.0       0x6ce67d 0x6ce71c          (flds  d9 05)
+//   primary strokes, +x/+y   4.0       0x6ce6af 0x6ce741          (flds/fadds)
+//   shifted strokes, -x      2.0       0x6ce7f6                   (= 3.0 - 1px)
+//   shifted strokes, +x      5.0       0x6ce817                   (= 4.0 + 1px)
+//   name-label gap above     2.0       0x6ce8fb                   (fsubs d8 25)
+//
 // Each site's 4-byte absolute operand is redirected to a DLL float holding
 // stock * scale, so changing the scale later is a plain float store (no code
-// rewrite). Deliberately NOT redirected: the 2.0 load at 0x6cec0d, which
-// doubles the already-scaled stem to place the tip (a shape ratio - scaling it
-// too would grow the tip by scale^2), and the +/-48 barb-angle adds
-// (0x9eeac0/0x9eeabc), which are angles, not sizes. The group-member markers
-// and find-path drawing use separate code and are untouched.
+// rewrite). The X is two diagonal strokes spanning -3..+4 around the point,
+// drawn twice: the second pair reuses the first pair's rounded coords shifted
+// +1px in x for stroke thickness. That shift stays 1px at any scale
+// (3*s-1 / 4*s+1) - multiplying it too would drift the pair apart into two
+// thin parallel lines. The member name label draws just above the X; its gap
+// (stock 2.0) scales as 3*s-1 so it keeps riding the scaled top arm.
+// Deliberately NOT redirected: the 2.0 load at 0x6cec0d, which doubles the
+// already-scaled stem to place the tip (a shape ratio - scaling it too would
+// grow the tip by scale^2), and the +/-48 barb-angle adds (0x9eeac0/0x9eeabc),
+// which are angles, not sizes. Find-path drawing is separate code, untouched.
 #include "map_arrow.h"
 
 #include <windows.h>
@@ -54,6 +71,12 @@ static float g_stem = 4.0f;      // stem vector length (tip adds the in-code x2)
 static float g_barb = 6.0f;      // barb vector length
 static float g_plus_neg = 2.0f;  // "+" variant: arm toward -x/-y
 static float g_plus_pos = 3.0f;  // "+" variant: arm toward +x/+y
+// Group-member X marker (see header comment for the shift/label formulas):
+static float g_x_neg = 3.0f;        // primary strokes: arm toward -x/-y
+static float g_x_pos = 4.0f;        // primary strokes: arm toward +x/+y
+static float g_x_neg_shift = 2.0f;  // thickness pair: g_x_neg arm, +1px in x
+static float g_x_pos_shift = 5.0f;  // thickness pair: g_x_pos arm, +1px in x
+static float g_x_label = 2.0f;      // member-name label gap above the marker
 
 struct PatchSite {
   uintptr_t addr;       // instruction VA (preferred base; eqva() applied at use)
@@ -73,6 +96,13 @@ static const PatchSite kSites[] = {
     {0x6cec75, 0xd8, 0x05, 0x9c3920, &g_plus_pos},  // fadds 3.0 ("+", horizontal)
     {0x6cece0, 0xd9, 0x05, 0x9c58e8, &g_plus_neg},  // flds  2.0 ("+", vertical)
     {0x6cecff, 0xd8, 0x05, 0x9c3920, &g_plus_pos},  // fadds 3.0 ("+", vertical)
+    {0x6ce67d, 0xd9, 0x05, 0x9c3920, &g_x_neg},        // flds  3.0 (X stroke A, both axes)
+    {0x6ce6af, 0xd9, 0x05, 0x9c5764, &g_x_pos},        // flds  4.0 (X stroke A, both axes)
+    {0x6ce71c, 0xd9, 0x05, 0x9c3920, &g_x_neg},        // flds  3.0 (X stroke B, both axes)
+    {0x6ce741, 0xd8, 0x05, 0x9c5764, &g_x_pos},        // fadds 4.0 (X stroke B, both axes)
+    {0x6ce7f6, 0xd9, 0x05, 0x9c58e8, &g_x_neg_shift},  // flds  2.0 (X thickness pair, -x)
+    {0x6ce817, 0xd8, 0x05, 0x9c58a0, &g_x_pos_shift},  // fadds 5.0 (X thickness pair, +x)
+    {0x6ce8fb, 0xd8, 0x25, 0x9c58e8, &g_x_label},      // fsubs 2.0 (name-label gap)
 };
 static constexpr int kSiteCount = sizeof(kSites) / sizeof(kSites[0]);
 
@@ -83,6 +113,11 @@ static void apply_scale() {
   g_barb = 6.0f * g_scale;
   g_plus_neg = 2.0f * g_scale;
   g_plus_pos = 3.0f * g_scale;
+  g_x_neg = 3.0f * g_scale;
+  g_x_pos = 4.0f * g_scale;
+  g_x_neg_shift = 3.0f * g_scale - 1.0f;  // thickness shift stays 1px at any scale
+  g_x_pos_shift = 4.0f * g_scale + 1.0f;
+  g_x_label = 3.0f * g_scale - 1.0f;  // label gap tracks the scaled top arm
 }
 
 static float clamp_scale(float s) { return s < kScaleMin ? kScaleMin : (s > kScaleMax ? kScaleMax : s); }
@@ -135,8 +170,8 @@ static void print_status() {
     Rcp::Game::print_chat("rof2ClientPlus map arrow: NOT installed (byte mismatch; see log)");
     return;
   }
-  Rcp::Game::print_chat("rof2ClientPlus map arrow size: %.2fx%s (/rcpmaparrow <%.1f-%.1f>, 1 = stock)", g_scale,
-                        g_scale == 1.0f ? " (stock)" : "", kScaleMin, kScaleMax);
+  Rcp::Game::print_chat("rof2ClientPlus map arrow + group-X size: %.2fx%s (/rcpmaparrow <%.1f-%.1f>, 1 = stock)",
+                        g_scale, g_scale == 1.0f ? " (stock)" : "", kScaleMin, kScaleMax);
 }
 
 MapArrow::MapArrow(RcpService *rcp) : rcp_(rcp) {
@@ -151,7 +186,8 @@ MapArrow::MapArrow(RcpService *rcp) : rcp_(rcp) {
 
   rcp->commands_hook->Add(
       "/rcpmaparrow", {},
-      "Map player-arrow size: '/rcpmaparrow 2.5' draws it 2.5x, '/rcpmaparrow off' restores stock, bare prints status.",
+      "Map player-arrow + group-member-X size: '/rcpmaparrow 2.5' draws them 2.5x, '/rcpmaparrow off' restores "
+      "stock, bare prints status.",
       [](std::vector<std::string> &args) {
         if (args.size() >= 2) {
           const std::string &a = args[1];

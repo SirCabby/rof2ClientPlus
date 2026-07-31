@@ -66,6 +66,7 @@ typedef long(__stdcall *GetDeviceState_t)(void *self, unsigned long cb, void *da
 static GetDeviceState_t g_orig_gds = nullptr;
 static bool g_enabled = false;               // Off = stock client behavior.
 static bool g_lock_mouse = false;            // Confine the OS cursor to the game window while focused.
+static unsigned g_lock_pulse_ms = 1000;      // Re-grab heartbeat period; 0 disables (see apply_cursor_lock).
 static float g_sens_x = 1.0f, g_sens_y = 1.0f;   // Independent mouse-look axis multipliers.
 static float g_strength = 0.0f;              // Optional low-pass weight toward the previous poll (0 = off).
 static float g_carry_x = 0.0f, g_carry_y = 0.0f;  // Fractional remainders (exact scaling of small deltas).
@@ -86,6 +87,10 @@ static void load_settings() {
   if (ini.exists(kIniSection, "Smoothing")) g_strength = ini.getValue<float>(kIniSection, "Smoothing");
   if (ini.exists(kIniSection, "Enabled")) g_enabled = ini.getValue<bool>(kIniSection, "Enabled");
   if (ini.exists(kIniSection, "LockToWindow")) g_lock_mouse = ini.getValue<bool>(kIniSection, "LockToWindow");
+  if (ini.exists(kIniSection, "LockPulseMs")) {
+    int v = ini.getValue<int>(kIniSection, "LockPulseMs");
+    g_lock_pulse_ms = v <= 0 ? 0 : (v < 100 ? 100 : (v > 10000 ? 10000 : v));
+  }
 }
 
 static void save_settings() {
@@ -95,6 +100,7 @@ static void save_settings() {
   ini.setValue<float>(kIniSection, "Smoothing", g_strength);
   ini.setValue<bool>(kIniSection, "Enabled", g_enabled);
   ini.setValue<bool>(kIniSection, "LockToWindow", g_lock_mouse);
+  ini.setValue<int>(kIniSection, "LockPulseMs", static_cast<int>(g_lock_pulse_ms));
 }
 
 namespace mouse_settings {
@@ -147,7 +153,35 @@ void apply_cursor_lock() {
   POINT origin = {0, 0};
   if (!GetClientRect(fg, &client) || !ClientToScreen(fg, &origin)) return;
   RECT screen = {origin.x + client.left, origin.y + client.top, origin.x + client.right, origin.y + client.bottom};
+  // XWayland re-bind heartbeat: KWin enforces an X cursor clip by binding a Wayland
+  // pointer constraint to ONE surface; with several stacked game windows it can bind
+  // a stale one, and a quiescent grab (wine dedupes identical rects) never recovers -
+  // multibox lock stays dead while single-client works (diagnosed 2026-07-29, after
+  // wine-staging 11.14 dropped its rawinput-mouse patchset). Dropping and retaking
+  // the clip forces an X ungrab/regrab, so XWayland re-binds the constraint to the
+  // surface actually under the pointer: worst case one bad second, then self-heal.
+  // The pre-2026-07-27 code did this by accident at frame rate (background boxes
+  // nulled the clip every frame) - likely why multibox lock ever worked.
+  static ULONGLONG last_pulse = 0;
+  ULONGLONG now = GetTickCount64();
+  if (!was_clipped || g_lock_pulse_ms == 0) {
+    last_pulse = now;  // Fresh engage (or pulse disabled): first pulse one full period later.
+  } else if (now - last_pulse >= g_lock_pulse_ms) {
+    last_pulse = now;
+    ClipCursor(nullptr);
+  }
   ClipCursor(&screen);
+  if (!was_clipped) {
+    // One-shot positive confirmation that the clip path ran this session - the
+    // escape/not-honored diagnostics below only log on ANOMALIES, and 2026-07-28
+    // diagnosis had to infer "clip applied" from total silence.
+    static bool logged_engage = false;
+    if (!logged_engage) {
+      logged_engage = true;
+      logger::logf("[mouse] lock engaged: clipping to (%ld,%ld)-(%ld,%ld), re-grab pulse=%ums",
+                   screen.left, screen.top, screen.right, screen.bottom, g_lock_pulse_ms);
+    }
+  }
   was_clipped = true;
 
   // Diagnostic only: does the OS even CLAIM to hold our rect? (One-shot log.)

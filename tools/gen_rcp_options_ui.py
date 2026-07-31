@@ -288,7 +288,7 @@ def build_controls():
     c.append(("Rcp_ActorClip", slider, ("Rcp_ActorClip", COL_X, y + 16, SLIDER_W, 16)))
     c.append(("Rcp_ActorClipValue", label, ("Rcp_ActorClipValue", VAL_X, y + 16, 58, 16, "off", YELLOW)))
     y += 42
-    c.append(("Rcp_MapArrowLabel", label, ("Rcp_MapArrowLabel", COL_X, y, 190, 14, "Map player-arrow size")))
+    c.append(("Rcp_MapArrowLabel", label, ("Rcp_MapArrowLabel", COL_X, y, 190, 14, "Map arrow + group X size")))
     c.append(("Rcp_MapArrow", slider, ("Rcp_MapArrow", COL_X, y + 16, SLIDER_W, 16)))
     c.append(("Rcp_MapArrowValue", label, ("Rcp_MapArrowValue", VAL_X, y + 16, 58, 16, "1.00x", YELLOW)))
     y += 48

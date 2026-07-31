@@ -1437,10 +1437,108 @@ Two halves, both in `spellbook_ui.cpp`:
   the new window too (this also gives the new window stock-parity cancel for plain
   memorizes, which previously just stalled when the window closed mid-mem).
 
-## Map player-arrow size (`src/map_arrow.cpp`, `/rcpmaparrow`) — DONE (awaiting in-game confirm 2026-07-28)
+### CListWnd row order + selection — two traps that cost a round (2026-07-30)
 
-Scales the player's position arrow in the stock map window (`/rcpoptions` Display-tab
-slider 0.5x–4.0x, `/rcpmaparrow` up to 8x, ini `[MapArrow] Scale`).
+Both reported bugs ("can't deselect a row"; "after a list update the highlight lands on a
+different entry") came from the same class of mistake: treating a `CListWnd` style bit as
+if it did only the one thing we wanted it for.
+
+- **`ListWndStyle & 0x40000` is the SORTED-INSERT bit, not just "clickable header".**
+  We OR it in (with `0x400000`) at bind so `OnHeaderClick` fires. But `AddLine @0x857eb0`
+  also tests it, and when it is set it walks the existing lines calling the virtual
+  `Compare @0x855a80` instead of appending. That is fatal given how a row gets filled:
+  `AddString @0x8580c0` builds the line with **exactly one cell** (column 0 — it calls
+  `ArrayClass::SetLength(1)`), and columns 1..9 arrive afterwards via `SetItemText`. So
+  Compare reads a **null-rep `CXStr`** for any sort column > 0 (it guards
+  `SortCol < line.Cells.count` and leaves `StrLabel1` default-constructed), the CXStr
+  compare helper `0x806a90` returns **0 the instant `this->rep == NULL`** (→ `0x806cc1`,
+  `xor eax,eax`), the follow-up helper `0x806660` also returns 0 against a non-empty
+  other, and Compare drops out of its `or eax,-1` tail → **-1**. AddLine with
+  `bSortAsc = 1` and a negative Compare inserts **at index 0** — every row — so the
+  on-screen list was the **exact reverse of `g_rows`**, and the selection restore (which
+  looks the spell up in `g_rows` and hands that index to `SetCurSel`) landed the highlight
+  on a mirrored, unrelated row. It also meant the displayed sort direction was inverted.
+  Fix: drop `0x40000` for the duration of the fill in `refresh_list`, put it back after.
+- **Selection is two independent pieces of state.** `SetCurSel @0x853470` writes **`CurSel`
+  and nothing else** — not the per-line `bSelected` (`SListWndLine+0x18`), not `CurCol`.
+  `DrawLine @0x856840` highlights a row when `bSelected != 0` **OR** `row == CurSel`
+  (gated on style `0x10000`). `ClearAllSel @0x854220` is the only native "nothing is
+  selected" that covers both plus `CurCol`. `RemoveLine @0x8582a0` resets `CurSel`/`CurCol`
+  only when `CurSel == idx`.
+- **Deselect is impossible without a gesture of our own.** The list click handler branches
+  on style bit **`0x20000` (multi-select)**: set → `ClearAllSel` + `ToggleSel @0x8541a0`
+  (ctrl toggles, shift `ExtendSel @0x855fe0`, and a re-click genuinely deselects); clear —
+  which is us — → the plain branch at `0x8589fe` that only **assigns `CurSel = row`**.
+  **Do not reach for `0x20000` to get the toggle for free:** `ClearAllSel` wipes `CurCol`
+  to -1, and `CurCol` is written *earlier* in the same handler (`0x8587d1`), so the
+  gem-column test that drives memorize-pickup would stop seeing its column. Instead
+  `mouse_edge_poll()` samples the left button once a frame (shared with `sort_poll`), the
+  press edge hit-tests with **`GetItemAtPoint @0x8553e0(const CXPoint*, int* row,
+  int* col)`** (ret 0xC; it only *writes* the out-params on a hit, so seed both to -1),
+  arms when the press landed on the already-selected row away from the gem cell, and the
+  release edge clears. Arm-on-press/act-on-release because the client may process the
+  click on either side of our poll within a frame — by the release edge it certainly has.
+  The point comes from **`CXWndManager::MousePoint @+0x94`** off `pinstCXWndManager`
+  (`*(void**)0x15D3D00`; `0xB648FC` statically holds that address, and equip_item.cpp
+  already uses it) — the same pointer `CListWnd::Draw @0x856d10` feeds `GetItemAtPoint`
+  for its own mouse-over, so the coordinate space matches by construction. `kMouseInfo`
+  (`0xE67B54`) is only ever safe for *relative* drag deltas.
+
+### Header sort direction — stop reading it back out of the client (2026-07-30)
+
+Three rounds of "the freshly clicked column comes up Z→A" all came from the same wrong
+shape: **inferring the click from the native sort fields**. `SortCol @+0x210` /
+`bSortAsc @+0x214` are written by exactly two functions in the whole binary (byte scan
+for writes to those displacements): the `CListWnd` **constructor** `0x857c00`, and the
+**header-click virtual, `CListWnd` vtable slot `+0x164` → `0x8554b0`** — the first
+`CListWnd`-specific slot (`CXWnd`'s own vtable ends at `+0x160`, `UpdateLayout`).
+Its whole body:
+
+```
+style & 0x40000 && style & 0x400000 ?          ; both bits or no sort at all
+  SortCol == col ? bSortAsc = !bSortAsc        ; same column: reverse
+                 : (SortCol = col, bSortAsc = 1)   ; new column: ascending
+  -> vtable+0x184 = Sort                       ; native text-order sort
+-> ParentWndNotification(this, 0xf /*XWM_COLUMNCLICK*/, col), returns 0
+```
+
+so the branch it took is self-describing (column moved = new column; only `bSortAsc`
+flipped = repeat click). The trap is **when** it runs: it is called only from
+`CListWnd::HandleLButtonDown @0x8585c0` (`vtable+0x38`), i.e. on the mouse-DOWN, from a
+dispatch the client can run either side of our BeginScene poll — and the
+`DI8__MouseState` button byte we sample once a frame is not in lockstep with that
+dispatch. When the press edge was seen one frame *late*, the click's second observed
+field change spent the "one toggle per press" arming and reversed a freshly picked
+column. A cooldown (round 1) and press-arming (round 2) are both just guesses at that
+phase relationship; neither can tell "this click again" from "a new click".
+
+Fix: **decide it ourselves, from position, and drive the native fields from our state.**
+`header_col_at_mouse()` repeats the client's own hit test verbatim —
+
+- `HandleLButtonDown` band: `y ∈ [client.top, client.top + pFont@+0x15c->GetHeight()
+  @0x889910 + 4)`, `x ∈ [client.left+1, client.right)`, client rect from the
+  **`GetClientRect` virtual `vtable+0xf8`** (out-param `CXRect*`, callee-pops), point from
+  `CXWndManager::MousePoint` (same screen space as `GetItemAtPoint`);
+- the virtual's column walk: `x` cursor from `client.left+1` accumulating
+  `GetColumnWidth(i)` over `Columns.count @+0x1e8`, against the point shifted by
+  `HScrollPos @+0x198` (columns live in content space);
+- and the two gates that make a press *not* a sort: style bit **`0x200000`** ("has a
+  header") and **`ColumnSepMouseOver @+0x224 != -1`**, which is the client's own
+  "this press starts a column RESIZE" flag — without it, dragging a column edge would
+  re-sort. (Its remaining condition, `ParentWindow @+0x174 != null`, is a given here.)
+
+`sort_poll` then: press edge over column *c* → `c == g_sort_col ? flip : (c, ascending)`;
+afterwards write `SortCol`/`bSortAsc` **from** our state, and treat any difference as
+"the native handler just ran its own Sort and reordered the rows out from under `g_rows`"
+→ force a repaint. A column difference with no decision of our own (missed press edge)
+falls back to adopting that column ascending — a fallback that can never flip a
+direction, so an echo of a click we already handled cannot disturb it.
+
+## Map player-arrow + group-X size (`src/map_arrow.cpp`, `/rcpmaparrow`) — DONE (awaiting in-game confirm; group X added 2026-07-29)
+
+Scales the player's position arrow AND the group-member X markers in the stock map
+window with one shared scale (`/rcpoptions` Display-tab slider 0.5x–4.0x,
+`/rcpmaparrow` up to 8x, ini `[MapArrow] Scale`).
 
 ### RE map (all disasm-verified on this build)
 
@@ -1471,12 +1569,36 @@ slider 0.5x–4.0x, `/rcpmaparrow` up to 8x, ini `[MapArrow] Scale`).
   | `0x6cec45 0x6cece0` | `d9 05` flds | 2.0 `0x9c58e8` | "+" −arm |
   | `0x6cec75 0x6cecff` | `d8 05` fadds | 3.0 `0x9c3920` | "+" +arm |
 
+- **Group-member X markers** (added 2026-07-29, same shared scale): the 6-slot member
+  loop sits right BEFORE the arrow block (body `0x6ce5f0..0x6ce983`; gated on the map's
+  show-group flag `this+0x2bc` and a zone match `LocalPlayer+0x210 == this+0x2c4`;
+  members from `[[0xDD261C]+0x31CC]+4`, spawn at member`+0x28`; the local player is
+  skipped — the arrow covers him). Each member = an X of two diagonal strokes spanning
+  −3..+4 px around the point, drawn TWICE — the second pair reuses the first pair's
+  already-rounded coords shifted **+1px in x** for stroke thickness (stock 2.0 = 3−1,
+  5.0 = 4+1) — plus an optional centered name label whose bottom rides 2.0 px above the
+  point (drawn only for the flagged member; brighter alpha via `this+0x277`).
+
+  | sites (VA) | opcode | stock operand | meaning | scaled value |
+  |---|---|---|---|---|
+  | `0x6ce67d 0x6ce71c` | `d9 05` flds | 3.0 `0x9c3920` | primary strokes, −x/−y arm | 3·s |
+  | `0x6ce6af 0x6ce741` | `d9 05`/`d8 05` | 4.0 `0x9c5764` | primary strokes, +x/+y arm | 4·s |
+  | `0x6ce7f6` | `d9 05` flds | 2.0 `0x9c58e8` | shifted pair, −x | 3·s − 1 |
+  | `0x6ce817` | `d8 05` fadds | 5.0 `0x9c58a0` | shifted pair, +x | 4·s + 1 |
+  | `0x6ce8fb` | `d8 25` fsubs | 2.0 `0x9c58e8` | name-label gap | 3·s − 1 |
+
+  ⚠ The thickness shift must STAY 1px (hence 3·s−1 / 4·s+1, not 2·s / 5·s): multiplying
+  the shifted pair too would drift it `s` px away from the primary pair — at 4x that's
+  two thin diagonals 4px apart instead of one thick stroke. The label gap scales as
+  3·s−1 so the label keeps riding the scaled top arm (all three formulas = stock at s=1,
+  so scale 1.0 is byte-equivalent behavior).
+
 - ⚠ **Deliberately NOT patched:** the `flds 2.0` at `0x6cec0d` — it MULTIPLIES the
   already-redirected stem value to place the tip (tip = 2·stem, a shape ratio); scaling
   it too would grow the tip by scale². Likewise the barb-angle `fadds`
-  (`0x9eeac0`=48.0 / `0x9eeabc`=464.0) are angles, not sizes. Group-member markers and
-  the find-path line are separate code, untouched.
+  (`0x9eeac0`=48.0 / `0x9eeabc`=464.0) are angles, not sizes. The find-path line is
+  separate code, untouched.
 - Every VA (site addresses AND expected operands — the loader relocates absolute
   operands via .reloc) goes through `Rcp::eqva()`. Install verifies opcode + current
-  operand at all 10 sites before writing any, and aborts wholesale on mismatch. Scale
+  operand at all 17 sites before writing any, and aborts wholesale on mismatch. Scale
   changes after install are plain float stores — no re-patching.
