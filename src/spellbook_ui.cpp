@@ -194,6 +194,27 @@ constexpr int kSidlTextOffset = 0x1dc;
 void **const kSpellBookWnd = reinterpret_cast<void **>(::Rcp::eqva(0xD1FC88));   // pinstCSpellBookWnd
 void **const kCursorAttach = reinterpret_cast<void **>(::Rcp::eqva(0xD1FC7C));   // pinstCCursorAttachment
 
+// ---- spell info window (right-click), disasm-verified for THIS build ----
+// The client's own "pop the spell description window" entry point:
+//   void __thiscall CSpellDisplayManager::ShowSpell(int spellId, bool newWindow,
+//                                                   bool fullDisplay, ESpellDisplayType type)
+// on the singleton at *(0xF749F0) (eqlib pinstCSpellDisplayMgr). It picks or
+// creates one of the four CSpellDisplayWnd slots itself (FindWindow@0x796420,
+// else CreateWindowInstance@0x75FC00), fills it and shows it - so it must be
+// called exactly ONCE per click: repeating it with newWindow=true walks through
+// all four windows, which is why the caller fires on the button EDGE.
+// The two stock gestures this mirrors, straight out of the disasm:
+//   * spell gem, XWM_RCLICKHOLD -> CCastSpellWnd@0x647530: ShowSpell(id, 1, 1, 7)
+//   * spell book slot @0x75C2C0 and @0x75D500:             ShowSpell(id, !shift, 1, 5)
+// This window is a spell book, so it uses the book's form: type 5
+// (SpellDisplayType_SpellBookWnd) and SHIFT (GetKeyboardFlags bit 0) reusing the
+// open window instead of stacking a new one.
+void **const kSpellDisplayMgr = reinterpret_cast<void **>(::Rcp::eqva(0xF749F0));
+const int kSpellDisplayShowSpell = ::Rcp::eqva(0x75FD80);
+constexpr int kSpellDisplayTypeSpellBook = 5;
+const int kWndMgrKeyboardFlags = ::Rcp::eqva(0x875BD0);  // int __thiscall CXWndManager::GetKeyboardFlags()
+constexpr int kKeyboardFlagShift = 0x1;
+
 // CSpellBookWnd fields, disasm-verified (eqlib's MemTicksLeft@0x23c/ScribeTicks@
 // 0x244 are NOT this build's layout - reading them as counters is what falsely
 // reported "already memorizing"). StartSpellMemorization@0x75BF30 gates on BOTH
@@ -303,6 +324,10 @@ const uintptr_t kMouseInfo = ::Rcp::eqva(0xE67B54);
 // Refreshed every frame - the press edge is when sort_poll hit-tests the header
 // and when the re-click-to-deselect gesture arms (see both).
 const uintptr_t kMouseLButton = ::Rcp::eqva(0xE67890);
+// rgbButtons[1] - the right button, which drives the spell-info click
+// (spell_info_poll) and the guard that keeps the client's own right-click row
+// select from reading as a gem-cell pickup (right_click_active).
+const uintptr_t kMouseRButton = ::Rcp::eqva(0xE67891);
 // pinstCXWndManager + CXWndManager::MousePoint {int x, y} @+0x94. This is the
 // pointer CListWnd::Draw@0x856d10 itself feeds to GetItemAtPoint for its
 // mouse-over highlight, so hit tests done with it are in the list's own
@@ -415,6 +440,10 @@ bool g_lbutton_press = false;
 bool g_lbutton_release = false;
 int g_press_row = -1;         // row the current left press landed on (-1 = not on a row)
 bool g_press_deselect = false;  // ...and it was a RE-click on the already-selected row
+// Right button, sampled by the same poll: right-click a row for its spell info.
+bool g_rbutton_down = false;
+bool g_rbutton_press = false;
+int g_rbutton_idle = 99;  // frames since the right button was last down
 // Filter picker state: what the selected choice means, and the choice list
 // (index-parallel with g_filter_map: {kind, value}; kind 0=all, 1=skill,
 // 2=category, 3=subcategory).
@@ -1120,13 +1149,57 @@ void populate_filter_combo(std::vector<int> skills, std::vector<int> cats, std::
   g_last_filter_choice = combo_get_cur_choice(g_combo_filter);
 }
 
-// Sample the left button once a frame and expose its edges; both sort_poll and
-// deselect_poll are press/release driven and must agree on the same frame's edge.
+// Sample both buttons once a frame and expose their edges; sort_poll,
+// deselect_poll and spell_info_poll are all edge driven and must agree on the
+// same frame's edge.
 void mouse_edge_poll() {
   const bool down = (*reinterpret_cast<volatile uint8_t *>(kMouseLButton) & 0x80) != 0;
   g_lbutton_press = down && !g_lbutton_down;
   g_lbutton_release = !down && g_lbutton_down;
   g_lbutton_down = down;
+  const bool rdown = (*reinterpret_cast<volatile uint8_t *>(kMouseRButton) & 0x80) != 0;
+  g_rbutton_press = rdown && !g_rbutton_down;
+  g_rbutton_down = rdown;
+  if (rdown)
+    g_rbutton_idle = 0;
+  else if (g_rbutton_idle < 99)
+    ++g_rbutton_idle;
+}
+
+// True while a right click is in flight, plus a short tail. CListWnd::HandleR-
+// ButtonDown@0x8556b0 writes CurCol AND CurSel (then EnsureVisible, then an
+// XWM_RCLICK to the parent) exactly like the left-button handler does, so to the
+// click poll a right click on a row is indistinguishable from a left one - and
+// on the icon column that would start a memorize pickup nobody asked for. The
+// tail covers the client having handled the click a frame either side of our
+// once-a-frame button sample.
+bool right_click_active() { return g_rbutton_down || g_rbutton_idle <= 3; }
+
+// Hand a spell to the client's own spell-info window, the same window (and the
+// same call) the stock book and the stock spell gems put it in.
+void show_spell_info(int spell_id) {
+  void *mgr = *kSpellDisplayMgr;
+  if (!mgr || !spell_by_id(spell_id)) return;
+  void *wm = *kWndMgr;
+  const int flags = wm ? reinterpret_cast<int(__thiscall *)(void *)>(kWndMgrKeyboardFlags)(wm) : 0;
+  const int new_window = (flags & kKeyboardFlagShift) ? 0 : 1;  // stock book: SHIFT reuses the open one
+  reinterpret_cast<void(__thiscall *)(void *, int, int, int, int)>(kSpellDisplayShowSpell)(
+      mgr, spell_id, new_window, 1, kSpellDisplayTypeSpellBook);
+  logger::logf("[book] spell info: spell=%d new_window=%d", spell_id, new_window);
+}
+
+// Right-click a row -> that spell's info window, the same window you get from
+// holding right-click on a memorized spell gem. Fires on the press EDGE, so one
+// click is one window: every ShowSpell with newWindow set consumes another of
+// the four display slots. Our own hit test, not the list's CurSel, so it can
+// never race the client's click routing or read a stale row.
+void spell_info_poll() {
+  if (!g_list || !g_rbutton_press) return;
+  int row = -1, col = -1;
+  list_item_at_mouse(g_list, &row, &col);
+  if (row < 0) return;
+  const int spell_id = static_cast<int>(list_get_item_data(g_list, row));
+  if (spell_id > 0) show_spell_info(spell_id);
 }
 
 // Which column header the pointer is over, or -1. This repeats the client's own
@@ -2236,8 +2309,9 @@ void SpellBookUI::on_frame() {
     return;
   }
 
-  mouse_edge_poll();  // one left-button sample per frame for sort_poll + the deselect gesture
+  mouse_edge_poll();  // one mouse sample per frame for sort_poll, the deselect gesture and the info click
   sort_poll();        // header clicks -> our sort state (+ forced repaint)
+  spell_info_poll();  // right-click a row -> the client's spell info window
   if (!g_anchored) {
     try_anchor();     // capture margins + restore persisted geometry once drawn
   } else {
@@ -2326,10 +2400,19 @@ void SpellBookUI::on_frame() {
       const int spell_id = static_cast<int>(list_get_item_data(g_list, sel));
       g_sel_spell = spell_id;
       refresh_description();
-      if (col == kColGem) {
+      if (col == kColGem && !right_click_active()) {
         try_pickup(spell_id);  // validates scribed/cursor/mem itself, with chat feedback
         list_set_cur_sel(g_list, -1);
         g_last_sel = -1;
+      } else if (col == kColGem) {
+        // A RIGHT click on the icon cell (spell_info_poll's gesture): select the
+        // row and show its description like any other column, but never pick the
+        // spell up - the cursor pickup is LEFT click only.
+        // Rewriting the client's own CurCol off the gem column is what keeps a
+        // LATER left click on that same cell a change this poll can still see -
+        // leaving CurCol on the gem column would swallow it.
+        *reinterpret_cast<int *>(reinterpret_cast<char *>(g_list) + kListCurColOffset) = kColName;
+        g_last_col = kColName;
       }
     }
   }
