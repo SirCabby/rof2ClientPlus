@@ -253,6 +253,33 @@ target `*(Entity**)0xDD2648`, controlled `0xDD2644`, CDisplay `0xDD2660`, CRaid 
 **The vendored `game_functions`/`game_addresses` globals stay TAKP and are NOT used here** —
 the module reads raw RoF2 offsets like chase_cam/mouse_mods.
 
+### Invisibility — parentheses + "don't draw a plate we can't see" (RE'd 2026-07-31)
+Two stock behaviours hang off **`spawn+0x338` (`HideMode`, i32)** — the invis level the server
+pushes via SpawnAppearance **`AT_Invis` (type 3)**; `0` = visible, `>0` = invisible, `0xBB9` is
+the GM `/hideme` value `hide_corpse.cpp` writes. (Proof the field IS the appearance value: the
+`/hideme` path at `0x459431` builds the outgoing packet as `{spawnid@+0x148, type=3, value=[+0x338]}`.)
+- **Parentheses.** `SetNameSpriteState` wraps the name in `(` / `)` when `[+0x338] > 0` — player
+  branch **`0x58e822`**, NPC branch **`0x58ece8`** (the latter re-tests `Type@0x125 == 1`, so
+  corpses never get them). String constants: `'('@0x9cc8cc`, `')'@0x9c5a04`. It wraps the FIRST
+  NAME only — inside the title prefix and outside the surname/guild/AFK suffixes, i.e.
+  `Sir (Soandso) Ykesha <Guild> AFK`. `generate_player_name()` now reproduces that placement;
+  before this, every mod-generated player plate silently dropped the parens (the generated name
+  replaces the client's text in BOTH the native and the billboard path).
+- **Visibility.** **`PlayerZoneClient::IsInvisible(PlayerZoneClient* other) @0x5A1850`** —
+  `__thiscall`, one stack arg, `ret 4`, returns bool in `al`; **`this` = the VIEWER**, arg = the
+  spawn tested. It compares my see-invis level (`this->pCharacter@+0x2cc` → `0x450640`) against
+  `other->HideMode`, plus: self ⇒ true only when GM-hidden (`0xBB9`); `Type >= 2` (corpse) or
+  `HPCurrent@0x2e4 < 1` ⇒ **calls `other->vtable[+0xd8](0)` to normalise HideMode to 0** and
+  returns false; property `0x64`, Trader `@0x320` and Buyer `@0x3d4` short-circuit to true unless
+  you're the one browsing them; a GM target is invisible to a non-GM viewer.
+  The per-spawn per-frame updater **`0x58F750`** calls it as `self->IsInvisible(spawn)` and on
+  true hides the render actor (`actor@+0x101c ->vtable[+0x34](1)`) and then tail-jumps to the
+  name-sprite update `0x58f050` — so **native plates vanish with the model for free**. The
+  billboards walk the spawn list themselves and had no such gate, which is why an invis spawn's
+  plate hung in the air after its model faded. `nameplate::billboard_text()` now returns empty for
+  those. Our wrapper `invisible_to_me()` answers the corpse / dead cases itself so the call stays
+  read-only (no vtable write from our render pass).
+
 ### Status — N1 (tint), N2 (text), N6 (options window) all DONE/WORKING
 Both detours off by default; each bails while its options are off (zero behavior change).
 Our detour bodies run inside `rcp_guard::run(...)` (see crash-handler notes) so a stale

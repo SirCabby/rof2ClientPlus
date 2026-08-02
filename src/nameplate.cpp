@@ -53,6 +53,9 @@ static constexpr int kGroupMemberPlayer = 0x28;
 static constexpr int kGroupMaxMembers = 6;
 static void **const kSelf = reinterpret_cast<void **>(::Rcp::eqva(0xDD2630));    // local player
 static void **const kTarget = reinterpret_cast<void **>(::Rcp::eqva(0xDD2648));  // current target
+// PlayerZoneClient::IsInvisible(PlayerZoneClient* other) -> bool, __thiscall, one stack arg (ret 4).
+// this = the VIEWER (the local player), arg = the spawn being tested. See invisible_to_me().
+static const uintptr_t kIsInvisible = ::Rcp::eqva(0x5A1850);
 
 // PlayerClient (Entity) field offsets.
 static constexpr int kEntActor = 0x101c;   // CActorInterface* (all-virtual); apply tint via its vtable
@@ -76,6 +79,7 @@ static constexpr int kEntTargetable = 0x160;  // bool: PlayerBase::Targetable ("
 static constexpr int kEntProperties = 0x128;  // CharacterPropertyHash (eqlib HashTable<int>): bodytype set.
 static constexpr int kEntRace = 0xeb4;        // uint16 race id (mActorClient.Race); used only for the hide log.
 static constexpr int kEntSpawnId = 0x148;     // uint32 spawn id (PlayerBase); identity fingerprint for caches.
+static constexpr int kEntHideMode = 0x338;    // int32 invis level (see the invisibility block below).
 
 // Entity Type enum (RoF2: SPAWN_PLAYER/NPC/CORPSE from eqlib Constants.h).
 static constexpr uint8_t kTypePlayer = 0;
@@ -415,6 +419,38 @@ static bool is_hidden_npc(char *ent, uint8_t type) {
   return true;
 }
 
+// ---- Invisibility (disasm-confirmed) ------------------------------------------------------
+// `spawn+0x338` is the invis level the server pushes via SpawnAppearance AT_Invis: 0 = visible,
+// > 0 = invisible (0xBB9 is the GM /hideme value hide_corpse.cpp writes). Two stock behaviours
+// key off it, and the mod has to reproduce BOTH because it regenerates player nameplate text and
+// draws the billboards itself:
+//
+//  * PARENTHESES. SetNameSpriteState wraps the name in "(...)" when the level is > 0 - the player
+//    branch at 0x58e822 and the NPC branch at 0x58ece8 (NPCs only; corpses never get them). That
+//    is how the stock client marks an invis spawn you CAN still see. Our generated player names
+//    dropped it, so those plates read as a normal name.
+//  * VISIBILITY. PlayerZoneClient::IsInvisible(other) @0x5A1850 is the client's own "can I see
+//    this spawn" test: it compares my see-invis level (from pCharacter@+0x2cc via 0x450640)
+//    against the target's level, and folds in the trader/buyer/GM special cases. The per-spawn
+//    per-frame updater 0x58F750 calls it as `self->IsInvisible(spawn)` and, when true, hides the
+//    render actor and drops the name sprite (tail at 0x58f915 -> 0x58f050). Native plates vanish
+//    with the model for free; the billboards, which walk the spawn list themselves, did not.
+//
+// True when the client would not render this spawn for us. The stock predicate NORMALISES a
+// corpse's / a dead spawn's HideMode back to 0 through a vtable setter before answering "visible"
+// for it, so those two cases are answered here instead - that keeps our call read-only.
+static bool invisible_to_me(char *ent, uint8_t type) {
+  void *self = *kSelf;
+  if (!self || !ent) return false;
+  if (type >= kTypeCorpse) return false;
+  if (*reinterpret_cast<int *>(ent + kEntHPCurrent) < 1) return false;
+  return reinterpret_cast<bool(__thiscall *)(void *, void *)>(kIsInvisible)(self, ent);
+}
+
+// True if this spawn is flagged invisible (so its name is parenthesised). Independent of whether
+// WE can see it: a spawn we can't see gets no plate at all (see invisible_to_me).
+static bool is_invis_flagged(char *ent) { return *reinterpret_cast<int *>(ent + kEntHideMode) > 0; }
+
 static int state_color(char *ent, uint8_t type) {
   if (type == kTypeCorpse) return g_colors[kRoleCorpse];
   if (type != kTypePlayer) return 0;  // NPC pet group/raid coloring is a later step.
@@ -568,7 +604,12 @@ static const char *generate_player_name(char *ent) {
       append_str(buf, sizeof(buf), pos, " ");
     }
   }
+  // An invis spawn's name is parenthesised, exactly where the client puts it: around the first
+  // name only, inside the title prefix and outside the surname ("Sir (Soandso) Ykesha").
+  const bool invis = is_invis_flagged(ent);
+  if (invis) append_str(buf, sizeof(buf), pos, "(");
   append_str(buf, sizeof(buf), pos, ent + kEntDisplayedName);  // First name (pre-trimmed).
+  if (invis) append_str(buf, sizeof(buf), pos, ")");
   if (show_last(lvl)) {
     const char *last = ent + kEntLastname;
     if (last[0]) {
@@ -659,6 +700,10 @@ std::string nameplate::billboard_text(void *entity) {
   char *ent = static_cast<char *>(entity);
   const uint8_t type = *reinterpret_cast<uint8_t *>(ent + kEntType);
   if (is_hidden_npc(ent, type)) return {};  // Untargetable controller/trigger NPC: no billboard.
+  // Invisible to us: the client has hidden the model and dropped its name sprite, so a billboard
+  // here would be a plate floating over nothing. Re-checked every frame, so the plate comes back
+  // the instant the spawn (or our see-invis) changes.
+  if (invisible_to_me(ent, type)) return {};
 
   // /shownames off must hide billboards exactly like it hides native plates. Disasm of
   // SetNameSpriteState (0x58e5aa) shows the client's rule: when __ShowNames is 0 it clears the name
@@ -675,7 +720,9 @@ std::string nameplate::billboard_text(void *entity) {
   if (type == kTypePlayer)
     base = generate_player_name(ent);
   else if (const char *cached = lookup_np_text(entity))
-    base = cached;
+    base = cached;  // Client-built text: already parenthesised if the NPC is invis.
+  else if (type == kTypeNPC && is_invis_flagged(ent))
+    base = "(" + std::string(ent + kEntDisplayedName) + ")";  // Same rule, until the text is cached.
   else
     base = ent + kEntDisplayedName;
   if (base.empty()) return base;
